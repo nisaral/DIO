@@ -10,7 +10,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // StartMonitor runs a background loop to check worker health
@@ -46,7 +45,7 @@ func checkWorker(w *pb.RegisterRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	_, err = client.CheckHealth(ctx, &emptypb.Empty{})
+	_, err = client.Predict(ctx, &pb.InferenceRequest{})
 	if err != nil {
 		log.Printf("Worker %s FAILED health check: %v", w.WorkerId, err)
 		// Logic for Version 2: Remove from registry if it fails X times

@@ -2,9 +2,13 @@ syntax = "proto3";
 package dio;
 option go_package = "github.com/nisaral/dio/pkg/pb";
 
+import "google/protobuf/empty.proto";
+
 service Orchestrator {
   // Python workers call this to announce they are ready
   rpc RegisterWorker (RegisterRequest) returns (RegisterResponse);
+  // Client calls this to request inference
+  rpc Infer (InferenceRequest) returns (InferenceResponse);
 }
 
 message RegisterRequest {
@@ -31,4 +35,6 @@ message InferenceRequest {
 message InferenceResponse {
   bytes output = 1;
   float latency_ms = 2;
+  int32 tokens_used = 3;      // Track usage for billing/limits
+  bool context_full = 4;      // Signal to Go to truncate/summarize
 }
