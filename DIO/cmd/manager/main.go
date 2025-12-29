@@ -9,6 +9,7 @@ import (
 	"github.com/nisaral/dio/internal/registry"
 	"github.com/nisaral/dio/internal/scheduler" // Added this
    pb "github.com/nisaral/dio/api/proto"
+    "github.com/nisaral/dio/workers/worker_mgmt"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure" // Added for gRPC Dial
@@ -76,4 +77,12 @@ func main() {
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}
+	 // Initialize Docker Manager
+dockerMgr, err := worker_mgmt.NewDockerManager()
+if err != nil {
+    log.Printf("Warning: Docker not found, autoscaling disabled: %v", err)
+} else {
+    // Start Autoscaler: Keep at least 2 workers running
+    scheduler.StartAutoscaler(sched, dockerMgr, 2)
+}
 }
