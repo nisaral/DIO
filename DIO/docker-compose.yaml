@@ -1,0 +1,16 @@
+services:
+  dio-manager:
+    build: 
+      context: .
+      dockerfile: deployments/manager.Dockerfile
+    ports:
+      - "50051:50051"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # Allows Go to talk to Docker
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+
+  dio-worker:
+    build: ./workers/python_worker
+    environment:
+      - MANAGER_ADDRESS=dio-manager:50051

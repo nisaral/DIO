@@ -13,7 +13,7 @@ import (
 
 func main() {
 	// Connect to the Go Manager
-	conn, err := grpc.Dial("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -33,5 +33,5 @@ func main() {
 		log.Fatalf("Inference failed: %v", err)
 	}
 
-	fmt.Printf("Result from DIO: %s (Latency: %.2fms)\n", string(resp.Output), resp.LatencyMs)
+	fmt.Printf("Result from DIO: %s (Latency: %vms)\n", string(resp.Output), resp.LatencyMs)
 }

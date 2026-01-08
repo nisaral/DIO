@@ -9,6 +9,8 @@ service Orchestrator {
   rpc RegisterWorker (RegisterRequest) returns (RegisterResponse);
   // Client calls this to request inference
   rpc Infer (InferenceRequest) returns (InferenceResponse);
+  rpc ExecuteInference (InferenceRequest) returns (InferenceResponse);
+
 }
 
 message RegisterRequest {
@@ -23,6 +25,7 @@ message RegisterResponse {
 
 // Service for the Go Manager to call the Python Worker
 service InferenceWorker {
+  
   rpc Predict (InferenceRequest) returns (InferenceResponse);
   rpc CheckHealth (google.protobuf.Empty) returns (google.protobuf.Empty);
 }

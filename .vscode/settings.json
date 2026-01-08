@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./DIO/workers/python_worker/api/proto"
+    ]
+}
