@@ -4,131 +4,393 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DIO System Dashboard</title>
+    <title>DIO | Distributed Inference Orchestrator</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --terminal-bg: #000000;
+            --border-color: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background: #f4f6f8;
-            padding: 20px;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 2rem;
+            min-height: 100vh;
         }
 
         .container {
-            max-width: 900px;
+            max-width: 1200px;
             margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            /* Controls | Terminal */
+            gap: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Header */
+        header {
+            grid-column: 1 / -1;
+            margin-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.5rem;
+        }
+
+        .brand h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        .brand span {
+            color: var(--accent-blue);
+        }
+
+        .badge {
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--accent-blue);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        /* Controls Section */
+        .controls-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
         }
 
         .card {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: transform 0.2s ease;
         }
 
-        h1 {
-            color: #333;
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
         }
 
-        h2 {
-            font-size: 1.2rem;
-            color: #555;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
+        .card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
         }
 
         .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
             cursor: pointer;
-            font-weight: bold;
-            color: white;
-            transition: opacity 0.2s;
-        }
-
-        .btn:hover {
-            opacity: 0.9;
+            border: none;
+            transition: all 0.2s;
+            width: 100%;
+            font-family: 'Inter', sans-serif;
         }
 
         .btn-primary {
-            background: #007bff;
+            background: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
         }
 
         .btn-warning {
-            background: #ffc107;
-            color: #333;
+            background: var(--accent-orange);
+            color: #000;
+        }
+
+        .btn-warning:hover {
+            background: #d97706;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
         }
 
         .btn-success {
-            background: #28a745;
+            background: var(--accent-green);
+            color: #000;
         }
 
-        .log-box {
-            background: #1e1e1e;
-            color: #0f0;
-            padding: 15px;
-            border-radius: 4px;
-            font-family: monospace;
-            height: 300px;
+        .btn-success:hover {
+            background: #16a34a;
+            box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+        }
+
+        /* Terminal Section */
+        .terminal-wrapper {
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid #333;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .terminal-header {
+            background: #1a1a1a;
+            padding: 0.75rem 1rem;
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid #333;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .red {
+            background: #ef4444;
+        }
+
+        .yellow {
+            background: #f59e0b;
+        }
+
+        .green {
+            background: #22c55e;
+        }
+
+        .terminal-title {
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 0.8rem;
+            color: #666;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .terminal-body {
+            flex: 1;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
             overflow-y: auto;
+            color: #d4d4d4;
         }
 
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 15px;
+        .log-entry {
+            margin-bottom: 0.5rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .timestamp {
+            color: #666;
+            user-select: none;
+        }
+
+        .log-msg {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .log-success {
+            color: var(--accent-green);
+        }
+
+        .log-error {
+            color: #ef4444;
+        }
+
+        .log-info {
+            color: var(--accent-blue);
+        }
+
+        .log-system {
+            color: var(--accent-orange);
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: #d4d4d4;
+            animation: blink 1s step-end infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
         }
     </style>
 </head>
 
 <body>
     <div class="container">
-        <h1>DIO Orchestrator Control Plane</h1>
+        <header>
+            <div class="brand">
+                <h1>DIO <span>Orchestrator</span></h1>
+                <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Distributed Inference
+                    Orchestration System</p>
+            </div>
+            <div class="badge">v0.1.0-beta • Work in Progress</div>
+        </header>
 
-        <div class="grid">
-            <!-- Test A -->
+        <div class="controls-section">
             <div class="card">
-                <h2>Test A: Latency</h2>
-                <p>Send single request to check routing latency.</p>
-                <button class="btn btn-primary" onclick="runTest('latency')">Run Ping</button>
+                <h3>Test A: Latency Check</h3>
+                <p>Validates gRPC routing efficiency. Sends a single packet through the Go Manager to a Python Worker
+                    and back.</p>
+                <button class="btn btn-primary" onclick="runTest('latency')">
+                    <span style="margin-right: 8px"></span> Run Latency Ping
+                </button>
             </div>
 
-            <!-- Test B -->
             <div class="card">
-                <h2>Test B: Spike</h2>
-                <p>Simulate high load to trigger autoscaling.</p>
-                <button class="btn btn-warning" onclick="runTest('spike')">Simulate Spike</button>
+                <h3>Test B: Load Simulation</h3>
+                <p>Triggers the autoscaler. Simulates a sudden traffic spike to force the Docker Manager to provision
+                    new workers.</p>
+                <button class="btn btn-warning" onclick="runTest('spike')">
+                    <span style="margin-right: 8px"></span> Simulate Traffic Spike
+                </button>
             </div>
 
-            <!-- Test C -->
             <div class="card">
-                <h2>Test C: Token Budget</h2>
-                <p>Send large payload to test cost tracking.</p>
-                <button class="btn btn-success" onclick="runTest('token')">Check Budget</button>
+                <h3>Test C: Cost & Budget</h3>
+                <p>Audits token usage. Sends a payload to verify token counting logic and budget enforcement policies.
+                </p>
+                <button class="btn btn-success" onclick="runTest('token')">
+                    <span style="margin-right: 8px"></span> Audit Token Budget
+                </button>
+            </div>
+
+            <div class="card" style="border-style: dashed; opacity: 0.7;">
+                <h3>Shareable Dashboard and integrable system (Coming Soon)</h3>
+                <p>Generate a read-only link to share these live metrics with your team or stakeholders.
+                    the dashboard can be embedded into existing monitoring systems for seamless integration.
+                    the current ui is local only and does not support link generation.the tests are designed to run
+                    against a local Go Manager instance.they test 3 key functionalities:latency check,load simulation,
+                    and token budget audit.i have built a testing model that generates tokens or requests basically immitating
+                    a llm i/o interaction but without needing to connect to an actual llm api.this allows for consistent
+                    and repeatable tests without incurring costs or relying on external services.
+                </p>
+                <button class="btn" style="background: #334155; color: #94a3b8; cursor: not-allowed;">Generate
+                    Link</button>
             </div>
         </div>
 
-        <div class="card">
-            <h2>System Logs & Results</h2>
-            <div id="logs" class="log-box">Waiting for tests...</div>
+        <div class="terminal-wrapper">
+            <div class="terminal-header">
+                <div class="dot red"></div>
+                <div class="dot yellow"></div>
+                <div class="dot green"></div>
+                <div class="terminal-title">user@dio-cluster:~/logs</div>
+            </div>
+            <div class="terminal-body" id="terminal">
+                <div class="log-entry"><span class="timestamp">[SYSTEM]</span> <span class="log-msg">Initializing DIO
+                        Control Plane...</span></div>
+                <div class="log-entry"><span class="timestamp">[SYSTEM]</span> <span class="log-msg">Connected to Docker
+                        Daemon (v1.47)</span></div>
+                <div class="log-entry"><span class="timestamp">[SYSTEM]</span> <span class="log-msg">Waiting for worker
+                        registration...</span></div>
+                <div class="log-entry"><span class="timestamp">[SYSTEM]</span> <span class="log-msg log-success">Ready.
+                        Waiting for commands.</span></div>
+                <div id="cursor-line"><span class="timestamp">➜</span> <span class="cursor"></span></div>
+            </div>
         </div>
     </div>
 
     <script>
-        const logBox = document.getElementById('logs');
+        const terminal = document.getElementById('terminal');
+        const cursorLine = document.getElementById('cursor-line');
 
-        function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            logBox.innerHTML += `<div>[${time}] ${msg}</div>`;
-            logBox.scrollTop = logBox.scrollHeight;
+        function addLog(msg, type = 'normal') {
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+            let typeClass = '';
+            if (type === 'success') typeClass = 'log-success';
+            if (type === 'error') typeClass = 'log-error';
+            if (type === 'info') typeClass = 'log-info';
+            if (type === 'system') typeClass = 'log-system';
+
+            div.innerHTML = `<span class="timestamp">[${time}]</span> <span class="log-msg ${typeClass}">${msg}</span>`;
+
+            terminal.insertBefore(div, cursorLine);
+            terminal.scrollTop = terminal.scrollHeight;
         }
 
         async function runTest(testType) {
-            log(`Starting ${testType} test...`);
-            console.log('Running test:', testType);
+            let testName = '';
+            if (testType === 'latency') testName = 'Latency Check';
+            if (testType === 'spike') testName = 'Traffic Spike Simulation';
+            if (testType === 'token') testName = 'Token Budget Audit';
+
+            addLog(`Executing ${testName}...`, 'info');
+
+            // Auto-detect if we are running on VS Code Live Server (port 5500)
+            // If so, point to the Go Manager on port 8080
+            const baseUrl = window.location.port === '5500' ? 'http://localhost:8080' : '';
 
             try {
-                const response = await fetch('http://localhost:8080/api/test', {
+                const response = await fetch(`${baseUrl}/api/test`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -143,16 +405,22 @@
                 }
 
                 const data = await response.json();
-                console.log('Test result:', data);
 
                 if (data.success) {
-                    log(`✓ ${testType} test passed! Latency: ${data.latency_ms}ms, Tokens: ${data.tokens}`);
+                    if (testType === 'latency') {
+                        addLog(`✓ Test Passed. Latency: ${data.latency_ms}ms`, 'success');
+                    } else if (testType === 'token') {
+                        addLog(`✓ Test Passed. Tokens Processed: ${data.tokens}`, 'success');
+                    } else {
+                        addLog(`✓ Test Passed. ${data.message || 'Operation successful'}`, 'success');
+                    }
                 } else {
-                    log(`✗ ${testType} test failed: ${data.message}`);
+                    addLog(`✗ Test Failed: ${data.message}`, 'error');
                 }
             } catch (error) {
                 console.error('Test failed:', error);
-                log(`✗ Test error: ${error.message}`);
+                addLog(`✗ Connection Error: ${error.message}`, 'error');
+                addLog(`  (Is the Go Manager running on port 8080?)`, 'error');
             }
         }
     </script>

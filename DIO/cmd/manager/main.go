@@ -38,7 +38,7 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 		log.Printf("No workers available, returning mock response")
 		// Return a mock response for testing without workers
 		return &pb.InferenceResponse{ // Corrected: InferenceResponse does not have a Success field.
-			Output: []byte("Mock response from manager (no workers available)"),
+			Output:     []byte("Mock response from manager (no workers available)"),
 			TokensUsed: 0,
 		}, nil
 	}
@@ -58,6 +58,19 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 
 	client := pb.NewInferenceWorkerClient(conn)
 	return client.Predict(ctx, req)
+}
+
+// enableCORS wraps an http.HandlerFunc to allow cross-origin requests (e.g., from VS Code Live Server)
+func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		next(w, r)
+	}
 }
 
 func main() {
@@ -82,7 +95,7 @@ func main() {
 
 	// HTTP API Gateway (port 8080)
 	gateway := api_gateway.NewAPIGateway("localhost:50052", sched)
-	http.HandleFunc("/api/test", gateway.HandleTest)
+	http.HandleFunc("/api/test", enableCORS(gateway.HandleTest))
 	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
 
 	log.Printf("DIO Manager gRPC listening at %v", lis.Addr())
