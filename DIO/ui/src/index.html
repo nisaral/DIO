@@ -1,28 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DIO System Dashboard</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f6f8; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h1 { color: #333; }
-        h2 { font-size: 1.2rem; color: #555; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; color: white; transition: opacity 0.2s; }
-        .btn:hover { opacity: 0.9; }
-        .btn-primary { background: #007bff; }
-        .btn-warning { background: #ffc107; color: #333; }
-        .btn-success { background: #28a745; }
-        .log-box { background: #1e1e1e; color: #0f0; padding: 15px; border-radius: 4px; font-family: monospace; height: 300px; overflow-y: auto; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #f4f6f8;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            color: #555;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            color: white;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-primary {
+            background: #007bff;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-success {
+            background: #28a745;
+        }
+
+        .log-box {
+            background: #1e1e1e;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 15px;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>DIO Orchestrator Control Plane</h1>
-        
+
         <div class="grid">
             <!-- Test A -->
             <div class="card">
@@ -61,61 +123,39 @@
             logBox.scrollTop = logBox.scrollHeight;
         }
 
-        async function runTest(type) {
-            let payload = "ping";
-            let model = "resnet50";
-            let count = 1;
-
-            if (type === 'token') {
-                payload = "This is a test sentence. ".repeat(500);
-                model = "llama-3";
-            } else if (type === 'spike') {
-                count = 10; // Send 10 requests rapidly
-                model = "bert-base";
-            }
-
-            log(`--- Starting ${type.toUpperCase()} Test ---`);
-
-            const promises = [];
-            for(let i=0; i<count; i++) {
-                promises.push(fetch('/api/test', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        type: type,
-                        model_id: model,
-                        payload: payload
-                    })
-                }).then(res => res.json()));
-            }
+        async function runTest(testType) {
+            log(`Starting ${testType} test...`);
+            console.log('Running test:', testType);
 
             try {
-                const results = await Promise.all(promises);
-                results.forEach((res, idx) => {
-                    if(res.success) {
-                        log(`Req ${idx+1}: Success | Latency: ${res.latency_ms}ms | Tokens: ${res.tokens || 0}`);
-                    } else {
-                        log(`Req ${idx+1}: Failed | ${res.message}`);
-                    }
+                const response = await fetch('http://localhost:8080/api/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: testType,
+                        model_id: 'default-model',
+                        payload: 'test payload'
+                    })
                 });
-            } catch (e) {
-                log(`System Error: ${e}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                console.log('Test result:', data);
+
+                if (data.success) {
+                    log(`✓ ${testType} test passed! Latency: ${data.latency_ms}ms, Tokens: ${data.tokens}`);
+                } else {
+                    log(`✗ ${testType} test failed: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Test failed:', error);
+                log(`✗ Test error: ${error.message}`);
             }
         }
     </script>
 </body>
+
 </html>
-```
-
-### How to Run
-
-1.  **Start the Manager and Workers** (Terminal 1):
-    ```bash
-    docker-compose up --build
-    ```
-2.  **Start the Dashboard** (Terminal 2):
-    ```bash
-    go run cmd/dashboard/main.go
-    ```
-3.  **Open Browser**: Go to `http://localhost:8080` to use the new UI.
-

@@ -4,8 +4,9 @@ import grpc
 import warnings
 
 from api.proto import dio_pb2 as api_dot_proto_dot_dio__pb2
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
-GRPC_GENERATED_VERSION = '1.70.0'
+GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +19,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in api/proto/dio_pb2_grpc.py depends on'
+        + ' but the generated code in api/proto/dio_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -39,6 +40,16 @@ class OrchestratorStub(object):
                 request_serializer=api_dot_proto_dot_dio__pb2.RegisterRequest.SerializeToString,
                 response_deserializer=api_dot_proto_dot_dio__pb2.RegisterResponse.FromString,
                 _registered_method=True)
+        self.Infer = channel.unary_unary(
+                '/dio.Orchestrator/Infer',
+                request_serializer=api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
+                response_deserializer=api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
+                _registered_method=True)
+        self.ExecuteInference = channel.unary_unary(
+                '/dio.Orchestrator/ExecuteInference',
+                request_serializer=api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
+                response_deserializer=api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
+                _registered_method=True)
 
 
 class OrchestratorServicer(object):
@@ -51,6 +62,19 @@ class OrchestratorServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Infer(self, request, context):
+        """Client calls this to request inference
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExecuteInference(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OrchestratorServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -58,6 +82,16 @@ def add_OrchestratorServicer_to_server(servicer, server):
                     servicer.RegisterWorker,
                     request_deserializer=api_dot_proto_dot_dio__pb2.RegisterRequest.FromString,
                     response_serializer=api_dot_proto_dot_dio__pb2.RegisterResponse.SerializeToString,
+            ),
+            'Infer': grpc.unary_unary_rpc_method_handler(
+                    servicer.Infer,
+                    request_deserializer=api_dot_proto_dot_dio__pb2.InferenceRequest.FromString,
+                    response_serializer=api_dot_proto_dot_dio__pb2.InferenceResponse.SerializeToString,
+            ),
+            'ExecuteInference': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteInference,
+                    request_deserializer=api_dot_proto_dot_dio__pb2.InferenceRequest.FromString,
+                    response_serializer=api_dot_proto_dot_dio__pb2.InferenceResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -97,6 +131,60 @@ class Orchestrator(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def Infer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dio.Orchestrator/Infer',
+            api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
+            api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExecuteInference(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dio.Orchestrator/ExecuteInference',
+            api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
+            api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class InferenceWorkerStub(object):
     """Service for the Go Manager to call the Python Worker
@@ -113,6 +201,11 @@ class InferenceWorkerStub(object):
                 request_serializer=api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
                 response_deserializer=api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
                 _registered_method=True)
+        self.CheckHealth = channel.unary_unary(
+                '/dio.InferenceWorker/CheckHealth',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
 
 
 class InferenceWorkerServicer(object):
@@ -125,6 +218,12 @@ class InferenceWorkerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def CheckHealth(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_InferenceWorkerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -132,6 +231,11 @@ def add_InferenceWorkerServicer_to_server(servicer, server):
                     servicer.Predict,
                     request_deserializer=api_dot_proto_dot_dio__pb2.InferenceRequest.FromString,
                     response_serializer=api_dot_proto_dot_dio__pb2.InferenceResponse.SerializeToString,
+            ),
+            'CheckHealth': grpc.unary_unary_rpc_method_handler(
+                    servicer.CheckHealth,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -162,6 +266,33 @@ class InferenceWorker(object):
             '/dio.InferenceWorker/Predict',
             api_dot_proto_dot_dio__pb2.InferenceRequest.SerializeToString,
             api_dot_proto_dot_dio__pb2.InferenceResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CheckHealth(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dio.InferenceWorker/CheckHealth',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

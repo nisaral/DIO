@@ -11,7 +11,7 @@ def run_budget_test():
     print("--- Test C: The 'Token Budget' Test ---")
     print("Goal: Verify Manager rejects requests that exceed token/cost budget.")
     
-    channel = grpc.insecure_channel('localhost:50050')
+    channel = grpc.insecure_channel('localhost:50051')
     stub = dio_pb2_grpc.OrchestratorServiceStub(channel)
 
     # 1. Normal Request

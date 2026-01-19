@@ -12,7 +12,7 @@ def run_test():
     print("--- Test A: The 'Straggler' Test ---")
     print("Goal: Verify if the Manager avoids the slow worker (localhost:50052) after detecting latency.")
     
-    channel = grpc.insecure_channel('localhost:50050')
+    channel = grpc.insecure_channel('localhost:50051')
     stub = dio_pb2_grpc.OrchestratorServiceStub(channel)
 
     for i in range(1, 11):

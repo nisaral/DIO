@@ -10,7 +10,7 @@ from api.proto import dio_pb2
 from api.proto import dio_pb2_grpc
 
 def send_request(req_id):
-    channel = grpc.insecure_channel('localhost:50050')
+    channel = grpc.insecure_channel('localhost:50051')
     stub = dio_pb2_grpc.OrchestratorServiceStub(channel)
     try:
         stub.ExecuteInference(dio_pb2.InferenceRequest(model_id="bert-base", data=b"spike_load"))

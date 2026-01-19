@@ -45,4 +45,4 @@ def serve(port, manager_addr):
 
 if __name__ == '__main__':
     # Run on a different port than the normal worker (usually 50051)
-    serve(50052, 'localhost:50050')
+    serve(50052, 'localhost:50051')

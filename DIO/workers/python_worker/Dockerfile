@@ -3,18 +3,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for gRPC
-RUN apt-get update && apt-get install -y build-essential
+# Install dependencies
+# Explicitly setting versions to avoid the conflicts you saw earlier
+RUN pip install --default-timeout=1000 --no-cache-dir \
+    grpcio==1.70.0 \
+    grpcio-tools==1.70.0 \
+    tiktoken
 
-# Install Python requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy worker source code
+COPY workers/python_worker/ .
+# Copy proto definitions
+COPY api/proto/ api/proto/
 
-# Copy the generated proto files and the server script
-COPY . .
+# Regenerate Python Protobuf code inside the container to ensure version compatibility
+RUN python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. api/proto/dio.proto
 
-# Expose the gRPC port
-EXPOSE 50052
+# Expose the gRPC port (Matches model_server.py)
+EXPOSE 50053
 
 # Run the worker
 CMD ["python", "model_server.py"]

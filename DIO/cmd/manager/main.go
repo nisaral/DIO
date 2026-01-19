@@ -5,21 +5,22 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 
+	pb "github.com/nisaral/dio/api/proto"
+	"github.com/nisaral/dio/internal/api_gateway"
 	"github.com/nisaral/dio/internal/registry"
-	"github.com/nisaral/dio/internal/scheduler" // Added this
-   pb "github.com/nisaral/dio/api/proto"
-    "github.com/nisaral/dio/workers/worker_mgmt"
+	"github.com/nisaral/dio/internal/scheduler"
+	"github.com/nisaral/dio/workers/worker_mgmt"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure" // Added for gRPC Dial
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-// server now has the scheduler field
 type server struct {
 	pb.UnimplementedOrchestratorServer
 	store     *registry.Store
-	scheduler *scheduler.Scheduler // Field added here
+	scheduler *scheduler.Scheduler
 }
 
 func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
@@ -31,17 +32,24 @@ func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*
 }
 
 func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest) (*pb.InferenceResponse, error) {
-	// 1. Refresh scheduler with latest workers from DB
 	workerList, _ := s.store.ListWorkers()
+
+	if len(workerList) == 0 {
+		log.Printf("No workers available, returning mock response")
+		// Return a mock response for testing without workers
+		return &pb.InferenceResponse{ // Corrected: InferenceResponse does not have a Success field.
+			Output: []byte("Mock response from manager (no workers available)"),
+			TokensUsed: 0,
+		}, nil
+	}
+
 	s.scheduler.UpdateWorkers(workerList)
 
-	// 2. Pick a worker using Round-Robin
 	target := s.scheduler.PickWorker()
 	if target == nil {
 		return nil, fmt.Errorf("no workers available")
 	}
 
-	// 3. Connect to the Python Worker
 	conn, err := grpc.Dial(target.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, err
@@ -58,31 +66,45 @@ func main() {
 		log.Fatalf("Failed to init store: %v", err)
 	}
 
-	// Initialize the scheduler
 	sched := scheduler.NewScheduler()
 
-	lis, err := net.Listen("tcp", ":50051")
+	// gRPC server (port 50052)
+	lis, err := net.Listen("tcp", ":50052")
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
 
-	s := grpc.NewServer()
-	// Pass both store and scheduler to the server
-	pb.RegisterOrchestratorServer(s, &server{
+	grpcServer := grpc.NewServer()
+	pb.RegisterOrchestratorServer(grpcServer, &server{
 		store:     store,
 		scheduler: sched,
 	})
 
-	log.Printf("DIO Manager listening at %v", lis.Addr())
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
+	// HTTP API Gateway (port 8080)
+	gateway := api_gateway.NewAPIGateway("localhost:50052", sched)
+	http.HandleFunc("/api/test", gateway.HandleTest)
+	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
+
+	log.Printf("DIO Manager gRPC listening at %v", lis.Addr())
+	log.Printf("DIO Manager HTTP API listening at :8080")
+
+	// Initialize Docker Manager for autoscaling
+	dockerMgr, err := worker_mgmt.NewDockerManager()
+	if err != nil {
+		log.Printf("Warning: Docker not found, autoscaling disabled: %v", err)
+	} else {
+		scheduler.StartAutoscaler(sched, dockerMgr, 2)
 	}
-	 // Initialize Docker Manager
-dockerMgr, err := worker_mgmt.NewDockerManager()
-if err != nil {
-    log.Printf("Warning: Docker not found, autoscaling disabled: %v", err)
-} else {
-    // Start Autoscaler: Keep at least 2 workers running
-    scheduler.StartAutoscaler(sched, dockerMgr, 2)
-}
+
+	// Start HTTP server in goroutine
+	go func() {
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatalf("HTTP server failed: %v", err)
+		}
+	}()
+
+	// Start gRPC server (blocking)
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("Failed to serve gRPC: %v", err)
+	}
 }

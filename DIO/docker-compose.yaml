@@ -2,15 +2,19 @@ services:
   dio-manager:
     build: 
       context: .
-      dockerfile: deployments/manager.Dockerfile
+      dockerfile: cmd/manager/Dockerfile
     ports:
-      - "50051:50051"
+      - "50051:50052" # Map Host 50051 -> Container 50052 (gRPC)
+      - "8080:8080"   # HTTP Dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Allows Go to talk to Docker
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
 
   dio-worker:
-    build: ./workers/python_worker
+    build:
+      context: .
+      dockerfile: workers/python_worker/Dockerfile
+    image: dio-worker # Force image name so Go Manager can find it
     environment:
-      - MANAGER_ADDRESS=dio-manager:50051
+      - MANAGER_ADDRESS=dio-manager:50052
