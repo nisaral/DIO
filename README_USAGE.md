@@ -14,13 +14,13 @@ This guide explains how to start the Distributed Inference Orchestrator (DIO), a
 3.  Wait for the logs to show:
     *   `DIO Manager gRPC listening at [::]:50052`
     *   `Python Worker listening on port 50053`
-    *   `✅ Worker registered successfully!`
+    *   `Worker registered successfully!`
 
 ## 2. Accessing the Dashboard
 
 Once the system is running, open your web browser and go to:
 
-👉 **http://localhost:8080**
+**http://localhost:8080**
 
 ## 3. Running the Tests
 
