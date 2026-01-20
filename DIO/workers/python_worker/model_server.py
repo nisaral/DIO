@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import random
 
 import grpc
 from concurrent import futures
@@ -18,25 +19,49 @@ tokenizer = tiktoken.get_encoding("cl100k_base")
 
 class LLMWorker(dio_pb2_grpc.InferenceWorkerServicer):
     def Predict(self, request, context):
+        start_time = time.time()
         input_text = request.data.decode('utf-8')
+        model_id = request.model_id
         
         # 1. Count Input Tokens
         input_tokens = len(tokenizer.encode(input_text))
         
-        # 2. Simulate LLM Inference (Replace with your model call)
-        model_output = f"Processed: {input_text[:50]}..." 
-        output_tokens = len(tokenizer.encode(model_output))
+        # 2. Simulate Inference Latency
+        # Different models have different characteristics
+        if "gpt" in model_id or "llama" in model_id:
+            # Autoregressive: Slower, generates more tokens
+            output_tokens = random.randint(10, 100)
+            # Simulate ~20ms per token generation (50 tok/s)
+            process_time = 0.05 + (output_tokens * 0.02) 
+        elif "bert" in model_id or "resnet" in model_id:
+            # Encoder/Classifier: Faster, fixed output
+            output_tokens = 1
+            process_time = 0.05 # 50ms fixed
+        else:
+            # Default
+            output_tokens = 20
+            process_time = 0.1
+
+        # Straggler Simulation (Clockwork Test)
+        # If STRAGGLER_MODE is set, 20% of requests are 2s slower
+        if os.environ.get("STRAGGLER_MODE") == "true":
+            if random.random() < 0.2:
+                time.sleep(2.0)
+
+        time.sleep(process_time)
         
+        model_output = f"Processed {input_tokens} in, {output_tokens} out. Model: {model_id}"
         total_tokens = input_tokens + output_tokens
         
         # 3. Check Context Window (e.g., 8192 tokens)
         context_full = total_tokens > 7000 
 
-        logger.info(f"[Worker] Tokens used: {total_tokens}")
+        latency = (time.time() - start_time) * 1000
+        logger.info(f"[Worker] {model_id} | Tokens: {total_tokens} | Latency: {latency:.2f}ms")
 
         return dio_pb2.InferenceResponse(
             output=model_output.encode('utf-8'),
-            latency_ms=150.5,
+            latency_ms=latency,
             tokens_used=total_tokens,
             context_full=context_full
         )

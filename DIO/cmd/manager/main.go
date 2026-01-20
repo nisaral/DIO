@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"io"
 	"net"
 	"net/http"
 
@@ -73,6 +75,36 @@ func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// handleGenerate provides a standard JSON endpoint for benchmarking tools like Locust
+func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		var payload map[string]string
+		if err := json.Unmarshal(body, &payload); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		resp, err := client.ExecuteInference(r.Context(), &pb.InferenceRequest{
+			ModelId: payload["model_id"],
+			Data:    []byte(payload["prompt"]),
+		})
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
 func main() {
 	store, err := registry.NewStore("dio_registry.db")
 	if err != nil {
@@ -93,9 +125,17 @@ func main() {
 		scheduler: sched,
 	})
 
+	// Create a local client for the HTTP handlers to use
+	localConn, err := grpc.NewClient("localhost:50052", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("Failed to create local client: %v", err)
+	}
+	localClient := pb.NewOrchestratorClient(localConn)
+
 	// HTTP API Gateway (port 8080)
 	gateway := api_gateway.NewAPIGateway("localhost:50052", sched)
 	http.HandleFunc("/api/test", enableCORS(gateway.HandleTest))
+	http.HandleFunc("/api/generate", enableCORS(handleGenerate(localClient)))
 	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
 
 	log.Printf("DIO Manager gRPC listening at %v", lis.Addr())
