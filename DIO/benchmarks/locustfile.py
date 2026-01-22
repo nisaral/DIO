@@ -4,7 +4,7 @@ import os
 from locust import HttpUser, task, between, events
 
 # Load ShareGPT dataset if available, otherwise use synthetic
-DATASET_PATH = r"C:\Users\nisar\OneDrive\Desktop\Go-serve\DIO\benchmarks\ShareGPT_V3_unfiltered_cleaned_split.json"
+DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ShareGPT_V3_unfiltered_cleaned_split.json")
 PROMPTS = []
 
 if os.path.exists(DATASET_PATH):

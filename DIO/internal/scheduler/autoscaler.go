@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"time"
+
 	"github.com/nisaral/dio/workers/worker_mgmt"
 )
 
@@ -19,9 +20,9 @@ func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int)
 			if workerCount < threshold {
 				log.Println("[Autoscaler] Demand high. Spawning new Python worker...")
 				ctx := context.Background()
-				
-				// Ensure you have a docker image named 'dio-python-worker' built
-				err := dm.SpawnWorker(ctx, "dio-python-worker:latest")
+
+				// Ensure you have a docker image named 'dio-worker' built
+				err := dm.SpawnWorker(ctx, "dio-worker")
 				if err != nil {
 					log.Printf("[Autoscaler] Failed to spawn worker: %v", err)
 				}
