@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
 	"github.com/nisaral/dio/internal/api_gateway"
@@ -45,9 +46,25 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 		}, nil
 	}
 
-	s.scheduler.UpdateWorkers(workerList)
+	// Convert pb.RegisterRequest to registry.Worker
+	var workers []*registry.Worker
+	for _, w := range workerList {
+		workers = append(workers, &registry.Worker{
+			ID:        w.WorkerId,
+			Address:   w.Address,
+			IsHealthy: true,
+		})
+	}
 
-	target := s.scheduler.PickWorker()
+	s.scheduler.UpdateWorkers(workers)
+
+	// Estimate tokens (heuristic: 1 token approx 4 bytes)
+	tokens := len(req.Data) / 4
+	if tokens == 0 {
+		tokens = 1
+	}
+
+	target := s.scheduler.PickBestWorker(tokens)
 	if target == nil {
 		return nil, fmt.Errorf("no workers available")
 	}
@@ -58,8 +75,27 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 	}
 	defer conn.Close()
 
+	// Queue Awareness: Track Queue Depth
+	// We push to the channel to signal "Busy/Queued" and defer the pop
+	select {
+	case target.TaskChannel <- req:
+		defer func() { <-target.TaskChannel }()
+	default:
+		// Queue is full (Backpressure). For now, we block until a slot opens.
+		target.TaskChannel <- req
+		defer func() { <-target.TaskChannel }()
+	}
+
+	start := time.Now()
 	client := pb.NewInferenceWorkerClient(conn)
-	return client.Predict(ctx, req)
+	resp, err := client.Predict(ctx, req)
+
+	if err == nil {
+		// Feedback Loop: Update RLS predictor with actual latency
+		s.scheduler.FeedbackLoop(target.ID, float64(time.Since(start).Milliseconds()), int(resp.TokensUsed))
+	}
+
+	return resp, err
 }
 
 // enableCORS wraps an http.HandlerFunc to allow cross-origin requests (e.g., from VS Code Live Server)
