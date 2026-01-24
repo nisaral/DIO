@@ -2,18 +2,23 @@ import subprocess
 import time
 import os
 import sys
+import urllib.request
 
 def run_command(cmd):
     print(f"Running: {cmd}")
     subprocess.run(cmd, shell=True, check=True)
 
 def check_dataset():
-    if not os.path.exists(r"C:\Users\nisar\OneDrive\Desktop\Go-serve\DIO\benchmarks\ShareGPT_V3_unfiltered_cleaned_split.json"):
-        print("⚠️ ShareGPT dataset not found.")
-        print("To run with real data, download it using:")
-        # FIXED: Filename must come before flags
-        print("huggingface-cli download anon8231489123/ShareGPT_Vicuna_unfiltered ShareGPT_V3_unfiltered_cleaned_split.json --repo-type dataset --local-dir benchmarks/")
-        print("Running with synthetic data for now...\n")
+    dataset_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ShareGPT_V3_unfiltered_cleaned_split.json")
+    if not os.path.exists(dataset_path):
+        print("⚠️ ShareGPT dataset not found. Downloading...")
+        url = "https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json"
+        try:
+            urllib.request.urlretrieve(url, dataset_path)
+            print("✅ Dataset downloaded successfully.")
+        except Exception as e:
+            print(f"❌ Failed to download dataset: {e}")
+            print("Running with synthetic data for now...\n")
 
 def run_throughput_baseline():
     print("\n=== Test 1: Throughput Baseline (vLLM Comparison) ===")

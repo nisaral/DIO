@@ -18,3 +18,12 @@ services:
     image: dio-worker # Force image name so Go Manager can find it
     environment:
       - MANAGER_ADDRESS=dio-manager:50052
+
+  dio-worker-slow:
+    build:
+      context: .
+      dockerfile: workers/python_worker/Dockerfile
+    image: dio-worker
+    environment:
+      - MANAGER_ADDRESS=dio-manager:50052
+      - THROTTLE_FACTOR=2.0 # Simulate 2x slower hardware for Heterogeneity Test

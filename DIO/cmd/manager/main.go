@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
 	"github.com/nisaral/dio/internal/api_gateway"
@@ -30,36 +31,63 @@ func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*
 	if err := s.store.SaveWorker(req); err != nil {
 		return &pb.RegisterResponse{Success: false}, err
 	}
+	s.scheduler.RegisterWorker(req.WorkerId, req.Address)
 	return &pb.RegisterResponse{Success: true}, nil
 }
 
+// Inside your Server struct methods...
+
 func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest) (*pb.InferenceResponse, error) {
-	workerList, _ := s.store.ListWorkers()
+	// 1. Start Timer
+	start := time.Now()
 
-	if len(workerList) == 0 {
-		log.Printf("No workers available, returning mock response")
-		// Return a mock response for testing without workers
-		return &pb.InferenceResponse{ // Corrected: InferenceResponse does not have a Success field.
-			Output:     []byte("Mock response from manager (no workers available)"),
-			TokensUsed: 0,
-		}, nil
-	}
-
-	s.scheduler.UpdateWorkers(workerList)
-
-	target := s.scheduler.PickWorker()
-	if target == nil {
-		return nil, fmt.Errorf("no workers available")
-	}
-
-	conn, err := grpc.Dial(target.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// 2. Scheduler Picks Worker (SJF)
+	workerID, err := s.scheduler.PickBestWorker(req)
 	if err != nil {
 		return nil, err
 	}
+
+	// 3. Execute gRPC
+	// Retrieve worker address from scheduler
+	worker, ok := s.scheduler.GetWorker(workerID)
+	if !ok {
+		return nil, fmt.Errorf("worker %s not found after selection", workerID)
+	}
+
+	// Establish gRPC connection to the worker
+	conn, err := grpc.NewClient(worker.Address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to worker %s at %s: %v", workerID, worker.Address, err)
+	}
 	defer conn.Close()
 
-	client := pb.NewInferenceWorkerClient(conn)
-	return client.Predict(ctx, req)
+	// Enforce a timeout for the gRPC call to fail fast if worker is unreachable
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	workerClient := pb.NewInferenceWorkerClient(conn)
+	resp, err := workerClient.Predict(ctx, req)
+	if err != nil {
+		log.Printf("Error calling worker %s: %v", workerID, err)
+	}
+
+	// 4. Feedback Loop (The Critical Research Step)
+	// Capture latency with microsecond precision (e.g. 12.345 ms)
+	duration := float64(time.Since(start).Microseconds()) / 1000.0
+
+	// Calculate input tokens (approx)
+	inputTokens := len(req.Data) / 4
+	// Be safe if resp is nil on error
+	if err == nil {
+		s.scheduler.FeedbackLoop(workerID, duration, inputTokens)
+	} else {
+		// Even on error, we must decrement the pending task count!
+		// We pass -1 latency so it doesn't skew the predictor
+		s.scheduler.FeedbackLoop(workerID, -1, 0)
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 // enableCORS wraps an http.HandlerFunc to allow cross-origin requests (e.g., from VS Code Live Server)
@@ -90,7 +118,11 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 			return
 		}
 
-		resp, err := client.ExecuteInference(r.Context(), &pb.InferenceRequest{
+		// Add a timeout to prevent infinite hanging if workers are unreachable
+		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+		defer cancel()
+
+		resp, err := client.ExecuteInference(ctx, &pb.InferenceRequest{
 			ModelId: payload["model_id"],
 			Data:    []byte(payload["prompt"]),
 		})
@@ -146,7 +178,7 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Docker not found, autoscaling disabled: %v", err)
 	} else {
-		scheduler.StartAutoscaler(sched, dockerMgr, 2)
+		go scheduler.StartAutoscaler(sched, dockerMgr, 2)
 	}
 
 	// Start HTTP server in goroutine

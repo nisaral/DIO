@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import random
+import socket
 
 import grpc
 from concurrent import futures
@@ -42,6 +43,13 @@ class LLMWorker(dio_pb2_grpc.InferenceWorkerServicer):
             output_tokens = 20
             process_time = 0.1
 
+        # Apply Throttle Factor (Simulate Slow Hardware)
+        try:
+            throttle = float(os.environ.get("THROTTLE_FACTOR", "1.0"))
+            process_time *= throttle
+        except ValueError:
+            pass 
+
         # Straggler Simulation (Clockwork Test)
         # If STRAGGLER_MODE is set, 20% of requests are 2s slower
         if os.environ.get("STRAGGLER_MODE") == "true":
@@ -73,8 +81,21 @@ def register_worker(port):
     """Registers this worker with the Go Manager."""
     manager_addr = os.environ.get('MANAGER_ADDRESS', 'localhost:50052')
     # In Docker, HOSTNAME is usually the container ID, which resolves to the IP
-    worker_host = os.environ.get('HOSTNAME', 'localhost')
-    worker_address = f"{worker_host}:{port}"
+    hostname = os.environ.get('HOSTNAME', socket.gethostname())
+    try:
+        # Resolve to IP address to ensure reachability across containers
+        worker_ip = socket.gethostbyname(hostname)
+        # If it resolves to loopback, try to get the real IP by connecting to a dummy external address
+        if worker_ip.startswith("127."):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                s.connect(("8.8.8.8", 80))
+                worker_ip = s.getsockname()[0]
+            finally:
+                s.close()
+        worker_address = f"{worker_ip}:{port}"
+    except Exception:
+        worker_address = f"{hostname}:{port}"
 
     logger.info(f"Attempting to register {worker_address} with Manager at {manager_addr}...")
     
@@ -84,7 +105,7 @@ def register_worker(port):
     for i in range(15): # Retry for 30 seconds
         try:
             stub.RegisterWorker(dio_pb2.RegisterRequest(
-                worker_id=worker_host,
+                worker_id=hostname,
                 address=worker_address,
                 models=["fraud-detection", "gpt-4"]
             ))
