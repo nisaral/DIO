@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
@@ -38,9 +39,6 @@ func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*
 // Inside your Server struct methods...
 
 func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest) (*pb.InferenceResponse, error) {
-	// 1. Start Timer
-	start := time.Now()
-
 	// 2. Scheduler Picks Worker (SJF)
 	workerID, err := s.scheduler.PickBestWorker(req)
 	if err != nil {
@@ -72,18 +70,42 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 	}
 
 	// 4. Feedback Loop (The Critical Research Step)
-	// Capture latency with microsecond precision (e.g. 12.345 ms)
-	duration := float64(time.Since(start).Microseconds()) / 1000.0
-
 	// Calculate input tokens (approx)
 	inputTokens := len(req.Data) / 4
 	// Be safe if resp is nil on error
 	if err == nil {
-		s.scheduler.FeedbackLoop(workerID, duration, inputTokens)
+		// Calculate Detailed Metrics for Research Paper
+		ttft := float64(resp.GetTtftMs())
+		e2e := float64(resp.LatencyMs)
+		outputTokens := float64(resp.TokensUsed)
+
+		tpot := 0.0
+		if outputTokens > 1 {
+			tpot = (e2e - ttft) / (outputTokens - 1)
+		}
+
+		inputTPS := 0.0
+		if ttft > 0 {
+			inputTPS = float64(inputTokens) / (ttft / 1000.0)
+		}
+
+		outputTPS := 0.0
+		if e2e > ttft {
+			outputTPS = (outputTokens - 1) / ((e2e - ttft) / 1000.0)
+		}
+
+		metrics := scheduler.DetailedMetrics{
+			TTFT:             ttft,
+			TPOT:             tpot,
+			E2ELatency:       e2e,
+			InputThroughput:  inputTPS,
+			OutputThroughput: outputTPS,
+		}
+		s.scheduler.FeedbackLoop(workerID, metrics, inputTokens)
 	} else {
 		// Even on error, we must decrement the pending task count!
 		// We pass -1 latency so it doesn't skew the predictor
-		s.scheduler.FeedbackLoop(workerID, -1, 0)
+		s.scheduler.FeedbackLoop(workerID, scheduler.DetailedMetrics{E2ELatency: -1}, 0)
 		return nil, err
 	}
 
@@ -144,6 +166,11 @@ func main() {
 	}
 
 	sched := scheduler.NewScheduler()
+	// Configure Scheduler Strategy from Env (for Baselines)
+	if strategy := os.Getenv("SCHEDULER_STRATEGY"); strategy != "" {
+		sched.Strategy = strategy
+		log.Printf("🔧 Scheduler Strategy set to: %s", strategy)
+	}
 
 	// gRPC server (port 50052)
 	lis, err := net.Listen("tcp", ":50052")

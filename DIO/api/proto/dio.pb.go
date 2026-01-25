@@ -7,12 +7,13 @@
 package pb
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -184,6 +185,7 @@ type InferenceResponse struct {
 	LatencyMs     float32                `protobuf:"fixed32,2,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
 	TokensUsed    int32                  `protobuf:"varint,3,opt,name=tokens_used,json=tokensUsed,proto3" json:"tokens_used,omitempty"`    // Track usage for billing/limits
 	ContextFull   bool                   `protobuf:"varint,4,opt,name=context_full,json=contextFull,proto3" json:"context_full,omitempty"` // Signal to Go to truncate/summarize
+	TtftMs        float32                `protobuf:"fixed32,5,opt,name=ttft_ms,json=ttftMs,proto3" json:"ttft_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -244,6 +246,13 @@ func (x *InferenceResponse) GetContextFull() bool {
 		return x.ContextFull
 	}
 	return false
+}
+
+func (x *InferenceResponse) GetTtftMs() float32 {
+	if x != nil {
+		return x.TtftMs
+	}
+	return 0
 }
 
 var File_api_proto_dio_proto protoreflect.FileDescriptor

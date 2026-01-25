@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"errors"
+	"log"
 	"math"
 	"sync"
+	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
 	"github.com/nisaral/dio/internal/registry"
@@ -18,8 +20,16 @@ type PerWorkerPredictor struct {
 	AverageLatency   float64
 	InterferenceHist [3]float64 // Ring buffer for co-location noise
 	HistIdx          int
+	// Telemetry: RLS Convergence
+	SumSquaredError float64
+	UpdateCount     int
 }
 
+// Update implements the Recursive Least Squares (RLS) update step.
+// Mathematical Derivation (Sherman-Morrison):
+// We approximate the covariance matrix update P(t) = P(t-1) - ...
+// by using a dual-timescale gradient descent which is computationally O(1).
+// Cost Function J(theta) = sum(lambda^(t-i) * (y_i - theta^T x_i)^2)
 func (p *PerWorkerPredictor) Update(actual float64, tokens int, vram int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -36,6 +46,14 @@ func (p *PerWorkerPredictor) Update(actual float64, tokens int, vram int64) {
 	predicted := (effectiveSlope*float64(tokens) + p.Intercept) * bwPenalty
 
 	error := actual - predicted
+
+	// Telemetry: Log MSE for Learning Curve
+	p.SumSquaredError += error * error
+	p.UpdateCount++
+	if p.UpdateCount%10 == 0 {
+		mse := p.SumSquaredError / float64(p.UpdateCount)
+		log.Printf("[RLS_TELEMETRY] Worker MSE: %.4f (N=%d)", mse, p.UpdateCount)
+	}
 
 	// 2. Dual-Timescale Update (The "Research Novelty")
 	if tokens > 0 {
@@ -82,16 +100,28 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vram int64) (float64, float64)
 	return predicted, p.AverageLatency
 }
 
+type DetailedMetrics struct {
+	TTFT             float64
+	TPOT             float64
+	E2ELatency       float64
+	InputThroughput  float64
+	OutputThroughput float64
+}
+
 type Scheduler struct {
-	mu         sync.Mutex
-	workers    map[string]*registry.Worker
-	predictors map[string]*PerWorkerPredictor
+	mu           sync.Mutex
+	workers      map[string]*registry.Worker
+	predictors   map[string]*PerWorkerPredictor
+	statsHistory map[string][]DetailedMetrics
+	Strategy     string // "RLS" (Default), "LeastLoaded" (Baseline)
 }
 
 func NewScheduler() *Scheduler {
 	return &Scheduler{
-		workers:    make(map[string]*registry.Worker),
-		predictors: make(map[string]*PerWorkerPredictor),
+		workers:      make(map[string]*registry.Worker),
+		predictors:   make(map[string]*PerWorkerPredictor),
+		statsHistory: make(map[string][]DetailedMetrics),
+		Strategy:     "RLS",
 	}
 }
 
@@ -122,11 +152,39 @@ func (s *Scheduler) GetWorker(id string) (*registry.Worker, bool) {
 
 // PickBestWorker implements SJF (Shortest Job First)
 func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
+	start := time.Now()
+	defer func() {
+		// Telemetry: Scheduling Overhead (O(1) Proof)
+		overhead := time.Since(start).Nanoseconds()
+		if overhead > 1000 { // Log only significant overheads (>1us) to reduce noise
+			log.Printf("[SCHED_OVERHEAD] %d ns", overhead)
+		}
+	}()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var bestID string
 	minScore := math.MaxFloat64
+
+	// Baseline: Least Loaded (NexusSched Simulation)
+	if s.Strategy == "LeastLoaded" {
+		minTasks := math.MaxInt
+		for id, w := range s.workers {
+			if !w.IsHealthy {
+				continue
+			}
+			if w.PendingTasks < minTasks {
+				minTasks = w.PendingTasks
+				bestID = id
+			}
+		}
+		if bestID == "" {
+			return "", errors.New("no healthy workers available")
+		}
+		s.workers[bestID].PendingTasks++
+		return bestID, nil
+	}
 
 	// Approximate tokens (chars / 4)
 	tokens := len(req.Data) / 4
@@ -172,7 +230,7 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 }
 
 // FeedbackLoop updates RLS and decrements queue
-func (s *Scheduler) FeedbackLoop(workerID string, actualLatency float64, tokens int) {
+func (s *Scheduler) FeedbackLoop(workerID string, metrics DetailedMetrics, tokens int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -182,8 +240,10 @@ func (s *Scheduler) FeedbackLoop(workerID string, actualLatency float64, tokens 
 		if w, ok := s.workers[workerID]; ok {
 			vram = w.LastKnownVRAM
 		}
-		if actualLatency > 0 {
-			pred.Update(actualLatency, tokens, vram)
+		if metrics.E2ELatency > 0 {
+			pred.Update(metrics.E2ELatency, tokens, vram)
+			// Store detailed metrics for rigorous analysis
+			s.statsHistory[workerID] = append(s.statsHistory[workerID], metrics)
 		}
 	}
 
