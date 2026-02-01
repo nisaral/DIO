@@ -1,0 +1,4 @@
+{"id": "agent_001", "step": 1, "prompt": "Analyze this CSV file and extract key metrics.", "output_len": 100, "tier": "small"}
+{"id": "agent_001", "step": 2, "prompt": "Generate a detailed financial report based on these metrics.", "output_len": 500, "tier": "large"}
+{"id": "agent_002", "step": 1, "prompt": "Summarize this short email.", "output_len": 50, "tier": "small"}
+{"id": "agent_002", "step": 2, "prompt": "Draft a comprehensive legal response citing precedents.", "output_len": 800, "tier": "large"}

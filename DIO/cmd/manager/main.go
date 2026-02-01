@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
@@ -19,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type server struct {
@@ -32,7 +34,7 @@ func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*
 	if err := s.store.SaveWorker(req); err != nil {
 		return &pb.RegisterResponse{Success: false}, err
 	}
-	s.scheduler.RegisterWorker(req.WorkerId, req.Address)
+	s.scheduler.RegisterWorker(req.WorkerId, req.Address, req.Tier, int64(req.VramGb))
 	return &pb.RegisterResponse{Success: true}, nil
 }
 
@@ -44,6 +46,9 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 	if err != nil {
 		return nil, err
 	}
+
+	// Send the selected WorkerID back to the caller (HTTP handler) via gRPC Header
+	grpc.SetHeader(ctx, metadata.Pairs("x-dio-worker-id", workerID))
 
 	// 3. Execute gRPC
 	// Retrieve worker address from scheduler
@@ -144,10 +149,18 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 
+		// Propagate Tier from HTTP request
+		tier := payload["tier"]
+		if tier == "" {
+			tier = "small" // Default
+		}
+
+		var header metadata.MD
 		resp, err := client.ExecuteInference(ctx, &pb.InferenceRequest{
 			ModelId: payload["model_id"],
 			Data:    []byte(payload["prompt"]),
-		})
+			Tier:    tier,
+		}, grpc.Header(&header))
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -155,7 +168,49 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Expose Worker ID to client for benchmarking
+		if workers := header.Get("x-dio-worker-id"); len(workers) > 0 {
+			w.Header().Set("X-DIO-Worker-ID", workers[0])
+		}
+
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func handleDebugReset(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload map[string]string
+		json.NewDecoder(r.Body).Decode(&payload)
+		workerID := payload["worker_id"]
+		sched.ResetWorkerState(workerID)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Worker state reset"))
+	}
+}
+
+func handleDebugPrediction(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workerID := r.URL.Query().Get("worker")
+		tokens, _ := strconv.Atoi(r.URL.Query().Get("tokens"))
+		if tokens == 0 {
+			tokens = 50
+		}
+		pred := sched.GetDebugPrediction(workerID, tokens)
+		json.NewEncoder(w).Encode(map[string]float64{"predicted_ms": pred})
+	}
+}
+
+func handleDebugListWorkers(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workers := sched.ListWorkers()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string][]string{
+			"workers": workers,
+		})
 	}
 }
 
@@ -195,6 +250,9 @@ func main() {
 	gateway := api_gateway.NewAPIGateway("localhost:50052", sched)
 	http.HandleFunc("/api/test", enableCORS(gateway.HandleTest))
 	http.HandleFunc("/api/generate", enableCORS(handleGenerate(localClient)))
+	http.HandleFunc("/debug/reset_worker", enableCORS(handleDebugReset(sched)))
+	http.HandleFunc("/debug/prediction", enableCORS(handleDebugPrediction(sched)))
+	http.HandleFunc("/debug/workers", enableCORS(handleDebugListWorkers(sched)))
 	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
 
 	log.Printf("DIO Manager gRPC listening at %v", lis.Addr())

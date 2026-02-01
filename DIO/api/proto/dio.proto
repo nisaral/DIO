@@ -1,6 +1,8 @@
 syntax = "proto3";
+
 package dio;
-option go_package = "github.com/nisaral/dio/pkg/pb";
+
+option go_package = "github.com/nisaral/dio/api/proto;pb";
 
 import "google/protobuf/empty.proto";
 
@@ -10,34 +12,34 @@ service Orchestrator {
   // Client calls this to request inference
   rpc Infer (InferenceRequest) returns (InferenceResponse);
   rpc ExecuteInference (InferenceRequest) returns (InferenceResponse);
+}
 
+service InferenceWorker {
+  rpc Predict (InferenceRequest) returns (InferenceResponse);
+  rpc CheckHealth (google.protobuf.Empty) returns (google.protobuf.Empty);
 }
 
 message RegisterRequest {
   string worker_id = 1;
   string address = 2; // e.g., "localhost:50051"
   repeated string models = 3;
+  string tier = 4;
+  int64 vram_gb = 5;
 }
 
 message RegisterResponse {
   bool success = 1;
 }
 
-// Service for the Go Manager to call the Python Worker
-service InferenceWorker {
-  
-  rpc Predict (InferenceRequest) returns (InferenceResponse);
-  rpc CheckHealth (google.protobuf.Empty) returns (google.protobuf.Empty);
-}
-
 message InferenceRequest {
   string model_id = 1;
-  bytes data = 2; 
+  bytes data = 2;
+  string tier = 3;
 }
 
 message InferenceResponse {
   bytes output = 1;
   float latency_ms = 2;
-  int32 tokens_used = 3;      // Track usage for billing/limits
-  bool context_full = 4;      // Signal to Go to truncate/summarize
+  int64 tokens_used = 3;
+  float ttft_ms = 4;
 }

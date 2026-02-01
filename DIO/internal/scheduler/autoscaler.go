@@ -12,12 +12,25 @@ func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int)
 	ticker := time.NewTicker(15 * time.Second)
 	go func() {
 		for range ticker.C {
-			s.mu.Lock()
-			workerCount := len(s.workers)
-			s.mu.Unlock()
+			// Autoscaler Simplicity Fix:
+			// Use Global Queue Depth / Worker Count ratio to determine saturation.
+			// Target: Keep average queue depth < 5 per worker.
 
-			// If we have 0 workers or if they are all busy, spawn one
-			if workerCount < threshold {
+			// We access workers safely via Scheduler methods if possible,
+			// but here we need a count. We can use ListWorkers.
+			workers := s.ListWorkers()
+			workerCount := len(workers)
+			totalQueue := s.GetGlobalQueueDepth()
+
+			avgQueue := 0.0
+			if workerCount > 0 {
+				avgQueue = totalQueue / float64(workerCount)
+			}
+
+			// Scale Up Condition:
+			// 1. Average Queue > 5 (Saturation)
+			// 2. OR Worker Count < Min Threshold (Cold Start)
+			if avgQueue > 5.0 || workerCount < threshold {
 				log.Println("[Autoscaler] Demand high. Spawning new Python worker...")
 				ctx := context.Background()
 

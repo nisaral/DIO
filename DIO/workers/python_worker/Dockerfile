@@ -5,7 +5,8 @@ WORKDIR /app
 
 # Install dependencies
 # Explicitly setting versions to avoid the conflicts you saw earlier
-RUN pip install --default-timeout=1000 --no-cache-dir \
+COPY workers/python_worker/requirements.txt .
+RUN pip install --default-timeout=1000 --no-cache-dir -r requirements.txt \
     grpcio==1.70.0 \
     grpcio-tools==1.70.0 \
     tiktoken
