@@ -1,130 +1,129 @@
-import sys
 import os
-import time
-import random
-import socket
-
 import grpc
-from concurrent import futures
-import tiktoken
-from google.protobuf import empty_pb2
-from api.proto import dio_pb2
-from api.proto import dio_pb2_grpc
+import sys
+import time
+import socket
 import logging
+from concurrent import futures
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+
+# Add parent dir to path to import proto
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import api.proto.dio_pb2 as dio_pb2
+import api.proto.dio_pb2_grpc as dio_pb2_grpc
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("Worker")
 
-# Initialize the tokenizer for your specific model (e.g., GPT-4 or Llama-3)
-tokenizer = tiktoken.get_encoding("cl100k_base") 
+# --- Configuration ---
+MODEL_ID = os.environ.get("MODEL_ID", "TinyLlama/TinyLlama-1.1B-Chat-v1.0")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TIER = os.environ.get("WORKER_TIER", "small")
 
-class LLMWorker(dio_pb2_grpc.InferenceWorkerServicer):
+logger.info(f"🚀 Worker Starting | Tier: {TIER} | Device: {DEVICE}")
+logger.info(f"⏳ Loading Model: {MODEL_ID}...")
+
+try:
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID, 
+        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+        device_map="auto"
+    )
+    pipe = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    logger.info(f"✅ Model {MODEL_ID} Loaded Successfully!")
+except Exception as e:
+    logger.error(f"❌ Failed to load model: {e}")
+    pipe = None
+
+class InferenceWorker(dio_pb2_grpc.InferenceWorkerServicer):
     def Predict(self, request, context):
         start_time = time.time()
-        input_text = request.data.decode('utf-8')
-        model_id = request.model_id
+        input_text = request.data.decode("utf-8")
+        logger.info(f"📨 Request: {len(input_text)} chars | Model: {request.model_id}")
         
-        # 1. Count Input Tokens
-        input_tokens = len(tokenizer.encode(input_text))
-        
-        # 2. Simulate Inference Latency
-        # Different models have different characteristics
-        if "gpt" in model_id or "llama" in model_id:
-            # Autoregressive: Slower, generates more tokens
-            output_tokens = random.randint(10, 100)
-            # Simulate ~20ms per token generation (50 tok/s)
-            process_time = 0.05 + (output_tokens * 0.02) 
-        elif "bert" in model_id or "resnet" in model_id:
-            # Encoder/Classifier: Faster, fixed output
-            output_tokens = 1
-            process_time = 0.05 # 50ms fixed
+        if pipe:
+            try:
+                # Real Inference
+                outputs = pipe(
+                    input_text, 
+                    max_new_tokens=100, 
+                    do_sample=True, 
+                    temperature=0.7,
+                    truncation=True
+                )
+                generated_text = outputs[0]["generated_text"]
+                # Strip prompt from output for cleaner logging
+                if generated_text.startswith(input_text):
+                    generated_text = generated_text[len(input_text):]
+            except Exception as e:
+                logger.error(f"Inference Error: {e}")
+                generated_text = f"Error: {str(e)}"
         else:
-            # Default
-            output_tokens = 20
-            process_time = 0.1
-
-        # Apply Throttle Factor (Simulate Slow Hardware)
-        try:
-            throttle = float(os.environ.get("THROTTLE_FACTOR", "1.0"))
-            process_time *= throttle
-        except ValueError:
-            pass 
-
-        # Straggler Simulation (Clockwork Test)
-        # If STRAGGLER_MODE is set, 20% of requests are 2s slower
-        if os.environ.get("STRAGGLER_MODE") == "true":
-            if random.random() < 0.2:
-                time.sleep(2.0)
-
-        time.sleep(process_time)
-        
-        model_output = f"Processed {input_tokens} in, {output_tokens} out. Model: {model_id}"
-        total_tokens = input_tokens + output_tokens
-        
-        # 3. Check Context Window (e.g., 8192 tokens)
-        context_full = total_tokens > 7000 
+            # Fallback if model failed to load
+            time.sleep(0.1)
+            generated_text = "Model not loaded, simulation mode."
 
         latency = (time.time() - start_time) * 1000
-        logger.info(f"[Worker] {model_id} | Tokens: {total_tokens} | Latency: {latency:.2f}ms")
-
+        tokens_used = len(generated_text.split()) # Approx token count
+        
         return dio_pb2.InferenceResponse(
-            output=model_output.encode('utf-8'),
+            output=generated_text.encode("utf-8"),
             latency_ms=latency,
-            tokens_used=total_tokens,
-            context_full=context_full
+            ttft_ms=latency / 10.0, # Mock TTFT for non-streaming
+            tokens_used=tokens_used
         )
 
     def CheckHealth(self, request, context):
-        return empty_pb2.Empty()
+        return dio_pb2.google_dot_protobuf_dot_empty__pb2.Empty()
 
-def register_worker(port):
-    """Registers this worker with the Go Manager."""
+def register_with_manager(port):
     manager_addr = os.environ.get('MANAGER_ADDRESS', 'localhost:50052')
-    # In Docker, HOSTNAME is usually the container ID, which resolves to the IP
     hostname = os.environ.get('HOSTNAME', socket.gethostname())
-    try:
-        # Resolve to IP address to ensure reachability across containers
-        worker_ip = socket.gethostbyname(hostname)
-        # If it resolves to loopback, try to get the real IP by connecting to a dummy external address
-        if worker_ip.startswith("127."):
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                s.connect(("8.8.8.8", 80))
-                worker_ip = s.getsockname()[0]
-            finally:
-                s.close()
-        worker_address = f"{worker_ip}:{port}"
-    except Exception:
-        worker_address = f"{hostname}:{port}"
-
-    logger.info(f"Attempting to register {worker_address} with Manager at {manager_addr}...")
     
-    channel = grpc.insecure_channel(manager_addr)
-    stub = dio_pb2_grpc.OrchestratorStub(channel)
+    # Resolve IP (hack for Docker networking)
+    try:
+        worker_ip = socket.gethostbyname(hostname)
+    except:
+        worker_ip = "127.0.0.1"
+        
+    worker_address = f"{worker_ip}:{port}"
+    
+    # FIX: Handle ngrok secure connection
+    if "ngrok" in manager_addr or "443" in manager_addr:
+        # Strip protocol if present
+        target = manager_addr.replace("https://", "").replace("http://", "")
+        creds = grpc.ssl_channel_credentials()
+        channel = grpc.secure_channel(target, creds)
+    else:
+        channel = grpc.insecure_channel(manager_addr)
 
-    for i in range(15): # Retry for 30 seconds
-        try:
-            stub.RegisterWorker(dio_pb2.RegisterRequest(
-                worker_id=hostname,
-                address=worker_address,
-                models=["fraud-detection", "gpt-4"]
-            ))
-            logger.info("✅ Worker registered successfully!")
-            return
-        except grpc.RpcError:
-            logger.warning(f"Manager not ready yet, retrying in 2s... ({i+1}/15)")
-            time.sleep(2)
-    logger.error("❌ Failed to register with Manager. Is it running?")
+    stub = dio_pb2_grpc.OrchestratorStub(channel)
+    
+    logger.info(f"📡 Registering with Manager at {manager_addr}...")
+    try:
+        # Add metadata to skip ngrok warning page
+        stub.RegisterWorker(dio_pb2.RegisterRequest(
+            worker_id=f"{hostname}-{TIER}",
+            address=worker_address,
+            tier=TIER,
+            vram_gb=int(os.environ.get("WORKER_VRAM_GB", "8"))
+        ), metadata=[('ngrok-skip-browser-warning', 'true')])
+        logger.info("✅ Registered!")
+    except Exception as e:
+        logger.warning(f"⚠️ Registration failed: {e}")
 
 def serve():
+    port = "50051"
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    dio_pb2_grpc.add_InferenceWorkerServicer_to_server(LLMWorker(), server)
-    server.add_insecure_port('[::]:50053')
-    logger.info("Python Worker listening on port 50053")
+    dio_pb2_grpc.add_InferenceWorkerServicer_to_server(InferenceWorker(), server)
+    server.add_insecure_port(f'[::]:{port}')
     server.start()
+    logger.info(f"🎧 Worker listening on port {port}")
     
-    # Register with the manager after starting
-    register_worker(50053)
+    # Register once on startup
+    register_with_manager(port)
     
     server.wait_for_termination()
 

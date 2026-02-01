@@ -8,6 +8,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
@@ -18,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type server struct {
@@ -31,21 +34,21 @@ func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*
 	if err := s.store.SaveWorker(req); err != nil {
 		return &pb.RegisterResponse{Success: false}, err
 	}
-	s.scheduler.RegisterWorker(req.WorkerId, req.Address)
+	s.scheduler.RegisterWorker(req.WorkerId, req.Address, req.Tier, int64(req.VramGb))
 	return &pb.RegisterResponse{Success: true}, nil
 }
 
 // Inside your Server struct methods...
 
 func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest) (*pb.InferenceResponse, error) {
-	// 1. Start Timer
-	start := time.Now()
-
 	// 2. Scheduler Picks Worker (SJF)
 	workerID, err := s.scheduler.PickBestWorker(req)
 	if err != nil {
 		return nil, err
 	}
+
+	// Send the selected WorkerID back to the caller (HTTP handler) via gRPC Header
+	grpc.SetHeader(ctx, metadata.Pairs("x-dio-worker-id", workerID))
 
 	// 3. Execute gRPC
 	// Retrieve worker address from scheduler
@@ -72,18 +75,42 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
 	}
 
 	// 4. Feedback Loop (The Critical Research Step)
-	// Capture latency with microsecond precision (e.g. 12.345 ms)
-	duration := float64(time.Since(start).Microseconds()) / 1000.0
-
 	// Calculate input tokens (approx)
 	inputTokens := len(req.Data) / 4
 	// Be safe if resp is nil on error
 	if err == nil {
-		s.scheduler.FeedbackLoop(workerID, duration, inputTokens)
+		// Calculate Detailed Metrics for Research Paper
+		ttft := float64(resp.GetTtftMs())
+		e2e := float64(resp.LatencyMs)
+		outputTokens := float64(resp.TokensUsed)
+
+		tpot := 0.0
+		if outputTokens > 1 {
+			tpot = (e2e - ttft) / (outputTokens - 1)
+		}
+
+		inputTPS := 0.0
+		if ttft > 0 {
+			inputTPS = float64(inputTokens) / (ttft / 1000.0)
+		}
+
+		outputTPS := 0.0
+		if e2e > ttft {
+			outputTPS = (outputTokens - 1) / ((e2e - ttft) / 1000.0)
+		}
+
+		metrics := scheduler.DetailedMetrics{
+			TTFT:             ttft,
+			TPOT:             tpot,
+			E2ELatency:       e2e,
+			InputThroughput:  inputTPS,
+			OutputThroughput: outputTPS,
+		}
+		s.scheduler.FeedbackLoop(workerID, metrics, inputTokens)
 	} else {
 		// Even on error, we must decrement the pending task count!
 		// We pass -1 latency so it doesn't skew the predictor
-		s.scheduler.FeedbackLoop(workerID, -1, 0)
+		s.scheduler.FeedbackLoop(workerID, scheduler.DetailedMetrics{E2ELatency: -1}, 0)
 		return nil, err
 	}
 
@@ -122,10 +149,18 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 
+		// Propagate Tier from HTTP request
+		tier := payload["tier"]
+		if tier == "" {
+			tier = "small" // Default
+		}
+
+		var header metadata.MD
 		resp, err := client.ExecuteInference(ctx, &pb.InferenceRequest{
 			ModelId: payload["model_id"],
 			Data:    []byte(payload["prompt"]),
-		})
+			Tier:    tier,
+		}, grpc.Header(&header))
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -133,7 +168,49 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		// Expose Worker ID to client for benchmarking
+		if workers := header.Get("x-dio-worker-id"); len(workers) > 0 {
+			w.Header().Set("X-DIO-Worker-ID", workers[0])
+		}
+
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func handleDebugReset(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload map[string]string
+		json.NewDecoder(r.Body).Decode(&payload)
+		workerID := payload["worker_id"]
+		sched.ResetWorkerState(workerID)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Worker state reset"))
+	}
+}
+
+func handleDebugPrediction(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workerID := r.URL.Query().Get("worker")
+		tokens, _ := strconv.Atoi(r.URL.Query().Get("tokens"))
+		if tokens == 0 {
+			tokens = 50
+		}
+		pred := sched.GetDebugPrediction(workerID, tokens)
+		json.NewEncoder(w).Encode(map[string]float64{"predicted_ms": pred})
+	}
+}
+
+func handleDebugListWorkers(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		workers := sched.ListWorkers()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string][]string{
+			"workers": workers,
+		})
 	}
 }
 
@@ -144,6 +221,11 @@ func main() {
 	}
 
 	sched := scheduler.NewScheduler()
+	// Configure Scheduler Strategy from Env (for Baselines)
+	if strategy := os.Getenv("SCHEDULER_STRATEGY"); strategy != "" {
+		sched.Strategy = strategy
+		log.Printf("🔧 Scheduler Strategy set to: %s", strategy)
+	}
 
 	// gRPC server (port 50052)
 	lis, err := net.Listen("tcp", ":50052")
@@ -168,6 +250,9 @@ func main() {
 	gateway := api_gateway.NewAPIGateway("localhost:50052", sched)
 	http.HandleFunc("/api/test", enableCORS(gateway.HandleTest))
 	http.HandleFunc("/api/generate", enableCORS(handleGenerate(localClient)))
+	http.HandleFunc("/debug/reset_worker", enableCORS(handleDebugReset(sched)))
+	http.HandleFunc("/debug/prediction", enableCORS(handleDebugPrediction(sched)))
+	http.HandleFunc("/debug/workers", enableCORS(handleDebugListWorkers(sched)))
 	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
 
 	log.Printf("DIO Manager gRPC listening at %v", lis.Addr())

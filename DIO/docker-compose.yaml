@@ -10,6 +10,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock # Allows Go to talk to Docker
     environment:
       - DOCKER_HOST=unix:///var/run/docker.sock
+      - SCHEDULER_STRATEGY
+      - NLMS_MODE
 
   dio-worker:
     build:
@@ -18,6 +20,16 @@ services:
     image: dio-worker # Force image name so Go Manager can find it
     environment:
       - MANAGER_ADDRESS=dio-manager:50052
+      - MODEL_ID=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      - WORKER_TIER=small
+      - WORKER_VRAM_GB=6
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   dio-worker-slow:
     build:

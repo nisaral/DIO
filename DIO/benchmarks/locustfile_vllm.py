@@ -31,7 +31,7 @@ class VLLMUser(HttpUser):
         
         # vLLM expects OpenAI-compatible JSON
         payload = {
-            "model": "facebook/opt-125m", # Matches the model we will load
+            "model": "unsloth/llama-3-8b-bnb-4bit", # Matches the model we will load
             "prompt": prompt,
             "max_tokens": 200,
             "temperature": 0.7

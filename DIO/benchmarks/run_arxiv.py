@@ -28,7 +28,7 @@ TESTS = [
     },
     {
         "id": "T2",
-        "name": "RLS_Adaptation",
+        "name": "NLMS_Adaptation",
         "description": "Proves Online Learning. One worker is 3x slower.",
         "users": 100,
         "spawn_rate": 20,

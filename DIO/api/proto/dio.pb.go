@@ -2,17 +2,18 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.33.2
-// source: api/proto/dio.proto
+// source: dio.proto
 
 package pb
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -27,13 +28,15 @@ type RegisterRequest struct {
 	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
 	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // e.g., "localhost:50051"
 	Models        []string               `protobuf:"bytes,3,rep,name=models,proto3" json:"models,omitempty"`
+	Tier          string                 `protobuf:"bytes,4,opt,name=tier,proto3" json:"tier,omitempty"`
+	VramGb        int64                  `protobuf:"varint,5,opt,name=vram_gb,json=vramGb,proto3" json:"vram_gb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_api_proto_dio_proto_msgTypes[0]
+	mi := &file_dio_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +48,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dio_proto_msgTypes[0]
+	mi := &file_dio_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +61,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dio_proto_rawDescGZIP(), []int{0}
+	return file_dio_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RegisterRequest) GetWorkerId() string {
@@ -82,6 +85,20 @@ func (x *RegisterRequest) GetModels() []string {
 	return nil
 }
 
+func (x *RegisterRequest) GetTier() string {
+	if x != nil {
+		return x.Tier
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetVramGb() int64 {
+	if x != nil {
+		return x.VramGb
+	}
+	return 0
+}
+
 type RegisterResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
@@ -91,7 +108,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_api_proto_dio_proto_msgTypes[1]
+	mi := &file_dio_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -103,7 +120,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dio_proto_msgTypes[1]
+	mi := &file_dio_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -116,7 +133,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dio_proto_rawDescGZIP(), []int{1}
+	return file_dio_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterResponse) GetSuccess() bool {
@@ -130,13 +147,14 @@ type InferenceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ModelId       string                 `protobuf:"bytes,1,opt,name=model_id,json=modelId,proto3" json:"model_id,omitempty"`
 	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Tier          string                 `protobuf:"bytes,3,opt,name=tier,proto3" json:"tier,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InferenceRequest) Reset() {
 	*x = InferenceRequest{}
-	mi := &file_api_proto_dio_proto_msgTypes[2]
+	mi := &file_dio_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -148,7 +166,7 @@ func (x *InferenceRequest) String() string {
 func (*InferenceRequest) ProtoMessage() {}
 
 func (x *InferenceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dio_proto_msgTypes[2]
+	mi := &file_dio_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -161,7 +179,7 @@ func (x *InferenceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InferenceRequest.ProtoReflect.Descriptor instead.
 func (*InferenceRequest) Descriptor() ([]byte, []int) {
-	return file_api_proto_dio_proto_rawDescGZIP(), []int{2}
+	return file_dio_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *InferenceRequest) GetModelId() string {
@@ -178,19 +196,26 @@ func (x *InferenceRequest) GetData() []byte {
 	return nil
 }
 
+func (x *InferenceRequest) GetTier() string {
+	if x != nil {
+		return x.Tier
+	}
+	return ""
+}
+
 type InferenceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Output        []byte                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
 	LatencyMs     float32                `protobuf:"fixed32,2,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
-	TokensUsed    int32                  `protobuf:"varint,3,opt,name=tokens_used,json=tokensUsed,proto3" json:"tokens_used,omitempty"`    // Track usage for billing/limits
-	ContextFull   bool                   `protobuf:"varint,4,opt,name=context_full,json=contextFull,proto3" json:"context_full,omitempty"` // Signal to Go to truncate/summarize
+	TokensUsed    int64                  `protobuf:"varint,3,opt,name=tokens_used,json=tokensUsed,proto3" json:"tokens_used,omitempty"`
+	TtftMs        float32                `protobuf:"fixed32,4,opt,name=ttft_ms,json=ttftMs,proto3" json:"ttft_ms,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *InferenceResponse) Reset() {
 	*x = InferenceResponse{}
-	mi := &file_api_proto_dio_proto_msgTypes[3]
+	mi := &file_dio_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -202,7 +227,7 @@ func (x *InferenceResponse) String() string {
 func (*InferenceResponse) ProtoMessage() {}
 
 func (x *InferenceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_proto_dio_proto_msgTypes[3]
+	mi := &file_dio_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -215,7 +240,7 @@ func (x *InferenceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InferenceResponse.ProtoReflect.Descriptor instead.
 func (*InferenceResponse) Descriptor() ([]byte, []int) {
-	return file_api_proto_dio_proto_rawDescGZIP(), []int{3}
+	return file_dio_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *InferenceResponse) GetOutput() []byte {
@@ -232,70 +257,73 @@ func (x *InferenceResponse) GetLatencyMs() float32 {
 	return 0
 }
 
-func (x *InferenceResponse) GetTokensUsed() int32 {
+func (x *InferenceResponse) GetTokensUsed() int64 {
 	if x != nil {
 		return x.TokensUsed
 	}
 	return 0
 }
 
-func (x *InferenceResponse) GetContextFull() bool {
+func (x *InferenceResponse) GetTtftMs() float32 {
 	if x != nil {
-		return x.ContextFull
+		return x.TtftMs
 	}
-	return false
+	return 0
 }
 
-var File_api_proto_dio_proto protoreflect.FileDescriptor
+var File_dio_proto protoreflect.FileDescriptor
 
-const file_api_proto_dio_proto_rawDesc = "" +
+const file_dio_proto_rawDesc = "" +
 	"\n" +
-	"\x13api/proto/dio.proto\x12\x03dio\x1a\x1bgoogle/protobuf/empty.proto\"`\n" +
+	"\tdio.proto\x12\x03dio\x1a\x1bgoogle/protobuf/empty.proto\"\x8d\x01\n" +
 	"\x0fRegisterRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
-	"\x06models\x18\x03 \x03(\tR\x06models\",\n" +
+	"\x06models\x18\x03 \x03(\tR\x06models\x12\x12\n" +
+	"\x04tier\x18\x04 \x01(\tR\x04tier\x12\x17\n" +
+	"\avram_gb\x18\x05 \x01(\x03R\x06vramGb\",\n" +
 	"\x10RegisterResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\"A\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\"U\n" +
 	"\x10InferenceRequest\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12\x12\n" +
-	"\x04data\x18\x02 \x01(\fR\x04data\"\x8e\x01\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
+	"\x04tier\x18\x03 \x01(\tR\x04tier\"\x84\x01\n" +
 	"\x11InferenceResponse\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\fR\x06output\x12\x1d\n" +
 	"\n" +
 	"latency_ms\x18\x02 \x01(\x02R\tlatencyMs\x12\x1f\n" +
-	"\vtokens_used\x18\x03 \x01(\x05R\n" +
-	"tokensUsed\x12!\n" +
-	"\fcontext_full\x18\x04 \x01(\bR\vcontextFull2\xc8\x01\n" +
+	"\vtokens_used\x18\x03 \x01(\x03R\n" +
+	"tokensUsed\x12\x17\n" +
+	"\attft_ms\x18\x04 \x01(\x02R\x06ttftMs2\xc8\x01\n" +
 	"\fOrchestrator\x12=\n" +
 	"\x0eRegisterWorker\x12\x14.dio.RegisterRequest\x1a\x15.dio.RegisterResponse\x126\n" +
 	"\x05Infer\x12\x15.dio.InferenceRequest\x1a\x16.dio.InferenceResponse\x12A\n" +
 	"\x10ExecuteInference\x12\x15.dio.InferenceRequest\x1a\x16.dio.InferenceResponse2\x8a\x01\n" +
 	"\x0fInferenceWorker\x128\n" +
 	"\aPredict\x12\x15.dio.InferenceRequest\x1a\x16.dio.InferenceResponse\x12=\n" +
-	"\vCheckHealth\x12\x16.google.protobuf.Empty\x1a\x16.google.protobuf.EmptyB\x1fZ\x1dgithub.com/nisaral/dio/pkg/pbb\x06proto3"
+	"\vCheckHealth\x12\x16.google.protobuf.Empty\x1a\x16.google.protobuf.EmptyB%Z#github.com/nisaral/dio/api/proto;pbb\x06proto3"
 
 var (
-	file_api_proto_dio_proto_rawDescOnce sync.Once
-	file_api_proto_dio_proto_rawDescData []byte
+	file_dio_proto_rawDescOnce sync.Once
+	file_dio_proto_rawDescData []byte
 )
 
-func file_api_proto_dio_proto_rawDescGZIP() []byte {
-	file_api_proto_dio_proto_rawDescOnce.Do(func() {
-		file_api_proto_dio_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_api_proto_dio_proto_rawDesc), len(file_api_proto_dio_proto_rawDesc)))
+func file_dio_proto_rawDescGZIP() []byte {
+	file_dio_proto_rawDescOnce.Do(func() {
+		file_dio_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_dio_proto_rawDesc), len(file_dio_proto_rawDesc)))
 	})
-	return file_api_proto_dio_proto_rawDescData
+	return file_dio_proto_rawDescData
 }
 
-var file_api_proto_dio_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_api_proto_dio_proto_goTypes = []any{
+var file_dio_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_dio_proto_goTypes = []any{
 	(*RegisterRequest)(nil),   // 0: dio.RegisterRequest
 	(*RegisterResponse)(nil),  // 1: dio.RegisterResponse
 	(*InferenceRequest)(nil),  // 2: dio.InferenceRequest
 	(*InferenceResponse)(nil), // 3: dio.InferenceResponse
 	(*emptypb.Empty)(nil),     // 4: google.protobuf.Empty
 }
-var file_api_proto_dio_proto_depIdxs = []int32{
+var file_dio_proto_depIdxs = []int32{
 	0, // 0: dio.Orchestrator.RegisterWorker:input_type -> dio.RegisterRequest
 	2, // 1: dio.Orchestrator.Infer:input_type -> dio.InferenceRequest
 	2, // 2: dio.Orchestrator.ExecuteInference:input_type -> dio.InferenceRequest
@@ -313,26 +341,26 @@ var file_api_proto_dio_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_api_proto_dio_proto_init() }
-func file_api_proto_dio_proto_init() {
-	if File_api_proto_dio_proto != nil {
+func init() { file_dio_proto_init() }
+func file_dio_proto_init() {
+	if File_dio_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_dio_proto_rawDesc), len(file_api_proto_dio_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dio_proto_rawDesc), len(file_dio_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
-		GoTypes:           file_api_proto_dio_proto_goTypes,
-		DependencyIndexes: file_api_proto_dio_proto_depIdxs,
-		MessageInfos:      file_api_proto_dio_proto_msgTypes,
+		GoTypes:           file_dio_proto_goTypes,
+		DependencyIndexes: file_dio_proto_depIdxs,
+		MessageInfos:      file_dio_proto_msgTypes,
 	}.Build()
-	File_api_proto_dio_proto = out.File
-	file_api_proto_dio_proto_goTypes = nil
-	file_api_proto_dio_proto_depIdxs = nil
+	File_dio_proto = out.File
+	file_dio_proto_goTypes = nil
+	file_dio_proto_depIdxs = nil
 }

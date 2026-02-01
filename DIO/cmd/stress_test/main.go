@@ -66,7 +66,6 @@ func handleTestRequest(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	// Map UI request to gRPC request
 	grpcReq := &pb.InferenceRequest{
 		ModelId: req.ModelID,
 		Data:    []byte(req.Payload),
@@ -85,7 +84,6 @@ func handleTestRequest(w http.ResponseWriter, r *http.Request) {
 	} else {
 		jsonResp.Success = true
 		jsonResp.Message = "Inference executed successfully"
-		// Assuming TokensUsed is part of the response based on context
 		jsonResp.Tokens = int64(resp.TokensUsed)
 	}
 
