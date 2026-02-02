@@ -12,7 +12,7 @@ def load_model(mock=False):
     if mock:
         return None, None
     
-    print("   🚀 Loading Model (TinyLlama)...")
+    print("   🚀 Loading Model (Llama-3-8b)...")
     try:
         model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
         tokenizer = AutoTokenizer.from_pretrained(model_id)
