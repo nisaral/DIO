@@ -1,135 +1,93 @@
 import json
 import os
 import time
-import csv
-import uuid
+import random
 from locust import HttpUser, task, between, events
-from locust.runners import MasterRunner
 
-# --- Configuration ---
-WORKLOAD_FILE = os.environ.get("WORKLOAD_FILE", "benchmarks/agent_workload.jsonl")
-LOG_FILE = os.environ.get("LOG_FILE", "benchmarks/real_world/results/raw_logs.csv")
-MODE = os.environ.get("TEST_MODE", "ROUTING") # "ROUTING" or "AGENT_CHAIN"
+# --- Research Standards for 3B/7B Models ---
+# TTFT < 0.5s (Instant feel)
+# TPOT < 50ms (Faster than human reading)
+TTFT_SLO_MS = 500.0
+TPOT_SLO_MS = 50.0
 
-# Ensure log directory exists
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-
-# --- Load Workload ---
 workload_data = []
-if os.path.exists(WORKLOAD_FILE):
-    with open(WORKLOAD_FILE, 'r') as f:
-        for line in f:
-            if line.strip():
-                workload_data.append(json.loads(line))
-else:
-    # Fallback data if file missing
-    workload_data = [
-        {"id": "chat_1", "prompt": "Hello", "output_len": 50, "tier": "small"},
-        {"id": "reason_1", "prompt": "Analyze this", "output_len": 500, "tier": "large"}
-    ]
 
-# --- CSV Logger Setup ---
-# We write headers only once
-if not os.path.exists(LOG_FILE):
-    with open(LOG_FILE, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["timestamp", "request_id", "type", "tier", "latency_ms", "ttft_ms", "tokens_used", "worker_id", "status"])
+@events.test_start.add_listener
+def on_test_start(environment, **kwargs):
+    global workload_data
+    raw_path = os.environ.get("WORKLOAD_FILE")
+    
+    if not raw_path:
+        # Fallback for T7 scalability test (no dataset needed)
+        workload_data = [{"prompt": "ignore", "tier": "small", "out": 10}]
+        return
 
-def log_request(request_id, req_type, tier, latency, ttft, tokens, worker, status):
-    with open(LOG_FILE, "a", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow([time.time(), request_id, req_type, tier, latency, ttft, tokens, worker, status])
+    workload_path = os.path.abspath(raw_path)
+    print(f"📂 [LOCUST] Loading: {workload_path}")
+    
+    workload_data = []
+    if os.path.exists(workload_path):
+        with open(workload_path, 'r') as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        d = json.loads(line)
+                        # Normalize ShareGPT vs Arxiv formats
+                        prompt = d.get("prompt")
+                        if not prompt and "conversations" in d:
+                            prompt = d["conversations"][0]["value"]
+                        
+                        if prompt:
+                            workload_data.append({
+                                "prompt": prompt, 
+                                "tier": d.get("tier", "large"),
+                                "output_len": d.get("output_len", 128)
+                            })
+                    except: pass
+    print(f"✅ [LOCUST] Loaded {len(workload_data)} prompts.")
 
 class DIOResearchUser(HttpUser):
     wait_time = between(1, 2)
 
     @task
-    def run_workload(self):
-        if MODE == "AGENT_CHAIN":
-            self.run_agent_chain()
-        else:
-            self.run_routing_task()
-
-    def run_routing_task(self):
-        """
-        Picks a random task and sends it. Used for Baseline & Routing tests.
-        """
-        import random
+    def execute(self):
+        if not workload_data: return
         item = random.choice(workload_data)
-        self._send_request(item, "SINGLE")
-
-    def run_agent_chain(self):
-        """
-        Executes a multi-step chain for a specific Agent ID.
-        """
-        # Group by ID (simple implementation: filter unique IDs then pick one)
-        # In a real high-perf scenario, pre-group these in __init__
-        unique_ids = list(set(d['id'] for d in workload_data))
-        import random
-        agent_id = random.choice(unique_ids)
-        chain_steps = sorted([d for d in workload_data if d['id'] == agent_id], key=lambda x: x.get('step', 0))
-
-        for step in chain_steps:
-            success = self._send_request(step, "CHAIN_STEP")
-            if not success:
-                break # Break chain on failure
-
-    def _send_request(self, item, req_type):
+        
         payload = {
-            "model_id": os.environ.get("MODEL_ID", "TinyLlama/TinyLlama-1.1B-Chat-v1.0"),
+            "model_id": os.environ.get("MODEL_ID", "meta-llama/Llama-3.2-3B-Instruct"),
             "prompt": item["prompt"],
-            "tier": item.get("tier", "small")
+            "tier": item["tier"]
         }
         
-        start_time = time.time()
-        # We pass tier in payload (Manager logic) AND header (if using Nginx/Gateway later)
-        headers = {"X-DIO-Tier": item.get("tier", "small")}
-        
-        with self.client.post("/api/generate", json=payload, headers=headers, catch_response=True) as response:
-            latency = (time.time() - start_time) * 1000
+        start = time.time()
+        # "catch_response=True" allows us to mark requests as failures manually
+        with self.client.post("/api/generate", json=payload, catch_response=True) as resp:
+            lat = (time.time() - start) * 1000
             
-            # Extract Metrics
-            worker_id = response.headers.get("X-DIO-Worker-ID", "unknown")
-            ttft = 0
-            tokens = item.get("output_len", 0)
-            status = "FAILURE"
-
-            if response.status_code == 200:
-                status = "SUCCESS"
+            if resp.status_code == 200:
                 try:
-                    data = response.json()
+                    data = resp.json()
                     ttft = data.get("ttft_ms", 0)
-                    if "tokens_used" in data:
-                        tokens = data["tokens_used"]
-                except:
-                    pass
+                    tokens = data.get("tokens_used", 1)
+                    
+                    # Calculate Inter-Token Latency (TPOT)
+                    # (Total Latency - Time To First Token) / (Tokens Generated - 1)
+                    tpot = (lat - ttft) / max(1, tokens - 1)
+                    
+                    # --- SLO Logic ---
+                    met_slo = (ttft <= TTFT_SLO_MS) and (tpot <= TPOT_SLO_MS)
+                    
+                    # Fire event for CSV logging
+                    events.request.fire(
+                        request_type="GEN",
+                        name="SLO_Met" if met_slo else "SLO_Missed", # Splitting this helps charts later
+                        response_time=lat,
+                        response_length=tokens,
+                        exception=None
+                    )
+                    resp.success()
+                except Exception as e:
+                    resp.failure(f"Bad JSON: {e}")
             else:
-                response.failure(f"Failed: {response.text}")
-
-            # Log to CSV
-            log_request(
-                request_id=item["id"],
-                req_type=req_type,
-                tier=item.get("tier", "small"),
-                latency=latency,
-                ttft=ttft,
-                tokens=tokens,
-                worker=worker_id,
-                status=status
-            )
-            
-            # Fire Locust Events for UI
-            events.request.fire(
-                request_type=req_type,
-                name=f"{item.get('source', 'general')}_{item.get('tier', 'small')}",
-                response_time=latency,
-                response_length=tokens,
-                exception=None if status == "SUCCESS" else Exception("Failed")
-            )
-
-            return status == "SUCCESS"
-
-# Hook to print start message
-@events.test_start.add_listener
-def on_test_start(environment, **kwargs):
-    print(f"🚀 Starting DIO Research Test | Mode: {MODE} | Log: {LOG_FILE}")
+                resp.failure(f"HTTP {resp.status_code}: {resp.text}")

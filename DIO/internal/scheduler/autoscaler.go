@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"context"
 	"log"
 	"time"
 
@@ -10,14 +9,11 @@ import (
 
 func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int) {
 	ticker := time.NewTicker(15 * time.Second)
+	
+	// Track scaling state to avoid log spamming
 	go func() {
 		for range ticker.C {
-			// Autoscaler Simplicity Fix:
-			// Use Global Queue Depth / Worker Count ratio to determine saturation.
-			// Target: Keep average queue depth < 5 per worker.
-
-			// We access workers safely via Scheduler methods if possible,
-			// but here we need a count. We can use ListWorkers.
+			// 1. Safe access to scheduler state
 			workers := s.ListWorkers()
 			workerCount := len(workers)
 			totalQueue := s.GetGlobalQueueDepth()
@@ -27,18 +23,21 @@ func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int)
 				avgQueue = totalQueue / float64(workerCount)
 			}
 
-			// Scale Up Condition:
-			// 1. Average Queue > 5 (Saturation)
-			// 2. OR Worker Count < Min Threshold (Cold Start)
+			// 2. Determine Scaling Condition
+			// Research Logic: Scale if queue > 5 OR we haven't reached the minimum experiment threshold
 			if avgQueue > 5.0 || workerCount < threshold {
-				log.Println("[Autoscaler] Demand high. Spawning new Python worker...")
-				ctx := context.Background()
-
-				// Ensure you have a docker image named 'dio-worker' built
-				err := dm.SpawnWorker(ctx, "dio-worker")
-				if err != nil {
-					log.Printf("[Autoscaler] Failed to spawn worker: %v", err)
+				log.Printf("[AUTOSCALER_ANALYTICS] Scale-up triggered. Avg Queue: %.2f, Current Workers: %d", avgQueue, workerCount)
+				
+				// NOTE FOR RESEARCH:
+				// In a production Kubernetes/Docker environment, we call dm.SpawnWorker here.
+				// In Lightning AI Bare-Metal, we manually launch workers with CUDA_VISIBLE_DEVICES 
+				// to ensure precise hardware mapping (A100 vs T4 isolation).
+				
+				if dm != nil {
+					log.Println("[Autoscaler] Manual intervention required: Please spawn a new worker process in a new terminal.")
 				}
+			} else if avgQueue < 1.0 && workerCount > threshold {
+				log.Printf("[AUTOSCALER_ANALYTICS] Cluster underutilized. Scale-down recommended. Avg Queue: %.2f", avgQueue)
 			}
 		}
 	}()

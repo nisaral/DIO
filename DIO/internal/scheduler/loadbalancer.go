@@ -37,15 +37,15 @@ type PerWorkerPredictor struct {
 // Update implements the Normalized Least Mean Squares (NLMS) update step.
 // Mathematical Derivation:
 // We use a dual-timescale gradient descent which is computationally O(1).
-func (p *PerWorkerPredictor) Update(actual float64, tokens int, vram int64) {
+func (p *PerWorkerPredictor) Update(actual float64, tokens int, vramMB int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	// 1. Calculate Error based on current model
 	// Roofline Penalty: If VRAM < 4GB, assume bandwidth contention
 	bwPenalty := 1.0
-	if vram < 4096 {
-		bwPenalty = 1.0 + (4096.0-float64(vram))/4096.0
+	if vramMB < 4096 {
+		bwPenalty = 1.0 + (4096.0-float64(vramMB))/4096.0
 	}
 
 	// Weighted slope (favor fast reaction for spikes)
@@ -91,7 +91,7 @@ func (p *PerWorkerPredictor) Update(actual float64, tokens int, vram int64) {
 }
 
 // Estimate function for the Scheduler to call
-func (p *PerWorkerPredictor) Estimate(tokens int, vram int64) (float64, float64) {
+func (p *PerWorkerPredictor) Estimate(tokens int, vramMB int64) (float64, float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// NOTE: extended Estimate to include KV-growth and reasoning cost.
@@ -100,7 +100,7 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vram int64) (float64, float64)
 	// If VRAM is > 90% full (Free < 2400MB assuming 24GB total) and request is long,
 	// we block it to prevent OOM/Fragmentation.
 	// (We also compute a memCost component below to capture KV growth effects.)
-	if vram < 2400 && tokens > 1000 {
+	if vramMB < 2400 && tokens > 1000 {
 		return math.MaxFloat64, p.AverageLatency
 	}
 
@@ -109,8 +109,8 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vram int64) (float64, float64)
 
 	// Memory / KV cost: if free VRAM is low, inflate cost proportionally
 	memCost := 0.0
-	if vram < 4096 {
-		contention := (4096.0 - float64(vram)) / 4096.0
+	if vramMB < 4096 {
+		contention := (4096.0 - float64(vramMB)) / 4096.0
 		memCost = base * contention * p.BandwidthPenalty
 	}
 
@@ -165,33 +165,33 @@ func NewScheduler() *Scheduler {
 	}
 }
 
-func (s *Scheduler) RegisterWorker(id, address, tier string, vram int64) {
+func (s *Scheduler) RegisterWorker(id, address, tier string, vramMB int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Use reported VRAM (in MB) or default to 24GB if not provided
-	initialVRAM := int64(24000)
-	if vram > 0 {
-		initialVRAM = vram * 1024
+	// Standardize to MB. If 0, default to 24GB.
+	if vramMB <= 0 {
+		vramMB = 24576 
 	}
 
 	s.workers[id] = &registry.Worker{
 		ID:            id,
 		Address:       address,
 		IsHealthy:     true,
-		LastKnownVRAM: initialVRAM,
+		LastKnownVRAM: vramMB, // STORE AS MB
 	}
-	// Init predictor for new worker
+
 	s.predictors[id] = &PerWorkerPredictor{
 		FastSlope:        0.1,
 		SlowSlope:        0.1,
 		Intercept:        50.0,
 		UseDualSlope:     s.NLMSMode != "SINGLE",
 		KVGrowthFactor:   0.5,
-		BandwidthPenalty: 1.0,
+		BandwidthPenalty: 1.5, // Significant penalty for research visibility
 		Tier:             tier,
-		TotalVRAM:        vram,
+		TotalVRAM:        vramMB, // STORE AS MB
 	}
+	log.Printf("[SCHEDULER] Worker %s registered. Tier: %s, VRAM: %d MB", id, tier, vramMB)
 }
 
 // GetWorker safely retrieves a worker by ID

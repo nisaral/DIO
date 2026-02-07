@@ -40,17 +40,26 @@ func NewAPIGateway(managerAddr string, sched *scheduler.Scheduler) *APIGateway {
 }
 
 func (ag *APIGateway) HandleTest(w http.ResponseWriter, r *http.Request) {
-	// Enable CORS
+	// 1. Enable CORS for local testing and UI
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-	// Handle preflight requests
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
+	// 2. HEALTH CHECK (GET): Used by run_cloud_suite.py to verify manager is UP
+	if r.Method == http.MethodGet {
+		respondJSON(w, http.StatusOK, map[string]string{
+			"status": "online",
+			"time":   time.Now().Format(time.RFC3339),
+		})
+		return
+	}
+
+	// 3. INFERENCE TEST (POST): Used for manual gRPC verification
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -58,19 +67,19 @@ func (ag *APIGateway) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 	var req TestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Connect to gRPC manager
-	conn, err := grpc.Dial(ag.managerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// Connect to gRPC manager (Ideally use a shared client, but keeping for compatibility)
+	conn, err := grpc.NewClient(ag.managerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		respondJSON(w, http.StatusServiceUnavailable, TestResponse{
 			Success: false,
-			Message: "Failed to connect to manager: " + err.Error(),
+			Message: "Failed to connect to gRPC: " + err.Error(),
 		})
 		return
 	}
@@ -78,16 +87,17 @@ func (ag *APIGateway) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 	client := pb.NewOrchestratorClient(conn)
 
-	// Measure latency
+	// Measure round-trip gRPC latency
 	start := time.Now()
 	resp, err := client.ExecuteInference(ctx, &pb.InferenceRequest{
 		ModelId: req.ModelID,
 		Data:    []byte(req.Payload),
+		Tier:    "small", // Default for test
 	})
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
-		log.Printf("Inference failed: %v", err)
+		log.Printf("[GATEWAY] Inference failed: %v", err)
 		respondJSON(w, http.StatusInternalServerError, TestResponse{
 			Success: false,
 			Message: "Inference failed: " + err.Error(),
@@ -99,7 +109,7 @@ func (ag *APIGateway) HandleTest(w http.ResponseWriter, r *http.Request) {
 		Success:   true,
 		LatencyMs: latency,
 		Tokens:    int(resp.TokensUsed),
-		WorkerID:  "",
+		WorkerID:  "selected-by-scheduler",
 	})
 }
 

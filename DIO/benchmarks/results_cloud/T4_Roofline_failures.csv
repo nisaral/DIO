@@ -1,0 +1,3 @@
+Method,Name,Error,Occurrences
+POST,/api/generate,CatchResponseError('Failed: rpc error: code = Unknown desc = no healthy workers available\n'),42
+SINGLE,general_large,Exception('Failed'),42
