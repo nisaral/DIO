@@ -1,0 +1,148 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{meta2024llama3}
+\citation{jiang2023mixtral}
+\citation{vllm}
+\citation{tgi}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\citation{nexussched}
+\citation{vllm}
+\citation{haykin2002adaptive}
+\citation{williams2009roofline}
+\citation{vllm}
+\citation{sglang}
+\citation{tgi}
+\citation{rayserve}
+\citation{nexussched}
+\citation{sharegpt}
+\citation{sjf}
+\citation{nexussched}
+\citation{nexussched}
+\citation{orca}
+\citation{vllm}
+\citation{rayserve}
+\citation{CocoServe}
+\citation{loongserve}
+\citation{llumnix}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Background and Motivation}{2}{section.2}\protected@file@percent }
+\newlabel{sec:background}{{2}{2}{Background and Motivation}{section.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Comparison of LLM serving systems. DIO is the first control-plane orchestrator to combine zero-config dual-timescale NLMS prediction, Roofline-inspired per-request VRAM admission, and $O(1)$ scheduling while remaining completely non-invasive to production engines such as vLLM or SGLang.}}{2}{table.1}\protected@file@percent }
+\newlabel{tab:systems_comparison}{{1}{2}{Comparison of LLM serving systems. DIO is the first control-plane orchestrator to combine zero-config dual-timescale NLMS prediction, Roofline-inspired per-request VRAM admission, and $O(1)$ scheduling while remaining completely non-invasive to production engines such as vLLM or SGLang}{table.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}System Overview}{3}{section.3}\protected@file@percent }
+\newlabel{sec:design}{{3}{3}{System Overview}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Design Evolution}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {DIO System Architecture.} The centralized Control Plane (Go) decouples scheduling logic from execution. The \textit  {NLMS Predictor} and \textit  {Cost-Based Scheduler} operate on the hot path, routing requests via gRPC to heterogeneous Python workers. Workers piggyback real-time latency and VRAM telemetry onto inference responses, closing the feedback loop.}}{3}{figure.1}\protected@file@percent }
+\newlabel{fig:architecture}{{1}{3}{\textbf {DIO System Architecture.} The centralized Control Plane (Go) decouples scheduling logic from execution. The \textit {NLMS Predictor} and \textit {Cost-Based Scheduler} operate on the hot path, routing requests via gRPC to heterogeneous Python workers. Workers piggyback real-time latency and VRAM telemetry onto inference responses, closing the feedback loop}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}System Architecture}{3}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.1}Control Plane (Go)}{3}{subsubsection.3.2.1}\protected@file@percent }
+\citation{haykin2002adaptive}
+\citation{haykin2002adaptive}
+\newlabel{eq:dual-timescale}{{1}{4}{Control Plane (Go)}{equation.1}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.2}Data Plane (Python Workers)}{4}{subsubsection.3.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Latency Prediction: Dual-Timescale NLMS}{4}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:nlms-model}{{3.3}{4}{Latency Prediction: Dual-Timescale NLMS}{subsection.3.3}{}}
+\newlabel{eq:model}{{2}{4}{Latency Prediction: Dual-Timescale NLMS}{equation.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Derivation of the Update Rule}{4}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{eq:norm}{{3}{4}{Derivation of the Update Rule}{equation.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Dual-Timescale Adaptation}{4}{subsubsection.3.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Stability and implementation details.}{4}{section*.2}\protected@file@percent }
+\citation{williams2009roofline}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Tier- and Roofline-Aware Scheduling}{5}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:scheduling}{{3.4}{5}{Tier- and Roofline-Aware Scheduling}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{VRAM pressure penalty (Roofline-inspired).}{5}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{KV-cache affinity bonus.}{5}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Coefficient selection.}{5}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Complexity analysis.}{5}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experimental Evaluation}{5}{section.4}\protected@file@percent }
+\newlabel{sec:evaluation}{{4}{5}{Experimental Evaluation}{section.4}{}}
+\citation{nexussched}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Tier- and Roofline-Aware Scheduling (DIO)}}{6}{algorithm.1}\protected@file@percent }
+\newlabel{alg:dio}{{1}{6}{Coefficient selection}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Experimental Methodology}{6}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.1.1}Hardware Testbed}{6}{subsubsection.4.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.1.2}Workloads and Datasets}{6}{subsubsection.4.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.1.3}Baselines and Metrics}{6}{subsubsection.4.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Experiment protocol.}{6}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Scalability and Control Plane Overhead}{6}{subsection.4.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Control Plane Scalability Analysis.} On an A100 node with 32 concurrent mock workers, DIO maintains a per-request scheduling overhead of 14\,$\mu $s and zero failures across 1664 requests. The reported 1.9\,s p99 end-to-end TTFT is dominated by synthetic worker delay and reflects control-plane stability rather than model serving speed.}}{6}{figure.2}\protected@file@percent }
+\newlabel{fig:scalability}{{2}{6}{\textbf {Control Plane Scalability Analysis.} On an A100 node with 32 concurrent mock workers, DIO maintains a per-request scheduling overhead of 14\,$\mu $s and zero failures across 1664 requests. The reported 1.9\,s p99 end-to-end TTFT is dominated by synthetic worker delay and reflects control-plane stability rather than model serving speed}{figure.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Memory footprint.}{7}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}End-to-End Performance on Production Traces}{7}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.1}Tail Latency Reduction}{7}{subsubsection.4.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {4.3.2}SLO Attainment and Goodput}{7}{subsubsection.4.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Goodput vs.\ raw throughput.}{7}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Handling Hardware Heterogeneity}{7}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Convergence behavior.}{7}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Ablation Study: Component Contribution}{7}{subsection.4.5}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces \textbf  {End-to-End Performance \& Reliability Comparison on A100 Hardware.} The top row displays p99 TTFT (lower is better), while the bottom row displays SLO Attainment (higher is better). \textbf  {(Left) ShareGPT:} DIO reduces p99 TTFT by avoiding head-of-line blocking. \textbf  {(Center) arXiv:} The baseline (RR) suffers severe VRAM thrashing, driving p99 TTFT to ${>}80$\,s, while DIO maintains stable performance via admission control. \textbf  {(Right) Azure Code:} DIO handles bursty decoding times effectively, maintaining 88\% SLO attainment versus 12\% for the baseline.}}{8}{figure.3}\protected@file@percent }
+\newlabel{fig:line_comparison}{{3}{8}{\textbf {End-to-End Performance \& Reliability Comparison on A100 Hardware.} The top row displays p99 TTFT (lower is better), while the bottom row displays SLO Attainment (higher is better). \textbf {(Left) ShareGPT:} DIO reduces p99 TTFT by avoiding head-of-line blocking. \textbf {(Center) arXiv:} The baseline (RR) suffers severe VRAM thrashing, driving p99 TTFT to ${>}80$\,s, while DIO maintains stable performance via admission control. \textbf {(Right) Azure Code:} DIO handles bursty decoding times effectively, maintaining 88\% SLO attainment versus 12\% for the baseline}{figure.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces \textbf  {Adaptive Routing in Heterogeneous Environments.} Standard Round Robin (RR) assigns 50\% of traffic to the slow worker, causing immediate bottlenecks. DIO's NLMS scheduler identifies the throughput discrepancy within seconds and routes $\approx $75\% of requests to the fast worker, optimizing aggregate cluster utilization.}}{8}{figure.4}\protected@file@percent }
+\newlabel{fig:req_dist}{{4}{8}{\textbf {Adaptive Routing in Heterogeneous Environments.} Standard Round Robin (RR) assigns 50\% of traffic to the slow worker, causing immediate bottlenecks. DIO's NLMS scheduler identifies the throughput discrepancy within seconds and routes $\approx $75\% of requests to the fast worker, optimizing aggregate cluster utilization}{figure.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces \textbf  {Ablation Study (L4 T2).} The Full DIO configuration delivers the lowest p99 TTFT with zero failures. Removing the Roofline admission control ($-$VRAM) results in a 23\% failure rate due to OOM errors. Removing Queue awareness ($-$Queue) causes p99 TTFT to spike to near-baseline levels.}}{8}{figure.5}\protected@file@percent }
+\newlabel{fig:ablation}{{5}{8}{\textbf {Ablation Study (L4 T2).} The Full DIO configuration delivers the lowest p99 TTFT with zero failures. Removing the Roofline admission control ($-$VRAM) results in a 23\% failure rate due to OOM errors. Removing Queue awareness ($-$Queue) causes p99 TTFT to spike to near-baseline levels}{figure.5}{}}
+\citation{vllm}
+\citation{sglang}
+\citation{tgi}
+\citation{fastertransformer}
+\citation{deepspeed}
+\@writefile{toc}{\contentsline {paragraph}{Component interaction effects.}{9}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Resilience and Cloud-Native Behavior}{9}{subsection.4.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces \textbf  {System Resilience Tests (L4 Dual Worker).} DIO maintains 0\% failure rates across Convergence, Heterogeneity, and Cold Start tests. In the Roofline test (T4), which floods the system beyond physical capacity, DIO gracefully sheds load rather than crashing, whereas baselines experience unrecoverable failure.}}{9}{figure.6}\protected@file@percent }
+\newlabel{fig:resilience}{{6}{9}{\textbf {System Resilience Tests (L4 Dual Worker).} DIO maintains 0\% failure rates across Convergence, Heterogeneity, and Cold Start tests. In the Roofline test (T4), which floods the system beyond physical capacity, DIO gracefully sheds load rather than crashing, whereas baselines experience unrecoverable failure}{figure.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Threats to validity.}{9}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Related Work}{9}{section.5}\protected@file@percent }
+\newlabel{sec:related}{{5}{9}{Related Work}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}LLM Inference Engines}{9}{subsection.5.1}\protected@file@percent }
+\citation{rayserve}
+\citation{rayllm}
+\citation{triton}
+\citation{orca}
+\citation{distserve}
+\citation{bullet}
+\citation{nexussched}
+\citation{loongserve}
+\citation{llumnix}
+\citation{CocoServe}
+\citation{alpaserve}
+\citation{haykin2002adaptive}
+\citation{littleslaw}
+\citation{williams2009roofline}
+\citation{sjf}
+\citation{rlrouter}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Cluster-Level Orchestrators}{10}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Adaptive Control and Prediction}{10}{subsection.5.3}\protected@file@percent }
+\bibcite{meta2024llama3}{1}
+\bibcite{jiang2023mixtral}{2}
+\bibcite{haykin2002adaptive}{3}
+\bibcite{williams2009roofline}{4}
+\bibcite{nexussched}{5}
+\bibcite{vllm}{6}
+\bibcite{CocoServe}{7}
+\bibcite{alpaserve}{8}
+\bibcite{dean2013tail}{9}
+\bibcite{rayserve}{10}
+\bibcite{rayllm}{11}
+\bibcite{triton}{12}
+\bibcite{bullet}{13}
+\bibcite{distserve}{14}
+\bibcite{survey}{15}
+\bibcite{rlrouter}{16}
+\bibcite{loongserve}{17}
+\bibcite{llumnix}{18}
+\bibcite{sglang}{19}
+\bibcite{tgi}{20}
+\bibcite{littleslaw}{21}
+\bibcite{sharegpt}{22}
+\bibcite{nvml}{23}
+\bibcite{fcfs}{24}
+\bibcite{sjf}{25}
+\bibcite{orca}{26}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Conclusion}{11}{section.6}\protected@file@percent }
+\newlabel{sec:conclusion}{{6}{11}{Conclusion}{section.6}{}}
+\bibcite{fastertransformer}{27}
+\bibcite{deepspeed}{28}
+\bibcite{huggingface}{29}
+\gdef \@abspage@last{12}

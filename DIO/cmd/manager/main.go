@@ -95,7 +95,11 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
     workerClient := pb.NewInferenceWorkerClient(conn)
     resp, err := workerClient.Predict(ctx, req)
     
+    // v3: Prefer real token counts from vLLM over estimated len(data)/4
     inputTokens := len(req.Data) / 4
+    if resp != nil && resp.PromptTokens > 0 {
+        inputTokens = int(resp.PromptTokens) // Real value from vLLM
+    }
     metrics := scheduler.DetailedMetrics{}
 
     if err == nil {
@@ -120,12 +124,21 @@ func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest)
     return resp, nil
 } 
 func (s *server) RegisterWorker(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	log.Printf("Registering worker: %s at %s", req.WorkerId, req.Address)
+	log.Printf("Registering worker: %s at %s (engine=%s)", req.WorkerId, req.Address, req.EngineType)
 	if err := s.store.SaveWorker(req); err != nil {
 		return &pb.RegisterResponse{Success: false}, err
 	}
-	// VRAM is passed as MB from Python workers
-	s.scheduler.RegisterWorker(req.WorkerId, req.Address, req.Tier, int64(req.VramGb))
+	// v3: Use engine-aware registration if engine_type is provided
+	engineType := req.EngineType
+	if engineType == "" {
+		engineType = "hf" // Default for legacy workers
+	}
+	// Use real free VRAM if provided, otherwise fall back to vram_gb
+	vramVal := int64(req.VramGb)
+	if req.FreeVramMb > 0 {
+		vramVal = req.FreeVramMb // Prefer real-time NVML value
+	}
+	s.scheduler.RegisterWorkerWithEngine(req.WorkerId, req.Address, req.Tier, vramVal, engineType)
 	return &pb.RegisterResponse{Success: true}, nil
 }
 

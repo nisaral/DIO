@@ -1,0 +1,125 @@
+# ============================================================
+# DIO v3 — Heterogeneous vLLM Demo Stack
+# ============================================================
+#
+# This docker-compose demonstrates DIO's value proposition:
+#   → 2 vLLM engines (simulating A100 "fast" + T4 "slow")
+#   → 2 DIO proxy sidecars (gRPC ↔ HTTP translation)
+#   → 1 DIO Control Plane (Go Manager with NLMS scheduler)
+#
+# Usage:
+#   docker compose -f vllm-integration/docker-compose.yaml up
+#
+# The "slow" worker uses lower gpu-memory-utilization to
+# simulate a smaller GPU (T4). The DIO NLMS predictor will
+# detect the speed differential and route traffic accordingly.
+# ============================================================
+
+services:
+  # ── DIO Control Plane (Go) ──
+  dio-manager:
+    build:
+      context: ../
+      dockerfile: cmd/manager/Dockerfile
+    ports:
+      - "50055:50055"   # gRPC
+      - "8085:8085"     # HTTP API + Dashboard
+    environment:
+      - SCHEDULER_STRATEGY=NLMS
+      - NLMS_MODE=DUAL
+      - TELEMETRY_FILE=/data/telemetry.csv
+    volumes:
+      - telemetry-data:/data
+
+  # ── vLLM Engine: "Fast" (Simulated A100) ──
+  vllm-fast:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model meta-llama/Llama-3.2-3B-Instruct
+      --port 8000
+      --gpu-memory-utilization 0.85
+      --max-model-len 4096
+      --dtype auto
+      --max-num-seqs 256
+    shm_size: "4gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+  # ── vLLM Engine: "Slow" (Simulated T4) ──
+  vllm-slow:
+    image: vllm/vllm-openai:latest
+    command: >
+      --model meta-llama/Llama-3.2-3B-Instruct
+      --port 8000
+      --gpu-memory-utilization 0.60
+      --max-model-len 2048
+      --dtype float16
+      --max-num-seqs 64
+      --enforce-eager
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+
+  # ── DIO Proxy: Fast Worker ──
+  dio-proxy-fast:
+    build:
+      context: ../
+      dockerfile: vllm-integration/Dockerfile
+    command: >
+      --worker-id vllm-fast-a100
+      --port 50060
+      --vllm-url http://vllm-fast:8000
+      --manager-addr dio-manager:50055
+      --gpu-index 0
+      --tier large
+      --model-id meta-llama/Llama-3.2-3B-Instruct
+      --heartbeat-interval 15
+    depends_on:
+      - vllm-fast
+      - dio-manager
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+  # ── DIO Proxy: Slow Worker ──
+  dio-proxy-slow:
+    build:
+      context: ../
+      dockerfile: vllm-integration/Dockerfile
+    command: >
+      --worker-id vllm-slow-t4
+      --port 50061
+      --vllm-url http://vllm-slow:8000
+      --manager-addr dio-manager:50055
+      --gpu-index 1
+      --tier small
+      --model-id meta-llama/Llama-3.2-3B-Instruct
+      --latency-mult 2.5
+      --heartbeat-interval 15
+    depends_on:
+      - vllm-slow
+      - dio-manager
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: [gpu]
+
+volumes:
+  telemetry-data:

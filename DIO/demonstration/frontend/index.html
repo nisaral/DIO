@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIO | Distributed Inference Orchestrator — Demo</title>
+    <meta name="description"
+        content="Interactive demonstration of DIO's NLMS-based adaptive scheduling for distributed LLM inference">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- SAFETY FLASH OVERLAY -->
+    <div id="safety-overlay" class="safety-overlay hidden">
+        <div class="safety-box">
+            <div class="safety-icon">BLOCKED</div>
+            <div class="safety-title">VRAM SAFETY GUARD ACTIVATED</div>
+            <div class="safety-msg" id="safety-msg"></div>
+            <div class="safety-sub">Roofline Admission Control intercepted this request before GPU crash.</div>
+            <button onclick="closeSafetyOverlay()" class="btn btn-outline" style="margin-top:1rem;">Dismiss</button>
+        </div>
+    </div>
+
+    <!-- HEADER -->
+    <header class="header">
+        <div class="brand">
+            <h1>DIO</h1>
+            <span class="brand-sub">Distributed Inference Orchestrator</span>
+        </div>
+        <div class="status-bar">
+            <div class="status-pill" id="status-manager">
+                <span class="status-dot" id="dot-manager"></span>
+                <span>Manager</span>
+            </div>
+            <div class="status-pill" id="status-workers">
+                <span class="status-dot" id="dot-workers"></span>
+                <span id="worker-count-label">0 Workers</span>
+            </div>
+            <div class="status-pill" id="status-ws">
+                <span class="status-dot" id="dot-ws"></span>
+                <span>WebSocket</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN LAYOUT -->
+    <div class="main-layout">
+
+        <!-- LEFT PANEL -->
+        <div class="left-panel">
+
+            <!-- Test Suite -->
+            <div class="test-suite card">
+                <div class="section-title">Test Suite (T1 – T11)</div>
+                <div class="master-controls">
+                    <button class="btn btn-primary" onclick="runAllTests()">Run All Tests</button>
+                    <button class="btn btn-outline" onclick="clearTerminal()">Clear Log</button>
+                </div>
+                <div class="test-grid" id="test-grid"></div>
+            </div>
+
+            <!-- Injection Panel -->
+            <div class="injection-panel card" style="margin-top: 1rem;">
+                <div class="section-title">Interactive Prompt Injection</div>
+                <div class="inject-controls">
+                    <div class="inject-input-row">
+                        <textarea id="inject-prompt" class="inject-textarea"
+                            placeholder="Type a prompt to inject..."></textarea>
+                        <button class="btn btn-primary" onclick="injectPrompt()"
+                            style="align-self: flex-end;">Inject</button>
+                    </div>
+                    <div class="preset-row">
+                        <button class="preset-btn" onclick="setPreset('short')">Short Chat</button>
+                        <button class="preset-btn" onclick="setPreset('medium')">Medium</button>
+                        <button class="preset-btn" onclick="setPreset('long')">Long Doc</button>
+                    </div>
+                    <div class="burst-row">
+                        <span style="font-size: 0.75rem; color: var(--text-secondary);">Burst:</span>
+                        <input type="range" class="burst-slider" id="burst-count" min="5" max="100" value="10"
+                            oninput="updateBurstLabel()">
+                        <span class="burst-count" id="burst-label">10</span>
+                        <button class="btn btn-warning btn-sm" onclick="fireBurst()">Fire Burst</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHAOS ENGINEERING PANEL -->
+            <div class="card chaos-panel" style="margin-top: 1rem;">
+                <div class="section-title chaos-title">Chaos Engineering</div>
+
+                <!-- Thermal Throttle -->
+                <div class="chaos-section">
+                    <div class="chaos-label">
+                        <span>Thermal Throttle — RTX4050_Shard_2</span>
+                        <span class="chaos-value" id="throttle-value">1.0x (Normal)</span>
+                    </div>
+                    <input type="range" class="chaos-slider" id="throttle-slider" min="1.0" max="5.0" step="0.5"
+                        value="1.0" oninput="updateThrottle(this.value)">
+                    <div class="chaos-hint">Drag right to simulate GPU thermal throttling. Watch NLMS detect the drift
+                        and reroute traffic.</div>
+                </div>
+
+                <!-- OOM Bomb -->
+                <div class="chaos-section" style="margin-top: 0.75rem;">
+                    <div class="chaos-label">
+                        <span>OOM Bomb — 12,000 Token Request</span>
+                    </div>
+                    <button class="btn btn-danger" onclick="fireOOMBomb()" id="oom-btn">
+                        FIRE OOM BOMB
+                    </button>
+                    <div class="chaos-hint">Sends an oversized request. Roofline guard should intercept it before GPU
+                        crashes.</div>
+                </div>
+            </div>
+
+            <!-- Dual-View NLMS Chart -->
+            <div class="card" style="margin-top: 1rem;">
+                <div class="section-title">DIO vs Round-Robin — Live Latency</div>
+                <div class="chart-container">
+                    <canvas id="nlms-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: GPU Panel + Terminal -->
+        <div class="terminal-section">
+
+            <!-- GPU Worker Pool -->
+            <div class="card gpu-panel" style="margin-bottom: 1rem;">
+                <div class="section-title">GPU Worker Pool (NVIDIA RTX 4050)</div>
+                <div class="gpu-info-row">
+                    <span class="gpu-info-label">Hardware:</span>
+                    <span class="gpu-info-value">NVIDIA RTX 4050 (6GB VRAM) — Virtually Sharded</span>
+                </div>
+                <div class="gpu-grid" id="gpu-grid">
+                    <div class="gpu-card idle">
+                        <div class="gpu-name">No active workers</div>
+                        <div class="gpu-detail">Run a test to see GPU shards</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Terminal -->
+            <div class="terminal-wrapper">
+                <div class="terminal-chrome">
+                    <div class="chrome-dot r"></div>
+                    <div class="chrome-dot y"></div>
+                    <div class="chrome-dot g"></div>
+                    <div class="chrome-title">DIO Demo — Live Output</div>
+                </div>
+                <div class="terminal-body" id="terminal">
+                    <div class="log-line">
+                        <span class="log-time">[SYS]</span>
+                        <span class="log-text system">DIO Demonstration System initializing...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

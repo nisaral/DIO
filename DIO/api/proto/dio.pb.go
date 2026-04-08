@@ -7,13 +7,12 @@
 package pb
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -30,6 +29,8 @@ type RegisterRequest struct {
 	Models        []string               `protobuf:"bytes,3,rep,name=models,proto3" json:"models,omitempty"`
 	Tier          string                 `protobuf:"bytes,4,opt,name=tier,proto3" json:"tier,omitempty"`
 	VramGb        int64                  `protobuf:"varint,5,opt,name=vram_gb,json=vramGb,proto3" json:"vram_gb,omitempty"`
+	EngineType    string                 `protobuf:"bytes,6,opt,name=engine_type,json=engineType,proto3" json:"engine_type,omitempty"`    // "vllm", "hf", "mock" (v3)
+	FreeVramMb    int64                  `protobuf:"varint,7,opt,name=free_vram_mb,json=freeVramMb,proto3" json:"free_vram_mb,omitempty"` // Real-time free VRAM from NVML (v3)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,6 +96,20 @@ func (x *RegisterRequest) GetTier() string {
 func (x *RegisterRequest) GetVramGb() int64 {
 	if x != nil {
 		return x.VramGb
+	}
+	return 0
+}
+
+func (x *RegisterRequest) GetEngineType() string {
+	if x != nil {
+		return x.EngineType
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetFreeVramMb() int64 {
+	if x != nil {
+		return x.FreeVramMb
 	}
 	return 0
 }
@@ -204,13 +219,15 @@ func (x *InferenceRequest) GetTier() string {
 }
 
 type InferenceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Output        []byte                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
-	LatencyMs     float32                `protobuf:"fixed32,2,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
-	TokensUsed    int64                  `protobuf:"varint,3,opt,name=tokens_used,json=tokensUsed,proto3" json:"tokens_used,omitempty"`
-	TtftMs        float32                `protobuf:"fixed32,4,opt,name=ttft_ms,json=ttftMs,proto3" json:"ttft_ms,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Output           []byte                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
+	LatencyMs        float32                `protobuf:"fixed32,2,opt,name=latency_ms,json=latencyMs,proto3" json:"latency_ms,omitempty"`
+	TokensUsed       int64                  `protobuf:"varint,3,opt,name=tokens_used,json=tokensUsed,proto3" json:"tokens_used,omitempty"`
+	TtftMs           float32                `protobuf:"fixed32,4,opt,name=ttft_ms,json=ttftMs,proto3" json:"ttft_ms,omitempty"`
+	PromptTokens     int64                  `protobuf:"varint,5,opt,name=prompt_tokens,json=promptTokens,proto3" json:"prompt_tokens,omitempty"`             // From vLLM usage.prompt_tokens (v3)
+	CompletionTokens int64                  `protobuf:"varint,6,opt,name=completion_tokens,json=completionTokens,proto3" json:"completion_tokens,omitempty"` // From vLLM usage.completion_tokens (v3)
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *InferenceResponse) Reset() {
@@ -271,30 +288,50 @@ func (x *InferenceResponse) GetTtftMs() float32 {
 	return 0
 }
 
+func (x *InferenceResponse) GetPromptTokens() int64 {
+	if x != nil {
+		return x.PromptTokens
+	}
+	return 0
+}
+
+func (x *InferenceResponse) GetCompletionTokens() int64 {
+	if x != nil {
+		return x.CompletionTokens
+	}
+	return 0
+}
+
 var File_dio_proto protoreflect.FileDescriptor
 
 const file_dio_proto_rawDesc = "" +
 	"\n" +
-	"\tdio.proto\x12\x03dio\x1a\x1bgoogle/protobuf/empty.proto\"\x8d\x01\n" +
+	"\tdio.proto\x12\x03dio\x1a\x1bgoogle/protobuf/empty.proto\"\xd0\x01\n" +
 	"\x0fRegisterRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x16\n" +
 	"\x06models\x18\x03 \x03(\tR\x06models\x12\x12\n" +
 	"\x04tier\x18\x04 \x01(\tR\x04tier\x12\x17\n" +
-	"\avram_gb\x18\x05 \x01(\x03R\x06vramGb\",\n" +
+	"\avram_gb\x18\x05 \x01(\x03R\x06vramGb\x12\x1f\n" +
+	"\vengine_type\x18\x06 \x01(\tR\n" +
+	"engineType\x12 \n" +
+	"\ffree_vram_mb\x18\a \x01(\x03R\n" +
+	"freeVramMb\",\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\"U\n" +
 	"\x10InferenceRequest\x12\x19\n" +
 	"\bmodel_id\x18\x01 \x01(\tR\amodelId\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12\x12\n" +
-	"\x04tier\x18\x03 \x01(\tR\x04tier\"\x84\x01\n" +
+	"\x04tier\x18\x03 \x01(\tR\x04tier\"\xd6\x01\n" +
 	"\x11InferenceResponse\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\fR\x06output\x12\x1d\n" +
 	"\n" +
 	"latency_ms\x18\x02 \x01(\x02R\tlatencyMs\x12\x1f\n" +
 	"\vtokens_used\x18\x03 \x01(\x03R\n" +
 	"tokensUsed\x12\x17\n" +
-	"\attft_ms\x18\x04 \x01(\x02R\x06ttftMs2\xc8\x01\n" +
+	"\attft_ms\x18\x04 \x01(\x02R\x06ttftMs\x12#\n" +
+	"\rprompt_tokens\x18\x05 \x01(\x03R\fpromptTokens\x12+\n" +
+	"\x11completion_tokens\x18\x06 \x01(\x03R\x10completionTokens2\xc8\x01\n" +
 	"\fOrchestrator\x12=\n" +
 	"\x0eRegisterWorker\x12\x14.dio.RegisterRequest\x1a\x15.dio.RegisterResponse\x126\n" +
 	"\x05Infer\x12\x15.dio.InferenceRequest\x1a\x16.dio.InferenceResponse\x12A\n" +

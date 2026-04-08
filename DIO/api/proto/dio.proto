@@ -25,6 +25,8 @@ message RegisterRequest {
   repeated string models = 3;
   string tier = 4;
   int64 vram_gb = 5;
+  string engine_type = 6;  // "vllm", "hf", "mock" (v3)
+  int64 free_vram_mb = 7;  // Real-time free VRAM from NVML (v3)
 }
 
 message RegisterResponse {
@@ -42,4 +44,6 @@ message InferenceResponse {
   float latency_ms = 2;
   int64 tokens_used = 3;
   float ttft_ms = 4;
+  int64 prompt_tokens = 5;     // From vLLM usage.prompt_tokens (v3)
+  int64 completion_tokens = 6; // From vLLM usage.completion_tokens (v3)
 }

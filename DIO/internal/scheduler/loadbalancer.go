@@ -32,6 +32,7 @@ type PerWorkerPredictor struct {
 	BandwidthPenalty float64 // roofline multiplier when memory pressure exists
 	Tier             string  // "small", "large"
 	TotalVRAM        int64   // GB
+	EngineType       string  // "vllm", "hf", "mock" (v3)
 }
 
 // Update implements the Normalized Least Mean Squares (NLMS) update step.
@@ -65,16 +66,19 @@ func (p *PerWorkerPredictor) Update(actual float64, tokens int, vramMB int64) {
 	// 2. Dual-Timescale Update (The "Research Novelty")
 	if tokens > 0 {
 		grad := error / float64(tokens)
-		p.FastSlope += 0.1 * grad // Fast learning rate
+		p.FastSlope += 0.2 * grad // Fast learning rate (doubled for demo reactivity)
 		if p.UseDualSlope {
-			p.SlowSlope += 0.01 * grad // Slow learning rate
+			p.SlowSlope += 0.05 * grad // Slow learning rate (increased for drift)
 		}
 	}
-	p.Intercept += 0.01 * error
+	p.Intercept += 0.1 * error // Intercept learning rate (10x for fast baseline correction)
 
 	// Constraints
 	if p.FastSlope < 0.1 {
 		p.FastSlope = 0.1
+	}
+	if p.Intercept < 0.1 {
+		p.Intercept = 0.1
 	}
 
 	// 3. Update Interference History
@@ -166,12 +170,22 @@ func NewScheduler() *Scheduler {
 }
 
 func (s *Scheduler) RegisterWorker(id, address, tier string, vramMB int64) {
+	s.RegisterWorkerWithEngine(id, address, tier, vramMB, "")
+}
+
+// RegisterWorkerWithEngine registers a worker with engine type info (v3)
+func (s *Scheduler) RegisterWorkerWithEngine(id, address, tier string, vramMB int64, engineType string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Standardize to MB. If 0, default to 24GB.
 	if vramMB <= 0 {
-		vramMB = 24576 
+		vramMB = 24576
+	}
+
+	// Default engine type
+	if engineType == "" {
+		engineType = "hf" // Legacy HuggingFace workers
 	}
 
 	s.workers[id] = &registry.Worker{
@@ -179,6 +193,7 @@ func (s *Scheduler) RegisterWorker(id, address, tier string, vramMB int64) {
 		Address:       address,
 		IsHealthy:     true,
 		LastKnownVRAM: vramMB, // STORE AS MB
+		EngineType:    engineType,
 	}
 
 	s.predictors[id] = &PerWorkerPredictor{
@@ -190,8 +205,9 @@ func (s *Scheduler) RegisterWorker(id, address, tier string, vramMB int64) {
 		BandwidthPenalty: 1.5, // Significant penalty for research visibility
 		Tier:             tier,
 		TotalVRAM:        vramMB, // STORE AS MB
+		EngineType:       engineType,
 	}
-	log.Printf("[SCHEDULER] Worker %s registered. Tier: %s, VRAM: %d MB", id, tier, vramMB)
+	log.Printf("[SCHEDULER] Worker %s registered. Tier: %s, VRAM: %d MB, Engine: %s", id, tier, vramMB, engineType)
 }
 
 // GetWorker safely retrieves a worker by ID
