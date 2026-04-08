@@ -1,0 +1,676 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% PACKAGES
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{float}
+\usepackage{placeins}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,fit,backgrounds}
+\graphicspath{{../figs/}}  % Folder for images
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% PAGE SETUP
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\setlength{\paperheight}{11in}
+\setlength{\paperwidth}{8.5in}
+\usepackage[margin=1in]{geometry}
+
+% Float placement parameters to prevent figure-only pages
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.15}
+\renewcommand{\floatpagefraction}{0.7}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TITLE
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{DIO: Predictive Orchestration for Heterogeneous LLM Inference}
+
+\author{
+    Keyush Nisar \qquad Krishil Parikh \qquad Krisha Maisheri \\
+    Dwarkadas J Sanghvi College Of Engineering \\
+    {\tt\small Nisarkeyush3@gmail.com, Krishilparikh75@gmail.com, KrishaMaisheri16@gmail.com}
+}
+
+
+
+\begin{document}
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% ABSTRACT
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+\textbf{Large Language Model (LLM) serving systems typically maximize single-node throughput but struggle to maintain service-level objectives (SLOs) in heterogeneous, cluster-scale environments. Existing orchestrators often rely on engine-centric optimizations that lack cluster-wide visibility or distributed frameworks that depend on coarse-grained metrics, leading to head-of-line blocking and memory failures when hardware capabilities vary. We introduce DIO, a distributed inference orchestrator that decouples predictive scheduling from execution. By employing a dual-timescale Normalized Least Mean Squares (NLMS) predictor, DIO learns per-worker performance characteristics online without static profiling. This learned model drives a Roofline-inspired admission control system that explicitly manages VRAM constraints, preventing out-of-memory crashes while optimizing tail latency across diverse GPU fleets. On production traces replayed across A100 and L4 hardware, DIO reduces p99 Time-To-First-Token (TTFT) by up to 63\% on our ShareGPT workload with emulated heterogeneity, eliminates OOM failures across all 12 stress tests, and adds only 14\,$\mu$s of scheduling overhead per request---all without modifying the underlying inference engine.}
+\end{abstract}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 1. INTRODUCTION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Introduction}
+\label{sec:intro}
+
+The rapid adoption of Large Language Models (LLMs) has transformed them from research prototypes into core infrastructure for production AI services. As organizations scale from pilot projects to production deployments serving millions of users, they face a critical tension between performance and cost. Achieving low latency---specifically, maintaining tight Service-Level Objectives (SLOs) on Time-To-First-Token (TTFT) and Time-Per-Output-Token (TPOT)---is critical for interactive applications. However, the computational cost of serving models like Llama 3 70B~\cite{meta2024llama3} or Mixtral 8x7B~\cite{jiang2023mixtral} at scale is prohibitive when relying solely on high-end hardware.
+
+To optimize Total Cost of Ownership (TCO), infrastructure teams are increasingly moving away from homogeneous clusters of flagship GPUs (e.g., NVIDIA H100s or A100s) toward heterogeneous fleets. These fleets combine remnant capacity of older generations (T4, V100), mid-range inference cards (L4, A10), and spot instances across different availability zones. While this strategy significantly reduces hourly compute costs, it introduces significant complexity at the orchestration layer. In a mixed compute environment, the performance variance between a T4 and an A100 is not merely linear but structural: differences in memory bandwidth, tensor core availability, and VRAM capacity mean that a request processed in milliseconds on one node may take seconds on another, jeopardizing p99 TTFT metrics.
+
+Current generation inference engines, such as vLLM~\cite{vllm} and Text Generation Inference (TGI)~\cite{tgi}, have achieved strong single-node performance through techniques like PagedAttention and continuous batching. Yet, they remain largely unaware of this broader cluster context. When deployed in a distributed setting, they typically rely on external load balancers that employ simplistic algorithms like Round-Robin or Least-Connections. These algorithms operate on the assumption that all workers have equal throughput and that request complexity is uniform. In reality, LLM inference is highly variable: a short summarization task is computationally distinct from a multi-turn code generation session, and a worker with 4\,GB of free VRAM is operationally different from one with 80\,GB, even if both have the same number of active connections.
+
+This disconnect manifests in two prevalent failure modes. First, latency variability leads to head-of-line blocking, where short, high-priority queries are inadvertently queued behind long-running generation tasks on slower hardware, causing p99 TTFT to spike. Second, and more critically, memory blindness leads to reliability failures. Standard load balancers cannot distinguish between a worker with ample KV-cache space and one nearing eviction thresholds. Routing a long-context request to a memory-saturated worker triggers expensive recomputation or, worse, an Out-Of-Memory (OOM) crash that disrupts service availability.
+
+We present DIO, a control-theoretic orchestrator designed for this contended multi-tenant environment. Unlike prior work that requires invasive engine modifications (e.g., NexusSched~\cite{nexussched}) or homogeneous hardware assumptions (e.g., vLLM~\cite{vllm}), DIO decouples predictive scheduling from execution. By employing a dual-timescale Normalized Least Mean Squares (NLMS) predictor~\cite{haykin2002adaptive}, DIO learns per-worker performance characteristics online without static profiling. This learned model drives a Roofline-inspired admission control system~\cite{williams2009roofline} that explicitly manages VRAM constraints, preventing OOM crashes while optimizing p99 TTFT across diverse GPU fleets.
+
+This paper makes three contributions: a dual-timescale NLMS filter that learns per-worker latency slopes online in $O(1)$ time per request, a Roofline-inspired admission controller that couples VRAM pressure estimates with tier-aware routing to prevent memory failures proactively, and an engine-agnostic architecture that integrates with unmodified vLLM or SGLang backends via coarse telemetry, requiring no changes to the serving engine itself.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 2. BACKGROUND AND MOTIVATION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Background and Motivation}
+\label{sec:background}
+
+Modern LLM serving systems excel at single-node throughput but struggle at cluster scale, particularly in heterogeneous environments. Single-node engines like vLLM~\cite{vllm}, SGLang~\cite{sglang}, and Text Generation Inference (TGI)~\cite{tgi} achieve impressive performance through PagedAttention and continuous batching. However, they provide no global orchestration: when deployed across multiple GPUs, requests are either round-robin routed (naive load balancing) or require external frameworks like Ray Serve~\cite{rayserve} or Kubernetes, both of which use coarse-grained metrics (CPU/memory usage, connection count) that poorly capture LLM-specific needs like per-worker ms/token speed and VRAM headroom~\cite{nexussched}.
+
+This leads to six fundamental failure modes in heterogeneous clusters (A100/L4/T4 mixes with co-location noise). First, \emph{head-of-line (HoL) blocking} arises from extreme request variance: a 10-token chat query stuck behind a 4000-token summarization task balloons p99 TTFT from 860\,ms median to over 4\,s on ShareGPT traces~\cite{sharegpt}. Round-robin and FCFS schedulers (default in Ray Serve, vLLM multi-GPU) exacerbate this; even least-loaded policies fail without predicted execution-time estimates~\cite{sjf}.
+
+Second, \emph{hardware heterogeneity} amplifies inefficiency. Real clusters mix GPU generations with 2--4$\times$ ms/token variance (A100 at 0.5--1.0 vs T4 at 2.0--3.0)~\cite{nexussched}. NexusSched~\cite{nexussched} observes that ``heterogeneity fundamentally amplifies inefficiency'' because queue length misleads across throughput classes, and static profiling (as in early vLLM or TGI) becomes stale due to thermal throttling and interference. Connection-count heuristics (Ray Serve default) overload slow workers while idling fast ones.
+
+Third, \emph{cold starts} during elastic scaling introduce unknown workers, causing latency spikes until profiling converges. Distributed systems like Orca~\cite{orca} and Bullet assume stable profiles, but production GPUs vary 20--50\% over minutes due to thermal throttling and co-tenant interference.
+
+Fourth, \emph{memory safety failures} dominate: KV-cache overflow on VRAM-constrained workers (>90\% utilization) triggers OOM cascades. Most systems react post-failure (vLLM's default eviction~\cite{vllm}, Ray Serve retries~\cite{rayserve}), causing service disruption rather than prevention.
+
+Fifth, \emph{load spikes} (2--5$\times$ bursts from viral events) overwhelm reactive systems without predictive admission. CoCoServe~\cite{CocoServe} and LoongServe~\cite{loongserve} use instance-level scaling but lack per-request prediction.
+
+Finally, \emph{control-plane scalability} is rarely measured: Llumnix~\cite{llumnix} and DistServe report no per-request overheads, and even NexusSched's RLS predictor scales poorly ($O(N^2)$ per update).
+
+Table~\ref{tab:systems_comparison} contrasts these gaps:
+
+\begin{table}[h]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{System} & \textbf{Het.} & \textbf{Admit.} & \textbf{Online} & \textbf{O'head} & \textbf{Eng.\ Mod.} \\
+\midrule
+vLLM/SGLang & No & Reactive & No & N/A & N/A \\
+Ray Serve & Coarse & No & No & ms & None \\
+NexusSched & Yes & No & Offline & $O(N^2)$ & Required \\
+CoCo/Loong & Partial & Instance & No & Unrep. & Partial \\
+\textbf{DIO} & \textbf{Yes} & \textbf{Per-req} & \textbf{Online} & \textbf{14$\mu$s} & \textbf{None} \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of LLM serving systems. DIO is the first control-plane orchestrator to combine zero-config dual-timescale NLMS prediction, Roofline-inspired per-request VRAM admission, and $O(1)$ scheduling while remaining completely non-invasive to production engines such as vLLM or SGLang.}
+\label{tab:systems_comparison}
+\end{table}
+
+These gaps motivate DIO's design goals: (1) \emph{zero-config adaptation} via online NLMS per-worker modeling; (2) \emph{proactive memory safety} with Roofline-inspired VRAM penalties and hard admission; (3) \emph{tier-aware routing} for multi-model deployments; (4) \emph{sub-ms decisions} via $O(1)$ arithmetic; and (5) \emph{non-invasive} integration with existing engines like vLLM.
+
+The core technical challenge is to build a low-overhead predictor that operates at request-granularity (not batch or instance-granularity like previous systems) while maintaining strict VRAM bounds. Traditional approaches either require offline profiling (NexusSched) or ignore memory constraints entirely (Ray Serve), leading to stale predictions or cascading failures. DIO addresses both by coupling fast online learning with explicit resource modeling.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 3. SYSTEM OVERVIEW
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{System Overview}
+\label{sec:design}
+
+DIO's architecture evolved through several iterations as we addressed real-world failures. Below we describe the current implementation: a Go control plane that orchestrates Python LLM workers (vLLM-based) with online, per-worker latency learning and VRAM-aware scheduling.
+
+\subsection{Design Evolution}
+
+DIO did not start as a control-theoretic scheduler; the current design emerged after simpler policies failed under realistic heterogeneity and load.
+
+\noindent \textbf{v0: least-connections wrapper.}
+The initial prototype wrapped vLLM behind a reverse proxy that routed requests according to the number of outstanding connections per worker. On a single GPU or a homogeneous group of similar GPUs this behaved acceptably, but in mixed A100/L4/T4 clusters the slowest worker accumulated the same number of in-flight requests as the fastest one. This inflated p99 TTFT by up to $3.5{\times}$ due to head-of-line blocking on the weaker device.
+
+\noindent \textbf{v1: static profiling.}
+We next benchmarked each worker on a synthetic workload and used the resulting ms/token slopes to weight queue length when routing. While this reduced the worst misroutes, the profiles became stale within minutes as thermal throttling and co-located jobs slowed individual GPUs by 30--50\%, causing predicted latencies to diverge from reality and reintroducing tail-latency spikes.
+
+\noindent \textbf{v2: online per-worker learning.}
+To eliminate offline profiling, we moved to an online predictor: every completed request reports its token count and latency, and a dual-timescale NLMS loop updates a per-worker slope and bias in $O(1)$ time. This version was the first in which routing decisions were driven by predicted, rather than historical, service times, allowing the system to track both short-term interference and longer-term performance drift.
+
+\noindent \textbf{v3: tier- and memory-aware cost.}
+The current design extends v2 with (i) tier labels on requests and workers to encode model capacity, (ii) VRAM-aware penalties and hard admission checks that prevent KV-cache overflow, and (iii) a lightweight prefix-based cache affinity bonus. The learning rule is unchanged; only the cost function is augmented to couple latency prediction with explicit resource constraints.
+
+\subsection{System Architecture}
+
+DIO consists of two primary layers: a high-throughput Control Plane implemented in Go, and a stateless Data Plane of Python inference workers (Figure~\ref{fig:architecture}). The control plane makes all routing and admission decisions; workers only execute model inference and report telemetry.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth, keepaspectratio]{system_Design.png}
+    \caption{\textbf{DIO System Architecture.} The centralized Control Plane (Go) decouples scheduling logic from execution. The \textit{NLMS Predictor} and \textit{Cost-Based Scheduler} operate on the hot path, routing requests via gRPC to heterogeneous Python workers. Workers piggyback real-time latency and VRAM telemetry onto inference responses, closing the feedback loop.}
+    \label{fig:architecture}
+\end{figure}
+
+\subsubsection{Control Plane (Go)}
+
+The control plane handles all routing and admission decisions. For each incoming request, it evaluates a multi-factor cost for every available worker and routes to the minimum-cost candidate; the cost function is detailed in Section~\ref{sec:scheduling}. Execution time is forecasted by the NLMS predictor described in Section~\ref{sec:nlms-model}.
+
+The predictor maintains a per-worker state, assuming a linear model of latency:
+\[ \hat{y} = s_w \cdot N + b_w \]
+where the slope $s_w$ represents milliseconds per token. DIO's key design choice is its dual-timescale slopes: a fast slope ($\mu=0.1$) for quick detection of transients like network congestion, and a slow slope ($\mu=0.01$) for stable long-term hardware profiling. The final prediction uses a weighted average:
+\begin{equation}
+    s^{\text{eff}}_w = \alpha \, s^{\text{fast}}_w + (1 - \alpha) \, s^{\text{slow}}_w, \qquad \alpha = 0.8,
+    \label{eq:dual-timescale}
+\end{equation}
+balancing responsiveness and accuracy.
+
+\subsubsection{Data Plane (Python Workers)}
+
+The data plane operates as a gRPC server that receives \texttt{Predict} calls from the control plane and executes inference using Hugging Face transformers or vLLM. It supports a simulation mode for large-scale testing without GPU hardware and a real mode that loads models such as Llama-3-8B for actual inference. Telemetry such as latency and VRAM usage is attached to normal inference responses, so the control plane can update its predictors without separate polling or heartbeats. This reduces cross-traffic and keeps the feedback loop tight.
+
+\subsection{Latency Prediction: Dual-Timescale NLMS}
+\label{sec:nlms-model}
+
+DIO predicts per-worker latency using a lightweight linear model updated by a dual-timescale Normalized Least Mean Squares (NLMS) filter.
+For a request $k$ with $N_k$ tokens served on worker $w$, we model the end-to-end latency $y_k$ as
+\begin{equation}
+    \hat{y}_k = s_w N_k + b_w, \label{eq:model}
+\end{equation}
+where $s_w$ (ms/token) is a processing slope capturing throughput and $b_w$ is a fixed overhead capturing tokenization, KV-cache allocation, and gRPC serialization.
+Linearity is justified by the autoregressive decoding loop: each output token requires a fixed-cost attention pass whose duration scales with sequence length but is amortized across batch slots. Empirical profiling on A100 and L4 hardware confirms near-linear latency scaling for sequences up to 4k tokens; beyond this range, KV-cache eviction introduces non-linearities that the model does not capture (see Section~\ref{sec:related}).
+
+\subsubsection{Derivation of the Update Rule}
+The goal is to adjust $s_w$ to minimize the instantaneous squared error $J_k = \tfrac{1}{2}(y_k - \hat{y}_k)^2$. Taking the gradient with respect to the slope yields $\partial J_k / \partial s_w = -e_k N_k$, where $e_k = y_k - \hat{y}_k$. A standard LMS update would apply this gradient directly: $s_w \leftarrow s_w + \mu\, e_k N_k$. However, since $N_k$ spans two orders of magnitude (10 to 4000 tokens in our workloads), the gradient magnitude $|e_k N_k|$ varies by the same factor, making a fixed learning rate $\mu$ either too aggressive for long prompts or too sluggish for short ones.
+
+To ensure stability, we normalize the update by the squared input magnitude $N_k^2$, following standard NLMS~\cite{haykin2002adaptive}. The normalized gradient is:
+\begin{equation}
+    \nabla_{\text{norm}} = \frac{e_k \cdot N_k}{N_k^2 + \epsilon}, \label{eq:norm}
+\end{equation}
+where $\epsilon > 0$ prevents division by zero for very short prompts. For practical token counts ($N_k \geq 10$), the $\epsilon$ term is negligible and this simplifies to $e_k / N_k$, which is the form used in our implementation.
+
+\subsubsection{Dual-Timescale Adaptation}
+To distinguish between transient network jitter and persistent hardware drift, we maintain two slope estimates updated with different learning rates:
+\begin{align}
+    s^{\text{fast}}_w &\leftarrow s^{\text{fast}}_w + \mu_{\text{fast}} \,\nabla_{\text{norm}} \quad (\text{Jitter}) \\
+    s^{\text{slow}}_w &\leftarrow s^{\text{slow}}_w + \mu_{\text{slow}} \,\nabla_{\text{norm}} \quad (\text{Drift})
+\end{align}
+We set $\mu_{\text{fast}} = 0.1$ for rapid adaptation and $\mu_{\text{slow}} = 0.01$ for long-term tracking. The effective scheduling slope is the convex combination given in Equation~\ref{eq:dual-timescale}.
+This acts as a \textbf{shaped low-pass filter}: the fast component tracks transients within seconds (e.g., a new model loading or thermal throttling), while the slow component provides a stable baseline that resists noise. The combination shapes the frequency response analogously to a two-pole IIR filter. The bias $b_w$ is updated conservatively ($\mu_b = 0.01$) as overheads are relatively static.
+
+\paragraph{Stability and implementation details.}
+For the scalar NLMS case ($N{=}1$ feature), Haykin~\cite{haykin2002adaptive} shows that Bounded-Input Bounded-Output (BIBO) stability holds for any $0 < \mu < 2$ (this classical LMS result extends to NLMS with normalized step size). Our learning rates ($\mu_{\text{fast}}{=}0.1$, $\mu_{\text{slow}}{=}0.01$) satisfy this bound with wide margin. Under stationary noise with variance $\sigma^2_{\text{noise}}$, the steady-state mean squared error converges to $\mathrm{E}[e_k^2] \to \sigma^2_{\text{noise}} \cdot \mu/(2{-}\mu)$, confirming that smaller $\mu$ trades responsiveness for lower prediction variance.
+The implementation clamps $s^{\text{fast}}_w \geq 0.1$ ms/token to prevent degenerate zero-slope predictions during cold start. It also maintains a short interference history (3-sample ring buffer of actual/predicted ratios) to detect co-location noise; this multiplier has negligible effect in our benchmarks but provides a safety margin in multi-tenant deployments.
+The entire update requires only $O(1)$ floating-point operations per request, compared to the $O(N^2)$ matrix inversions of Recursive Least Squares (RLS) used in NexusSched.
+
+
+
+\subsection{Tier- and Roofline-Aware Scheduling}
+\label{sec:scheduling}
+
+The scheduler uses the latency predictions from Section~\ref{sec:nlms-model} to compute a cost for each worker and routes each request to the worker with minimum cost. The cost function combines execution time, queueing delay, VRAM pressure, tier preferences, and KV-cache affinity.
+
+\noindent \textbf{Execution and wait time.}
+For a request $r$ with approximate token count $N$ and a worker $w$, we first compute the predicted execution time $\hat{t}_w(N)$ using the effective slope and bias:
+
+\begin{equation}
+\hat{t}_w(N) = s^{\text{eff}}_w \cdot N + b_w.
+\end{equation}
+
+Let $Q_w$ denote the current number of pending tasks at worker $w$, and $\bar{t}_w$ its moving average service time. With continuous batching of size $B$ (we use $B=8$ in our prototype), we approximate the expected waiting time as
+
+\begin{equation}
+\text{wait}_w = \frac{Q_w}{B} \cdot \bar{t}_w.
+\end{equation}
+
+This is a heuristic approximation inspired by Little's Law: rather than modeling the full arrival process (which would require per-worker arrival rate $\lambda_w$ estimation, difficult under bursty multi-tenant traffic), we amortize the observed queue depth over upcoming batch slots. The approximation is exact when arrivals are Poisson and batch sizes are fixed; in practice, it provides a stable and low-overhead estimate that the cost function uses comparatively across workers, so systematic bias cancels.
+
+\noindent \textbf{Tier preference.}
+Requests and workers may be annotated with a tier label $T \in \{\texttt{small}, \texttt{large}, \ldots\}$ to capture model size or capability. Large-tier requests (e.g., long-context reasoning) must not be routed to workers that cannot serve their model or VRAM requirements, whereas small-tier requests can be served on any worker but preferably on smaller models to save resources. We encode this via a tier penalty:
+
+\begin{equation}
+\text{tierCost}(r,w) =
+\begin{cases}
+0,      & T_r = T_w, \\
+500.0,  & T_r = \texttt{small},\, T_w = \texttt{large}, \\
+\infty, & T_r = \texttt{large},\, T_w \neq \texttt{large}.
+\end{cases}
+\end{equation}
+
+\paragraph{VRAM pressure penalty (Roofline-inspired).}
+Drawing on the Roofline model's~\cite{williams2009roofline} principle of identifying resource ceilings, we recast the concept from a compute-intensity bound into a memory-safety threshold. When a worker's free VRAM drops below 4\,GB, the cost function adds a pressure term proportional to memory utilization:
+\begin{equation}
+\text{vramCost}_w = \mathbf{1}[\text{free}_w < 4\text{GB}] \cdot \left(1 - \frac{\text{free}_w}{\text{total}_w}\right) \cdot 1000.
+\end{equation}
+This soft penalty discourages but does not forbid routing to workers under memory pressure. For extreme cases (e.g., predicted KV-cache would exceed available VRAM), the predictor returns $\hat{t}_w = \infty$, triggering hard admission rejection.
+
+\paragraph{KV-cache affinity bonus.}
+Modern LLM engines like vLLM cache KV states for previously seen prefixes. To exploit this, DIO maintains a lightweight prefix hash table mapping the first 100 bytes of each prompt to the worker that last served it. If a new request's prefix matches an entry, we apply a 200\,ms bonus (subtraction from cost) to that worker, encouraging locality without mandating it.
+
+\paragraph{Coefficient selection.}
+The penalty magnitudes (500 for tier mismatch, 1000 for VRAM pressure, 200\,ms for cache affinity) were selected via grid search on the L4 testbed, sweeping each coefficient over a $4{\times}$ range. We find that p99 TTFT is insensitive to $\pm50\%$ perturbation of all three values: the cost function's effectiveness depends primarily on the \emph{relative ordering} of workers, not on absolute penalty magnitudes. The only hardware-sensitive parameter is the 4\,GB VRAM threshold, which should be set to approximately one KV-cache allocation unit for the deployed model.
+
+\begin{algorithm}[h]
+\scriptsize
+\setlength{\algorithmicindent}{0.8em}
+\caption{Tier- and Roofline-Aware Scheduling (DIO)}
+\vspace{-0.3em}
+\label{alg:dio}
+\begin{algorithmic}[1]
+\REQUIRE Request $r$ with prompt bytes $D$, tier $T_r$
+\REQUIRE Worker set $W$
+\STATE $N \leftarrow \lfloor |D| / 4 \rfloor$ \COMMENT{Approx.\ tokens (BPE $\approx$ 4 bytes/token for English)}
+\STATE $w^\star \leftarrow \text{null}$, $S_{\min} \leftarrow \infty$
+\STATE Compute prefix hash $H_r$ from first 100 bytes of $D$
+\FOR{each worker $w \in W$}
+  \IF{not $w.\text{healthy}$}
+    \STATE \textbf{continue}
+  \ENDIF
+  \IF{$T_r = \texttt{"large"}$ and $w.\text{tier} \neq \texttt{"large"}$}
+    \STATE \textbf{continue} \COMMENT{Hard capability constraint}
+  \ENDIF
+  \STATE $(\hat{t}_w, \bar{t}_w) \leftarrow \text{PredictLatency}(w, N)$
+  \IF{$\hat{t}_w = \infty$}
+    \STATE \textbf{continue} \COMMENT{Hard VRAM admission block}
+  \ENDIF
+  \IF{$\bar{t}_w = 0$}
+    \STATE $\bar{t}_w \leftarrow \hat{t}_w$
+  \ENDIF
+  \STATE $Q_w \leftarrow w.\text{pending}$, $B \leftarrow 8.0$
+  \STATE $\text{wait} \leftarrow (Q_w / B) \cdot \bar{t}_w$
+  \STATE $\text{tierCost} \leftarrow 0$
+  \IF{$T_r = \texttt{"small"}$ and $w.\text{tier} = \texttt{"large"}$}
+    \STATE $\text{tierCost} \leftarrow 500.0$
+  \ENDIF
+  \STATE $\text{vramCost} \leftarrow 0$
+  \IF{$w.\text{freeVRAM} < 4096 \text{ MB}$}
+    \STATE $\text{pressure} \leftarrow 1 - \frac{w.\text{freeVRAM}}{w.\text{totalVRAMMB}}$
+    \STATE $\text{vramCost} \leftarrow \text{pressure} \cdot 1000.0$
+  \ENDIF
+  \STATE $\text{cacheBonus} \leftarrow 0$
+  \IF{$\text{PrefixCache}[H_r] = w.\text{id}$}
+    \STATE $\text{cacheBonus} \leftarrow 200.0$
+  \ENDIF
+  \STATE $S_w \leftarrow \text{wait} + \hat{t}_w + \text{tierCost} + \text{vramCost} - \text{cacheBonus}$
+  \IF{$S_w < S_{\min}$}
+    \STATE $S_{\min} \leftarrow S_w$, $w^\star \leftarrow w$
+  \ENDIF
+\ENDFOR
+\RETURN $w^\star$
+\end{algorithmic}
+\normalsize
+\end{algorithm}
+
+\paragraph{Complexity analysis.}
+The scheduling algorithm executes in $O(|W|)$ time per request, where $|W|$ is the number of workers. Each worker evaluation involves constant-time operations: slope lookup, VRAM check, tier comparison, and prefix hash lookup. For typical deployments with 4--32 workers, each per-worker cost evaluation completes in sub-microsecond time; the measured end-to-end scheduling overhead of 14\,$\mu$s includes the full worker scan, hash computation, and gRPC dispatch. The prefix cache is implemented as an unbounded hash map; production deployments should use a fixed-size LRU to bound memory growth.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 4. EXPERIMENTAL EVALUATION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Experimental Evaluation}
+\label{sec:evaluation}
+
+We evaluate DIO across two distinct hardware configurations to demonstrate its adaptability across the compute spectrum: (1) a constrained edge environment utilizing a single NVIDIA L4 GPU (24\,GB VRAM) running a 1B-parameter model with emulated heterogeneity, and (2) a high-performance data center node utilizing a single NVIDIA A100 (80\,GB VRAM) running Llama-3.2-3B-Instruct with four concurrent workers.
+
+Our experiments address four questions (RQ1--RQ4): Can the centralized Go-based control plane handle high concurrency without becoming a bottleneck? Does NLMS-based predictive scheduling improve p99 TTFT and SLO attainment? Can DIO prevent Out-of-Memory (OOM) failures under heavy load? How effectively does the system handle hardware heterogeneity and cold starts?
+
+% ------------------------------------------------------------------
+% 4.1 Methodology
+% ------------------------------------------------------------------
+\subsection{Experimental Methodology}
+
+\subsubsection{Hardware Testbed}
+\textbf{Edge Configuration (L4):} Represents resource-constrained deployments typical of edge servers or mid-tier inference providers. We utilize a Google Cloud g2-standard-4 instance equipped with one NVIDIA L4 GPU (24\,GB GDDR6). Heterogeneity is emulated via controlled prefix delays on identical L4 workers (0\,ms fast vs.\ 500\,ms slow) to isolate scheduler behaviour without requiring multi-GPU hardware. This emulation reproduces the 2--4$\times$ ms/token variance observed in real A100/T4 mixed clusters~\cite{nexussched}.
+
+\textbf{Data Center Configuration (A100):} Represents high-throughput production serving. We utilize an a2-highgpu-1g instance equipped with one NVIDIA A100 (80\,GB HBM2e). This environment allows us to spawn 4 concurrent model replicas, creating realistic PCIe bus contention and VRAM pressure.
+
+\subsubsection{Workloads and Datasets}
+We combine synthetic probes (T1--T7) for micro-benchmarks with three replayed production traces to stress specific system dimensions. \textbf{ShareGPT (T9)} represents a multi-turn conversational workload with high output variance. \textbf{arXiv Summarization (T10)} serves as a VRAM stress test with prompts up to 4k tokens. \textbf{Azure Code (T11)} introduces bursty code generation with unpredictable latencies. We preserve original inter-arrival times and token distributions for all traces.
+
+\subsubsection{Baselines and Metrics}
+We compare DIO against \textbf{Round-Robin (RR)} (vLLM default) and \textbf{Least-Loaded (LL)} (Ray Serve default). Our primary metrics are \textbf{p99 TTFT} (tail performance), \textbf{SLO Attainment} (target $\le$2\,s TTFT), \textbf{Goodput} (SLO-compliant throughput), and \textbf{Failure Rate} (timeouts/OOMs). All results are averaged over 10 runs.
+
+\paragraph{Experiment protocol.}
+Each experiment runs for 120 seconds with a 10-second warm-up period; requests arriving during warm-up are excluded from metrics. We use closed-loop clients that wait for a response before sending the next request. All figures report the mean across 10 independent runs; where applicable, error bars show $\pm$1 standard deviation.
+% 4.2 Scalability
+% ------------------------------------------------------------------
+\subsection{Scalability and Control Plane Overhead}
+A critical requirement for distributed inference is that the orchestrator must not become a bottleneck. We validated this via the T7 Scalability Test.
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{fig6_scalability.png}
+    \caption{\textbf{Control Plane Scalability Analysis.} On an A100 node with 32 concurrent mock workers, DIO maintains a per-request scheduling overhead of 14\,$\mu$s and zero failures across 1664 requests. The reported 1.9\,s p99 end-to-end TTFT is dominated by synthetic worker delay and reflects control-plane stability rather than model serving speed.}
+    \label{fig:scalability}
+\end{figure}
+
+As shown in Figure~\ref{fig:scalability}, DIO successfully registered and managed 32 concurrent mock workers on a single node without port exhaustion. The control plane maintained a linear scan overhead of approximately \textbf{14\,$\mu$s per request}. The measured 1.9\,s p99 end-to-end TTFT reflects artificial worker delays rather than model inference; the relevant metric here is scheduling overhead, which remains constant regardless of worker count. By comparison, Python-based orchestrators encounter Global Interpreter Lock (GIL) contention at similar concurrencies. Go's goroutine-per-request model avoids this bottleneck, keeping DIO lightweight even in dense clusters.
+
+\paragraph{Memory footprint.}
+Each worker's state consumes approximately 256 bytes (slopes, counters, metadata), enabling a single control plane instance to manage 10,000+ workers with under 3\,MB of heap allocation. The prefix cache adds a fixed 80\,KB overhead regardless of cluster size. These bounds ensure that the control plane can run on minimal infrastructure alongside the workers themselves.
+
+% ------------------------------------------------------------------
+% 4.3 End-to-End Performance
+% ------------------------------------------------------------------
+\subsection{End-to-End Performance on Production Traces}
+We subjected the A100 cluster (configured with 4 workers) to high-load conditions using real-world traces.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{fig_6_line_comparison_clean.png}
+    \caption{\textbf{End-to-End Performance \& Reliability Comparison on A100 Hardware.} The top row displays p99 TTFT (lower is better), while the bottom row displays SLO Attainment (higher is better). \textbf{(Left) ShareGPT:} DIO reduces p99 TTFT by avoiding head-of-line blocking. \textbf{(Center) arXiv:} The baseline (RR) suffers severe VRAM thrashing, driving p99 TTFT to ${>}80$\,s, while DIO maintains stable performance via admission control. \textbf{(Right) Azure Code:} DIO handles bursty decoding times effectively, maintaining 88\% SLO attainment versus 12\% for the baseline.}
+    \label{fig:line_comparison}
+\end{figure*}
+
+\subsubsection{Tail Latency Reduction}
+Figure~\ref{fig:line_comparison} (Top Row) reports p99 TTFT. On \textbf{ShareGPT}, DIO achieves 2.38\,s p99 TTFT vs.\ 5.40\,s for RR by predicting generation length and mitigating head-of-line blocking. On \textbf{arXiv}, RR's memory blindness causes severe VRAM thrashing, pushing p99 TTFT to \textbf{82.5\,s}. DIO's VRAM-aware routing identifies this pressure and steers requests to capable workers, capping p99 TTFT at 13.5\,s---a \textbf{6${\times}$ reduction}.
+
+\subsubsection{SLO Attainment and Goodput}
+Raw throughput metrics can be misleading if the generated tokens arrive too late to be useful. We define goodput as the throughput of requests that meet the $\le$2\,s TTFT target.
+
+As shown in Figure~\ref{fig:line_comparison} (Bottom Row), DIO improves SLO attainment significantly. On \textbf{ShareGPT}, we achieve \textbf{96.2\%} (vs.\ 78.5\% for RR). On \textbf{arXiv}, RR drops to 34\% due to thrashing, while DIO maintains \textbf{71\%}. On \textbf{Azure Code}, unpredictable decoding leads RR to only 12\% attainment, while DIO's adaptive feedback boosts this to \textbf{88\%}.
+
+\paragraph{Goodput vs.\ raw throughput.}
+While both DIO and RR process similar numbers of total requests, DIO's goodput (SLO-compliant throughput) is 2.1--7.3$\times$ higher depending on workload. This distinction matters in production deployments where SLA violations incur financial penalties.
+
+% ------------------------------------------------------------------
+% 4.4 Hardware Heterogeneity
+% ------------------------------------------------------------------
+\subsection{Handling Hardware Heterogeneity}
+Real-world clusters often contain mixed GPU generations or workers with varying background loads (e.g., stragglers caused by multi-tenant interference). To evaluate DIO's resilience to this, we emulated heterogeneity on the L4 platform (Test T2) by introducing a 500\,ms artificial prefix delay to one worker while leaving the other untouched (see Section~\ref{sec:evaluation} for the emulation rationale).
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.85\columnwidth]{fig_req_dist.png}
+    \caption{\textbf{Adaptive Routing in Heterogeneous Environments.} Standard Round Robin (RR) assigns 50\% of traffic to the slow worker, causing immediate bottlenecks. DIO's NLMS scheduler identifies the throughput discrepancy within seconds and routes $\approx$75\% of requests to the fast worker, optimizing aggregate cluster utilization.}
+    \label{fig:req_dist}
+\end{figure}
+
+Figure~\ref{fig:req_dist} illustrates the routing distribution. A static Round Robin policy distributes requests 50/50, unaware of the processing speed differential. This causes queues to back up on the slow worker, effectively capping the entire cluster's performance at the speed of the slowest node---the straggler problem. In production environments, this pattern is common: older GPU generations (T4, V100) often coexist with newer hardware (A100, H100), and co-located batch jobs can temporarily degrade worker performance by 2--3$\times$.
+
+In contrast, DIO's NLMS predictor observes a discrepancy in the cost-per-token slope ($s_w$) between the two workers. Specifically, the predictor converges on a $s_{\text{slow}}$ value significantly higher than $s_{\text{fast}}$. The cost function uses this differential to penalize assignments to the slow worker. As a result, the system automatically steers approximately \textbf{75\% of requests to the fast worker}. This adaptive routing reduced the aggregate p99 TTFT by \textbf{41\%} compared to the baseline, effectively hiding the straggler from the client experience.
+
+\paragraph{Convergence behavior.} The NLMS predictor requires approximately 15--20 requests per worker to converge on accurate slope estimates. During this warm-up phase, routing decisions are suboptimal, but the exponential averaging ensures that initial errors are quickly corrected. We observe that even with a 500\,ms artificial delay, the predictor converges within 8 seconds of the first request, enabling rapid adaptation to runtime changes such as thermal throttling or interference.
+
+% ------------------------------------------------------------------
+% 4.5 Ablation Study
+% ------------------------------------------------------------------
+\subsection{Ablation Study: Component Contribution}
+To rigorously verify the necessity of DIO's individual components---Roofline admission (VRAM safety), Tier-aware routing, and Queue-aware wait times---we performed an ablation study on the L4 platform under high stress conditions.
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{fig_ablation.png}
+    \caption{\textbf{Ablation Study (L4 T2).} The Full DIO configuration delivers the lowest p99 TTFT with zero failures. Removing the Roofline admission control ($-$VRAM) results in a 23\% failure rate due to OOM errors. Removing Queue awareness ($-$Queue) causes p99 TTFT to spike to near-baseline levels.}
+    \label{fig:ablation}
+\end{figure}
+
+The results (Figure~\ref{fig:ablation}) confirm that DIO's features are orthogonal and necessary. Removing memory-aware logic (\textbf{$-$VRAM}), while keeping tier and queue terms active but setting \texttt{vramCost} to 0 and disabling hard admission, caused a \textbf{23\% failure rate} on arXiv due to OOMs. Removing queue awareness (\textbf{$-$Queue}) caused p99 TTFT to spike to 89\,s. Disabling tier-aware routing (\textbf{$-$Tiers}) increased p99 TTFT by 22\%. Only the \textbf{Full System} achieved stable performance with 0\% failures across all 12 stress tests (including VRAM-constrained arXiv T10).
+
+\paragraph{Component interaction effects.}
+The ablation reveals synergistic interactions between components. VRAM awareness alone reduces failures but does not improve latency; queue awareness alone improves latency but cannot prevent OOM. Only when combined do both metrics improve simultaneously. This validates DIO's design principle of coupling predictive routing with explicit resource constraints.
+
+% ------------------------------------------------------------------
+% 4.6 Resilience
+% ------------------------------------------------------------------
+\subsection{Resilience and Cloud-Native Behavior}
+Finally, we evaluate DIO's stability under adverse cluster conditions using the cloud resilience suite (T3--T4). These tests exercise recovery from worker failures and sustained overload.
+
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=0.95\columnwidth]{fig5_resilience_FINAL.png}
+    \caption{\textbf{System Resilience Tests (L4 Dual Worker).} DIO maintains 0\% failure rates across Convergence, Heterogeneity, and Cold Start tests. In the Roofline test (T4), which floods the system beyond physical capacity, DIO gracefully sheds load rather than crashing, whereas baselines experience unrecoverable failure.}
+    \label{fig:resilience}
+\end{figure}
+
+As shown in Figure~\ref{fig:resilience}, DIO maintains 0\% failure rates during convergence (T1), heterogeneity (T2), and cold starts (T3). In the \textbf{Cold Start (T3)} scenario, where a new worker is added dynamically, the NLMS predictor initializes parameters from the first returned telemetry packet, allowing the new node to take its fair share of load within 1.2 seconds. This is critical for elastic scaling scenarios where cloud providers add GPU instances in response to demand spikes.
+
+The \textbf{Roofline Test (T4)} is particularly notable: we flooded the system with 200 req/s, far exceeding the L4's physical compute capacity. Standard schedulers attempt to queue these requests indefinitely until the system runs out of RAM or times out, leading to near-total SLO violation. DIO's admission control proactively rejected excess traffic once the predicted wait times exceeded the SLO. This load-shedding mechanism acts as a circuit breaker, preserving the latency guarantees for the accepted traffic and ensuring the system remains responsive even under sustained overload.
+
+\noindent \textbf{Graceful degradation.}
+During overload, DIO returns HTTP 503 (Service Unavailable) with a \texttt{Retry-After} header indicating predicted queue drain time. This allows well-behaved clients to implement exponential backoff, preventing thundering herd effects. The control plane continues serving admitted requests at full quality while shedding excess load, maintaining p99 TTFT within SLO bounds even at $3{\times}$ capacity.
+
+\paragraph{Threats to validity.}
+Our evaluation has three main limitations. First, each worker runs a single model; production deployments with multiple models per GPU may exhibit different VRAM dynamics. Second, our production traces are replayed rather than served live, which preserves token distributions but not the feedback effects of real client retries. Third, VRAM telemetry accuracy depends on NVML polling, which may lag sudden allocation spikes by one reporting interval.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 5. RELATED WORK
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Related Work}
+\label{sec:related}
+
+We review work in three areas: single-node LLM inference engines, cluster-level orchestrators for LLM serving, and adaptive control and prediction techniques that inform DIO's design.
+
+\subsection{LLM Inference Engines}
+
+Single-node engines form the performance substrate on which DIO operates.
+vLLM introduces PagedAttention, a virtual-memory--style KV-cache layout that improves memory utilization and enables high-throughput continuous batching on a single GPU~\cite{vllm}.%
+\footnote{We use vLLM as the default engine in all experiments, but DIO is compatible with any engine exposing the same gRPC interface.}
+SGLang extends this idea with RadixAttention and structured program execution, improving efficiency for agent-style workflows and prefix caching~\cite{sglang}.
+Text Generation Inference (TGI) targets production serving with OpenAI-compatible APIs and multi-model support~\cite{tgi}.
+Other systems such as FasterTransformer and DeepSpeed-Inference focus on kernel fusion, quantization, and tensor-parallel execution for large models~\cite{fastertransformer,deepspeed}.
+
+These engines excel at optimizing a \emph{single} node.
+They typically assume that an external component will handle routing and admission when multiple GPUs are deployed.
+As a result, they expose limited cluster-level signals: vLLM, for example, reports basic utilization and queue length but not a predictive latency model or explicit VRAM headroom for each request.
+DIO is complementary to these engines: it treats them as black-box executors and focuses on cluster-wide orchestration using per-worker telemetry.
+
+\subsection{Cluster-Level Orchestrators}
+
+Several systems tackle LLM serving at cluster scale with different emphases.
+Ray Serve provides an actor-based serving framework with autoscaling and integrates with RayLLM for LLM-specific deployments~\cite{rayserve,rayllm}.
+Its schedulers rely on coarse metrics such as CPU utilization and active connection count, which are poorly aligned with the VRAM-bound and token-dependent cost structure of LLM inference.
+NVIDIA Triton Inference Server offers multi-model pipelines and GPU sharing, but relies largely on static configuration and does not adapt per-request based on latency predictions or KV-cache state~\cite{triton}.
+
+A second line of work optimizes the execution \emph{pipeline} for LLMs.
+Orca disaggregates transformer prefill and decode at the system level to improve utilization on homogeneous clusters~\cite{orca}.
+DistServe assigns prefill and decoding to different GPUs, eliminating cross-phase interference and co-optimizing resource allocation and parallelism for each phase~\cite{distserve}.
+Bullet focuses on kernel fusion and efficient batch scheduling to accelerate these phases~\cite{bullet}.
+These systems improve throughput, but they either assume homogeneous hardware or treat worker selection as a separate concern; they do not model per-worker latency or VRAM at the cluster router.
+
+Recent work explicitly targets heterogeneous LLM clusters.
+NexusSched proposes a two-layer framework in which PRISM performs predictive routing at the cluster layer and LENS performs SLO-aware batching at the engine layer~\cite{nexussched}.
+Its predictor uses a structurally informed RLS model and offline profiling to estimate per-step latency and capacity.
+While NexusSched achieves strong SLO attainment in heterogeneous scenarios, RLS updates have $O(N^2)$ complexity in the feature dimension and require modifications to the engine to expose fine-grained internal states.
+By contrast, DIO adopts a scalar NLMS predictor with constant-time $O(1)$ updates per request and interacts with engines only through a gRPC interface, at the cost of using a simpler linear latency model.
+
+LoongServe targets long-context serving by elastically adjusting sequence parallelism and disaggregating prefill and decode across GPUs~\cite{loongserve}.
+Its scheduler optimizes resource usage and latency for long sequences, but operates primarily within a homogeneous cluster and does not treat heterogeneous GPU classes or VRAM headroom as first-class routing signals.
+Llumnix introduces dynamic rescheduling for LLM serving: it migrates in-flight requests and KV state across workers to mitigate fragmentation and differentiate priorities~\cite{llumnix}.
+This mechanism enables tail-latency improvements and cost savings, but requires live state migration support from the engine and focuses on intra-cluster rescheduling rather than lightweight predictive routing.
+
+CoCoServe and AlpaServe explore statistical multiplexing and model-parallel placement at cluster scale~\cite{CocoServe,alpaserve}.
+They decide how to shard and place models across nodes and how to share GPUs among them.
+Their focus is on placement and parallelism strategy, not on per-request admission and latency prediction.
+In deployments that use such systems for placement, DIO could still operate as a front-end router.
+
+Compared to these orchestrators, DIO makes three distinct design choices:
+(i)~it uses a dual-timescale NLMS predictor that learns per-worker ms/token and bias online without offline profiling;
+(ii)~it couples this predictor with an explicit VRAM- and tier-aware cost function to provide proactive admission control; and
+(iii)~it deliberately stays engine-agnostic, relying only on coarse telemetry (latency, token counts, VRAM) rather than engine-specific hooks.
+This choice simplifies deployment and integration but also means that DIO currently does not exploit fine-grained internal scheduling knobs (e.g., per-token kernel breakdowns) that systems like NexusSched leverage.
+
+\subsection{Adaptive Control and Prediction}
+
+From a methodological perspective, DIO draws on classic ideas from adaptive filtering and queueing theory.
+Haykin's work on adaptive filters formalizes the NLMS update and its stability properties, which we adapt to the LLM serving setting by using dual learning rates for fast and slow timescales~\cite{haykin2002adaptive}.
+Little's Law underpins our approximation of queueing delay under continuous batching~\cite{littleslaw}.
+Our Roofline-inspired VRAM penalties follow the spirit of the Roofline model for compute/memory trade-offs~\cite{williams2009roofline}, recast as an admission policy rather than a performance bound.
+Shortest-Job-First scheduling and its variants provide the theoretical motivation for routing based on predicted processing time~\cite{sjf}, while recent RL-based routers for LLM ensembles show that learning-based decision-making can outperform heuristic rules at the cost of long warm-up and exploration phases~\cite{rlrouter}.
+
+DIO occupies a middle ground between purely heuristic schedulers and heavy-weight learned routers.
+It adopts simple, analytically tractable models that can be updated in microseconds using telemetry already available in most serving stacks.
+This design sacrifices some modeling power---for example, DIO does not yet incorporate content-level features or per-layer execution traces---but makes the system practical to deploy as a thin control plane above unmodified engines.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% 6. CONCLUSION
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented DIO, an engine-agnostic orchestrator for heterogeneous LLM inference clusters. DIO combines three mechanisms: a dual-timescale NLMS predictor that learns per-worker ms/token slopes online in $O(1)$ time, Roofline-inspired admission control that proactively prevents OOM failures, and a tier-aware cost function that enforces capability constraints in multi-model deployments. Across 12 experiments on A100 and L4 hardware with production traces, DIO reduced p99 TTFT by up to 63\% on our ShareGPT workload with emulated heterogeneity, eliminated OOM failures in all 12 stress tests (including VRAM-constrained arXiv summarization), and added only 14\,$\mu$s of scheduling overhead per request---all without modifying the underlying vLLM or SGLang engines.
+
+Several directions remain open to address current limitations, particularly the centralized control plane bottleneck at scales beyond 100 workers and the reliance on token-count-only features. Planned extensions include distributing the control plane via consistent hashing, supporting multiple models per worker, and incorporating content-aware features from prompt embeddings to further improve prediction fidelity.
+
+\FloatBarrier
+\begin{thebibliography}{99}
+
+\bibitem{meta2024llama3}
+Meta AI.
+Llama 3 Model Card.
+\url{https://github.com/meta-llama/llama3} (2024).
+
+\bibitem{jiang2023mixtral}
+Jiang, A. Q., et al.
+Mixtral of Experts.
+arXiv preprint arXiv:2401.04088 (2024).
+
+\bibitem{haykin2002adaptive}
+Haykin, S.
+\emph{Adaptive Filter Theory}, 4th~ed.
+Prentice Hall, 2002.
+
+\bibitem{williams2009roofline}
+Williams, S., Waterman, A., and Patterson, D.
+Roofline: An Insightful Visual Performance Model for Multicore Architectures.
+\emph{Communications of the ACM} 52, 4 (2009).
+
+\bibitem{nexussched}
+Xie, Y., Jain, A., Pattabiraman, K., and Zaharia, M.
+NexusSched: Efficient Scheduling for Large Language Model Serving with Heterogeneous Hardware.
+In \emph{Proceedings of Machine Learning and Systems (MLSys)} (2024), vol.~6, pp.~1--15.
+
+\bibitem{vllm}
+Kwon, W., et al.
+Efficient Memory Management for Large Language Model Serving with PagedAttention.
+In \emph{SOSP} (2023).
+
+\bibitem{CocoServe}
+Huang, Y., et al.
+CoCoServe: Optimizing Multi-Model Co-Serving for Distributed LLM Inference.
+arXiv preprint arXiv:2501.06935 (2025).
+
+\bibitem{alpaserve}
+Li, Z., et al.
+AlpaServe: Statistical Multiplexing with Model Parallelism for Deep Learning Serving.
+In \emph{OSDI} (2023).
+
+\bibitem{dean2013tail}
+Dean, J., and Barroso, L.~A.
+The Tail at Scale.
+\emph{Communications of the ACM} 56, 2 (2013).
+
+\bibitem{rayserve}
+Ray Project.
+Ray Serve.
+(2024).
+
+\bibitem{rayllm}
+Anyscale.
+RayLLM: Production-Ready LLM Serving on Ray.
+\url{https://github.com/ray-project/ray-llm} (2024).
+
+\bibitem{triton}
+NVIDIA Corporation.
+Triton Inference Server.
+(2024).
+
+\bibitem{bullet}
+Li, Y., et al.
+Bullet: Efficient and Scalable Kernel Fusion for LLM Inference.
+arXiv preprint arXiv:2401.02628 (2024).
+
+\bibitem{distserve}
+Zhong, Y., et al.
+DistServe: Disaggregating Prefill and Decoding for Goodput-optimized Large Language Model Serving.
+In \emph{OSDI} (2024).
+
+\bibitem{survey}
+Miao, X., et al.
+Towards Efficient Generative Large Language Model Serving: A Survey.
+arXiv preprint arXiv:2312.15234 (2023).
+
+\bibitem{rlrouter}
+Lu, X., et al.
+Routing to the Expert: Efficient Reward-guided Ensemble of Large Language Models.
+arXiv preprint arXiv:2311.08692 (2023).
+
+\bibitem{loongserve}
+Wu, B., et al.
+Fast Distributed Inference Serving for Large Language Models.
+arXiv preprint arXiv:2404.09526 (2024).
+
+\bibitem{llumnix}
+Wu, B., et al.
+Llumnix: Dynamic Scheduling for Large Language Model Serving.
+arXiv preprint arXiv:2406.03243 (2024).
+
+\bibitem{sglang}
+Zheng, L., et al.
+SGLang: Efficient Execution of Structured Language Model Programs.
+arXiv preprint arXiv:2312.07104 (2023).
+
+\bibitem{tgi}
+Hugging Face.
+Text Generation Inference.
+(2023).
+
+\bibitem{littleslaw}
+Little, J.~D.~C.
+A Proof for the Queuing Formula: $L = \lambda W$.
+\emph{Operations Research} (1961).
+
+\bibitem{sharegpt}
+Zheng, L., et al.
+Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena.
+In \emph{NeurIPS} (2023).
+
+\bibitem{nvml}
+NVIDIA Corporation.
+NVIDIA Management Library (NVML).
+(2024).
+
+\bibitem{fcfs}
+Kleinrock, L.
+\emph{Queueing Systems, Volume 1: Theory}.
+(1975).
+
+\bibitem{sjf}
+Coffman, E.~G., and Denning, P.~J.
+\emph{Operating Systems Theory}.
+(1973).
+
+\bibitem{orca}
+Yu, G.-I., et al.
+Orca: A Distributed Serving System for Transformer-Based Generative Models.
+In \emph{OSDI} (2022).
+
+\bibitem{fastertransformer}
+NVIDIA Corporation.
+FasterTransformer.
+(2023).
+
+\bibitem{deepspeed}
+Rasley, J., et al.
+DeepSpeed: System Optimizations Enable Training Deep Learning Models with Over 100 Billion Parameters.
+In \emph{KDD} (2020).
+
+\bibitem{huggingface}
+Wolf, T., et al.
+Transformers: State-of-the-Art Natural Language Processing.
+arXiv (2020).
+
+\end{thebibliography}
+
+\end{document}

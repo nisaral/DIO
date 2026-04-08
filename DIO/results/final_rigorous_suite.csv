@@ -1,7 +1,0 @@
-test,strategy,scale,mean_p99,std_p99
-T7_Scalability,RLS,4,2380.0,426.14551505325034
-T7_Scalability,RLS,16,2260.0,195.95917942265424
-T7_Scalability,RLS,32,2060.0,48.98979485566356
-T7_Scalability,RLS,64,2100.0,0.0
-Baseline_Comparison,LeastLoaded,4,2880.0,416.6533331199932
-RLS_Performance,RLS,4,2940.0,611.8823416311342

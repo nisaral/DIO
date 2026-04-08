@@ -1,0 +1,18 @@
+# DIO v3 — vLLM Integration Dependencies
+#
+# Core:
+vllm>=0.6.0
+grpcio>=1.60.0
+grpcio-tools>=1.60.0
+protobuf>=4.25.0
+
+# GPU Telemetry:
+pynvml>=11.5.0
+
+# HTTP client:
+requests>=2.31.0
+
+# Benchmarking (optional):
+locust>=2.20.0
+pandas>=2.0.0
+matplotlib>=3.7.0
