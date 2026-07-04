@@ -1,9 +1,8 @@
 """
-DIO Benchmark Visualization Script - FINAL A100 Edition
-Generates publication-quality figures with corrected A100 data.
+DEPRECATED: use generate_figures_from_json.py (reads results_summary.json only).
 
-Run: python generate_figures_final.py
-Output: figs/ directory with FINAL PNG files
+This file previously contained hand-entered metrics. Kept for reference.
+Run: python benchmarks/generate_figures_from_json.py
 """
 
 import matplotlib.pyplot as plt

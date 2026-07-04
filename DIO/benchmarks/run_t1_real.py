@@ -54,15 +54,16 @@ if __name__ == "__main__":
     # Run Round Robin (Baseline)
     rr_p99 = run_test("RoundRobin")
     
-    # Run RLS (DIO)
+    nlms_p99 = run_test("NLMS")
     rls_p99 = run_test("RLS")
-    
+
     print("\n========================================")
-    print(f"🏆 FINAL RESULTS (Lower is Better)")
+    print("FINAL RESULTS (Lower is Better)")
     print(f"   Round Robin: {rr_p99} ms")
-    print(f"   DIO (RLS):   {rls_p99} ms")
-    
+    print(f"   DIO (NLMS):  {nlms_p99} ms")
+    print(f"   RLS baseline:{rls_p99} ms")
+
     if rr_p99 > 0:
-        improvement = ((rr_p99 - rls_p99) / rr_p99) * 100
-        print(f"   🚀 Improvement: {improvement:.1f}%")
+        improvement = ((rr_p99 - nlms_p99) / rr_p99) * 100
+        print(f"   NLMS improvement vs RR: {improvement:.1f}%")
     print("========================================")

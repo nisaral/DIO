@@ -20,10 +20,11 @@ WORKDIR /root/
 # Copy binary from builder
 COPY --from=builder /app/manager .
 
-# Copy UI assets (required by main.go)
+# Copy UI and dashboard assets
 COPY ui ./ui
+COPY dashboard ./dashboard
 
-# Expose gRPC (50052) and HTTP (8080)
-EXPOSE 50052 8080
+# Expose gRPC (50055) and HTTP (8085)
+EXPOSE 50055 8085
 
 CMD ["./manager"]

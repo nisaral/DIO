@@ -1,23 +1,34 @@
 #!/bin/bash
 set -e
 
-echo "⚡ Setting up DIO on Lightning AI..."
+echo "Setting up DIO on Lightning AI..."
 
-# 1. Install Go (Lightning AI usually doesn't have it)
+# Detect repo root
+if [[ -f "go.mod" ]]; then
+  ROOT="."
+elif [[ -f "DIO/go.mod" ]]; then
+  ROOT="DIO"
+else
+  echo "Run from repo root or DIO/"; exit 1
+fi
+cd "$ROOT"
+
 if ! command -v go &> /dev/null; then
-    echo "   Installing Go..."
-    wget https://go.dev/dl/go1.21.6.linux-amd64.tar.gz
-    sudo tar -C /usr/local -xzf go1.21.6.linux-amd64.tar.gz
+    echo "Installing Go..."
+    wget -q https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
+    sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
     export PATH=$PATH:/usr/local/go/bin
     echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 fi
 
-# 2. Install Python Dependencies
-echo "   Installing Python libs..."
-pip install locust pandas transformers torch requests numpy
+pip install -q locust pandas transformers torch requests numpy matplotlib grpcio grpcio-tools accelerate
 
-# 3. Login to HuggingFace (Required for Llama 3)
-echo "   ⚠️  Please login to HuggingFace to download Llama 3:"
-huggingface-cli login
+go build -o dio-manager ./cmd/manager/main.go
 
-echo "✅ Setup Complete. Run: python benchmarks/run_cloud_suite.py"
+if [[ ! -f benchmarks/data/sharegpt.jsonl ]]; then
+  python3 benchmarks/prepare_data.py || echo "Dataset prep failed — check HuggingFace access"
+fi
+
+echo ""
+echo "HuggingFace: huggingface-cli login"
+echo "Run: bash benchmarks/run_lightning_budget.sh"

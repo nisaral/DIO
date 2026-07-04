@@ -21,10 +21,40 @@ import (
 	"github.com/nisaral/dio/internal/scheduler"
 	"github.com/nisaral/dio/workers/worker_mgmt"
 
+	"strings"
+
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
+
+func mapPickError(err error) error {
+	if adm, ok := err.(*scheduler.AdmissionError); ok {
+		return status.Errorf(codes.ResourceExhausted, "admission:%d:%s", adm.RetryAfterSec, adm.Message)
+	}
+	return err
+}
+
+func writeHTTPError(w http.ResponseWriter, err error) {
+	if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+		msg := st.Message()
+		retry := 5
+		if strings.HasPrefix(msg, "admission:") {
+			parts := strings.SplitN(msg, ":", 3)
+			if len(parts) >= 2 {
+				if v, e := strconv.Atoi(parts[1]); e == nil {
+					retry = v
+				}
+			}
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(retry))
+		http.Error(w, msg, http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
 type TelemetryLogger struct {
     mu     sync.Mutex
     file   *os.File
@@ -75,7 +105,7 @@ type server struct {
 func (s *server) ExecuteInference(ctx context.Context, req *pb.InferenceRequest) (*pb.InferenceResponse, error) {
     workerID, err := s.scheduler.PickBestWorker(req)
     if err != nil {
-        return nil, err
+        return nil, mapPickError(err)
     }
 
     worker, ok := s.scheduler.GetWorker(workerID)
@@ -186,7 +216,7 @@ func handleGenerate(client pb.OrchestratorClient) http.HandlerFunc {
 		}, grpc.Header(&header))
 
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeHTTPError(w, err)
 			return
 		}
 
@@ -228,13 +258,44 @@ func handleDebugPrediction(sched *scheduler.Scheduler) http.HandlerFunc {
 func handleDebugListWorkers(sched *scheduler.Scheduler) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         workers := sched.ListWorkers()
-        log.Printf("DEBUG API: Current worker list requested. Found: %v", workers)
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(map[string]interface{}{
             "workers":      workers,
-            "worker_count": len(workers), // Add this explicitly
+            "worker_count": len(workers),
+            "strategy":     sched.Strategy,
         })
     }
+}
+
+func handleDebugMetrics(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"workers":       sched.GetWorkerMetrics(),
+			"last_decision": sched.GetLastDecision(),
+			"decisions":     sched.GetDecisionLog(),
+			"strategy":      sched.Strategy,
+		})
+	}
+}
+
+func handleChaosVRAM(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&payload)
+		workerID, _ := payload["worker_id"].(string)
+		freeMB := int64(1500)
+		if v, ok := payload["free_vram_mb"].(float64); ok {
+			freeMB = int64(v)
+		}
+		sched.SetWorkerVRAM(workerID, freeMB)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	}
 }
 
 func main() {
@@ -258,10 +319,7 @@ func main() {
 	}
 
 	sched := scheduler.NewScheduler()
-	if strategy := os.Getenv("SCHEDULER_STRATEGY"); strategy != "" {
-		sched.Strategy = strategy
-		log.Printf("🔧 Scheduler Strategy set to: %s", strategy)
-	}
+	log.Printf("Scheduler strategy: %s", sched.Strategy)
 
 	// 1. Setup gRPC Listener
 	lis, err := net.Listen("tcp", "0.0.0.0:50055")
@@ -299,9 +357,16 @@ func main() {
 	gateway := api_gateway.NewAPIGateway("localhost:50055", sched)
 	http.HandleFunc("/api/test", enableCORS(gateway.HandleTest))
 	http.HandleFunc("/api/generate", enableCORS(handleGenerate(localClient)))
+	http.HandleFunc("/v1/chat/completions", enableCORS(api_gateway.HandleChatCompletions("127.0.0.1:50055")))
 	http.HandleFunc("/debug/reset_worker", enableCORS(handleDebugReset(sched)))
 	http.HandleFunc("/debug/prediction", enableCORS(handleDebugPrediction(sched)))
 	http.HandleFunc("/debug/workers", enableCORS(handleDebugListWorkers(sched)))
+	http.HandleFunc("/debug/metrics", enableCORS(handleDebugMetrics(sched)))
+	http.HandleFunc("/debug/chaos/vram", enableCORS(handleChaosVRAM(sched)))
+	dashboardDir := "./dashboard/static"
+	if _, err := os.Stat(dashboardDir); err == nil {
+		http.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir(dashboardDir))))
+	}
 	http.Handle("/", http.FileServer(http.Dir("./ui/src")))
 
 	log.Printf("DIO Manager HTTP API listening at :8085")

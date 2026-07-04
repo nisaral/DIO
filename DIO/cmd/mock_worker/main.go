@@ -7,6 +7,8 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
+	"strconv"
 	"time"
 
 	pb "github.com/nisaral/dio/api/proto"
@@ -77,6 +79,23 @@ func main() {
 	mock := flag.Bool("mock", true, "Mock mode (no real model)")
 	flag.Parse()
 
+	if envID := os.Getenv("WORKER_ID"); envID != "" {
+		*workerID = envID
+	}
+	if envPort := os.Getenv("WORKER_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			*port = p
+		}
+	}
+	if envAddr := os.Getenv("MANAGER_ADDRESS"); envAddr != "" {
+		*managerAddr = envAddr
+	}
+	if envMult := os.Getenv("LATENCY_MULT"); envMult != "" {
+		if m, err := strconv.ParseFloat(envMult, 64); err == nil {
+			*latencyMult = m
+		}
+	}
+
 	_ = *mock // always mock in this binary
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
@@ -115,12 +134,23 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	workerHost := os.Getenv("WORKER_HOST")
+	if workerHost == "" {
+		workerHost = "localhost"
+	}
+	tier := os.Getenv("WORKER_TIER")
+	if tier == "" {
+		tier = "small"
+	}
+
 	resp, err := client.RegisterWorker(ctx, &pb.RegisterRequest{
 		WorkerId: *workerID,
-		Address:  fmt.Sprintf("localhost:%d", *port),
+		Address:  fmt.Sprintf("%s:%d", workerHost, *port),
 		Models:   []string{"demo-model"},
-		Tier:     "small",
+		Tier:     tier,
 		VramGb:   int64(*vram),
+		FreeVramMb: int64(*vram),
+		EngineType: "mock",
 	})
 	if err != nil {
 		log.Fatalf("Registration failed: %v", err)

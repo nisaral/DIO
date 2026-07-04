@@ -1,0 +1,41 @@
+services:
+  dio-manager:
+    build:
+      context: .
+      dockerfile: cmd/manager/Dockerfile
+    ports:
+      - "8085:8085"
+      - "50055:50055"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./dashboard/static:/app/dashboard/static:ro
+    environment:
+      - SCHEDULER_STRATEGY=NLMS
+      - AUTOSCALER_ENABLED=false
+      - DOCKER_NETWORK=dio_default
+
+  dio-worker-fast:
+    build:
+      context: .
+      dockerfile: cmd/mock_worker/Dockerfile
+    command: ["--worker-id=worker_fast", "--port=50060", "--manager-addr=dio-manager:50055", "--latency-mult=1.0", "--vram=24000"]
+    environment:
+      - WORKER_HOST=dio-worker-fast
+      - WORKER_TIER=large
+    depends_on:
+      - dio-manager
+
+  dio-worker-slow:
+    build:
+      context: .
+      dockerfile: cmd/mock_worker/Dockerfile
+    command: ["--worker-id=worker_slow", "--port=50060", "--manager-addr=dio-manager:50055", "--latency-mult=2.5", "--vram=24000"]
+    environment:
+      - WORKER_HOST=dio-worker-slow
+      - WORKER_TIER=small
+    depends_on:
+      - dio-manager
+
+networks:
+  default:
+    name: dio_default

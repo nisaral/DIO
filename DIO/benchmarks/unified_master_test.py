@@ -7,7 +7,10 @@ import socket
 import sys
 
 # --- CONFIG ---
-ROOT_DIR = "/teamspace/studios/this_studio/DIO/DIO"
+# Prefer env override; default supports Lightning studio layout
+ROOT_DIR = os.environ.get("DIO_ROOT", "/teamspace/studios/this_studio/Go-serve/DIO")
+if not os.path.exists(ROOT_DIR):
+    ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MANAGER_BIN = os.path.join(ROOT_DIR, "dio-manager")
 WORKER_SCRIPT = os.path.join(ROOT_DIR, "benchmarks/worker_gpu.py")
 LOCUST_FILE = os.path.join(ROOT_DIR, "benchmarks/real_world/locustfile.py")
@@ -16,7 +19,8 @@ MODEL_ID = "meta-llama/Llama-3.2-3B-Instruct"
 
 # --- THE FULL 4-WORKER MATRIX ---
 DATASETS = ["sharegpt.jsonl", "arxiv.jsonl", "azure_code.jsonl"]
-STRATEGIES = ["nlms", "round_robin", "least_load"]
+STRATEGIES = ["nlms", "rls", "round_robin", "least_load"]
+NUM_REAL_WORKERS = int(os.environ.get("NUM_REAL_WORKERS", "2"))  # 4 replicas on 1 GPU causes VRAM thrash
 
 def rebuild_manager():
     print("🔨 Rebuilding DIO Manager...")
@@ -96,16 +100,16 @@ def main():
         subprocess.run(["locust", "-f", LOCUST_FILE, "--headless", "-u", "50", "-r", "10", "-t", "60s", 
                         "--host", "http://127.0.0.1:8085", "--csv", os.path.join(RESULTS_DIR, "T7_Scalability")], env=env)
 
-    # 2. THE MAIN STUDY (4 REAL WORKERS PER TEST)
+    # 2. THE MAIN STUDY (default 2 real workers — safe on single A100)
     for strategy in STRATEGIES:
         for ds in DATASETS:
-            test_id = f"{strategy}_{ds.split('.')[0]}_4w"
+            test_id = f"{strategy}_{ds.split('.')[0]}_{NUM_REAL_WORKERS}w"
             print(f"\n🚀 EXPERIMENT: {test_id}")
             cleanup()
             
-            if start_manager(strategy) and start_workers(4, mock=False):
-                print("🧘 Warming up 4x A100 Workers (30s)...")
-                time.sleep(30) 
+            if start_manager(strategy) and start_workers(NUM_REAL_WORKERS, mock=False):
+                print(f"🧘 Warming up {NUM_REAL_WORKERS} workers (30s)...")
+                time.sleep(30)
                 
                 l_env = os.environ.copy()
                 l_env["WORKLOAD_FILE"] = os.path.join(ROOT_DIR, "benchmarks/data", ds)
