@@ -7,7 +7,7 @@ from locust import HttpUser, task, between, events
 # --- Research Standards for 3B/7B Models ---
 # TTFT < 0.5s (Instant feel)
 # TPOT < 50ms (Faster than human reading)
-TTFT_SLO_MS = 500.0
+TTFT_SLO_MS = float(os.environ.get("TTFT_SLO_MS", "2000"))  # match paper SLO
 TPOT_SLO_MS = 50.0
 
 workload_data = []

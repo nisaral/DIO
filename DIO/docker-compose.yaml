@@ -4,8 +4,8 @@ services:
       context: .
       dockerfile: cmd/manager/Dockerfile
     ports:
-      - "50051:50052" # Map Host 50051 -> Container 50052 (gRPC)
-      - "8080:8080"   # HTTP Dashboard
+      - "50055:50055" # gRPC
+      - "8085:8085"   # HTTP API + dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock # Allows Go to talk to Docker
     environment:
@@ -19,7 +19,7 @@ services:
       dockerfile: workers/python_worker/Dockerfile
     image: dio-worker # Force image name so Go Manager can find it
     environment:
-      - MANAGER_ADDRESS=dio-manager:50052
+      - MANAGER_ADDRESS=dio-manager:50055
       - MODEL_ID=TinyLlama/TinyLlama-1.1B-Chat-v1.0
       - WORKER_TIER=small
       - WORKER_VRAM_GB=6
@@ -37,5 +37,5 @@ services:
       dockerfile: workers/python_worker/Dockerfile
     image: dio-worker
     environment:
-      - MANAGER_ADDRESS=dio-manager:50052
+      - MANAGER_ADDRESS=dio-manager:50055
       - THROTTLE_FACTOR=2.0 # Simulate 2x slower hardware for Heterogeneity Test

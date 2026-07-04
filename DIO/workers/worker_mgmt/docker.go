@@ -22,23 +22,27 @@ func NewDockerManager() (*DockerManager, error) {
 	return &DockerManager{cli: cli}, nil
 }
 
-// SpawnWorker spins up a new Python container from your worker image
-func (dm *DockerManager) SpawnWorker(ctx context.Context, imageName string) error {
-	// Force the correct image name defined in docker-compose
-	// The autoscaler might be passing "dio-python-worker" but we built it as "dio-worker"
+// SpawnWorker spins up a new Python container from the dio-worker image.
+func (dm *DockerManager) SpawnWorker(ctx context.Context, network, managerAddr string) error {
 	actualImage := "dio-worker"
+	if network == "" {
+		network = "dio_default"
+	}
+	if managerAddr == "" {
+		managerAddr = "dio-manager:50055"
+	}
 
 	config := &container.Config{
 		Image: actualImage,
 		Env: []string{
-			"MANAGER_ADDRESS=dio-manager:50052", // Tell worker where to find Manager
+			"MANAGER_ADDRESS=" + managerAddr,
 		},
 		Labels: map[string]string{"type": "dio-worker"},
 	}
 
 	hostConfig := &container.HostConfig{
-		NetworkMode: "dio_default", // Must match the docker-compose network name
-		AutoRemove:  true,          // Clean up container when it exits
+		NetworkMode: container.NetworkMode(network),
+		AutoRemove:  true,
 	}
 
 	resp, err := dm.cli.ContainerCreate(ctx, config, hostConfig, nil, nil, "")

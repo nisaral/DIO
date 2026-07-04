@@ -1,0 +1,24 @@
+# Binaries
+*.exe
+DIO/dio-manager
+DIO/dio-manager.exe
+DIO/mock-worker.exe
+DIO/demo.exe
+
+# Runtime / local DB
+*.db
+*.db.lock
+dio_registry.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# LaTeX build
+*.aux
+*.log
+*.out
+
+# IDE
+.vscode/

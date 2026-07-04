@@ -1,19 +1,42 @@
 package scheduler
 
 import (
+	"context"
 	"log"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/nisaral/dio/workers/worker_mgmt"
 )
 
+var (
+	lastSpawnTime time.Time
+	spawnMu       sync.Mutex
+)
+
 func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int) {
+	if os.Getenv("AUTOSCALER_ENABLED") != "true" && os.Getenv("AUTOSCALER_ENABLED") != "1" {
+		log.Println("[Autoscaler] Disabled (set AUTOSCALER_ENABLED=true to enable Docker spawn)")
+		return
+	}
+	if dm == nil {
+		log.Println("[Autoscaler] Docker manager unavailable; autoscaler disabled")
+		return
+	}
+
+	network := os.Getenv("DOCKER_NETWORK")
+	if network == "" {
+		network = "dio_default"
+	}
+	managerAddr := os.Getenv("MANAGER_GRPC_ADDR")
+	if managerAddr == "" {
+		managerAddr = "dio-manager:50055"
+	}
+
 	ticker := time.NewTicker(15 * time.Second)
-	
-	// Track scaling state to avoid log spamming
 	go func() {
 		for range ticker.C {
-			// 1. Safe access to scheduler state
 			workers := s.ListWorkers()
 			workerCount := len(workers)
 			totalQueue := s.GetGlobalQueueDepth()
@@ -23,21 +46,26 @@ func StartAutoscaler(s *Scheduler, dm *worker_mgmt.DockerManager, threshold int)
 				avgQueue = totalQueue / float64(workerCount)
 			}
 
-			// 2. Determine Scaling Condition
-			// Research Logic: Scale if queue > 5 OR we haven't reached the minimum experiment threshold
 			if avgQueue > 5.0 || workerCount < threshold {
-				log.Printf("[AUTOSCALER_ANALYTICS] Scale-up triggered. Avg Queue: %.2f, Current Workers: %d", avgQueue, workerCount)
-				
-				// NOTE FOR RESEARCH:
-				// In a production Kubernetes/Docker environment, we call dm.SpawnWorker here.
-				// In Lightning AI Bare-Metal, we manually launch workers with CUDA_VISIBLE_DEVICES 
-				// to ensure precise hardware mapping (A100 vs T4 isolation).
-				
-				if dm != nil {
-					log.Println("[Autoscaler] Manual intervention required: Please spawn a new worker process in a new terminal.")
+				log.Printf("[AUTOSCALER] Scale-up triggered. Avg Queue: %.2f, Workers: %d", avgQueue, workerCount)
+				spawnMu.Lock()
+				if time.Since(lastSpawnTime) < 30*time.Second {
+					spawnMu.Unlock()
+					continue
+				}
+				lastSpawnTime = time.Now()
+				spawnMu.Unlock()
+
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				err := dm.SpawnWorker(ctx, network, managerAddr)
+				cancel()
+				if err != nil {
+					log.Printf("[AUTOSCALER] Spawn failed: %v", err)
+				} else {
+					log.Println("[AUTOSCALER] New worker container started")
 				}
 			} else if avgQueue < 1.0 && workerCount > threshold {
-				log.Printf("[AUTOSCALER_ANALYTICS] Cluster underutilized. Scale-down recommended. Avg Queue: %.2f", avgQueue)
+				log.Printf("[AUTOSCALER] Underutilized. Scale-down recommended. Avg Queue: %.2f", avgQueue)
 			}
 		}
 	}()

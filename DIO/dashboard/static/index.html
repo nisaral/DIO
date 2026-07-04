@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DIO Cloud Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>DIO Cloud</h1>
+    <p>Predictive LLM routing control plane</p>
+    <div id="status">Connecting...</div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Workers</h2>
+      <div id="workers"></div>
+    </section>
+
+    <section class="card">
+      <h2>Last Routing Decision</h2>
+      <pre id="decision">—</pre>
+    </section>
+
+    <section class="card wide">
+      <h2>NLMS Slopes (ms/token)</h2>
+      <canvas id="slope-chart"></canvas>
+    </section>
+
+    <section class="card wide">
+      <h2>Routing Log</h2>
+      <div id="routing-log" class="log"></div>
+    </section>
+
+    <section class="card">
+      <h2>Chaos</h2>
+      <label>Worker ID <input id="chaos-worker" placeholder="w_0" /></label>
+      <button id="btn-vram">Inject VRAM Pressure</button>
+      <button id="btn-burst">Burst 10 Requests</button>
+    </section>
+
+    <section class="card">
+      <h2>Quick Test</h2>
+      <textarea id="prompt" rows="4">Explain NLMS scheduling in one sentence.</textarea>
+      <button id="btn-send">Send via OpenAI API</button>
+      <pre id="response"></pre>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

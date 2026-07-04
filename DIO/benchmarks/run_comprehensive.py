@@ -12,7 +12,7 @@ if os.getcwd() != project_root:
     os.chdir(project_root)
 
 WORKLOADS = ["ShareGPT", "FlowGPT", "ArXiv", "Code", "Enterprise"]
-STRATEGIES = ["RLS", "RoundRobin", "LeastLoaded", "LatencyBased"]
+STRATEGIES = ["NLMS", "RLS", "RoundRobin", "LeastLoaded", "LatencyBased"]
 ARRIVAL_MODES = ["UNIFORM", "BURSTY"]
 
 def run_test(workload, strategy, arrival_mode, users=50, duration="30s"):
