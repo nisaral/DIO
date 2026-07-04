@@ -60,13 +60,30 @@ huggingface-cli login
 # Accept Llama license on huggingface.co/meta-llama/Llama-3.2-3B-Instruct
 ```
 
-### 2d. Run full benchmark
+### 2d. Preflight ONLY (5 min — run this first)
 
 ```bash
 cd /teamspace/studios/this_studio/Go-serve/DIO
-chmod +x benchmarks/run_lightning_full.sh benchmarks/run_lightning_budget.sh
+chmod +x benchmarks/preflight_gpu.sh benchmarks/run_lightning_full.sh
+bash benchmarks/preflight_gpu.sh
+```
+
+**Must see before continuing:**
+- `[PASS] PyTorch CUDA: 2 device(s)`
+- `[PASS] Worker log confirms CUDA load`
+- `[PASS] Latency XXXXms in plausible GPU range`
+- `[PASS] GPU utilization detected`
+- Final line: `Safe to run: bash benchmarks/run_lightning_full.sh`
+
+If any `[FAIL]` — stop. Do not burn credits.
+
+### 2e. Run full benchmark
+
+```bash
 bash benchmarks/run_lightning_full.sh 2>&1 | tee lightning_run.log
 ```
+
+Ends with `validate_results.py` — must say **ADMISSIBLE**.
 
 **Shorter run (save credits):** ShareGPT only, ~45 min
 

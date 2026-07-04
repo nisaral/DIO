@@ -126,6 +126,9 @@ smoke_tests() {
 mkdir -p "$RESULTS_DIR"
 build_manager
 
+echo ""; echo "=== Preflight (GPU + single real inference) ==="
+bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting."; exit 1; }
+
 # T7 — mock scalability (no GPU inference)
 echo ""; echo "=== T7 Scalability (32 mock) ==="
 start_manager "nlms"
@@ -195,6 +198,9 @@ python3 benchmarks/real_world/analyze_results.py \
 
 python3 benchmarks/generate_figures_from_json.py --out "$ROOT_DIR/../figs" 2>/dev/null || true
 
+echo ""; echo "=== Admissibility validation ==="
+python3 benchmarks/validate_results.py --json "$ROOT_DIR/benchmarks/results_summary.json" || VALID_FAIL=1
+
 echo ""
 echo "============================================"
 echo "COMPLETE"
@@ -203,4 +209,7 @@ echo "  Summary: $ROOT_DIR/benchmarks/results_summary.json"
 echo "  Figures: $ROOT_DIR/../figs/"
 echo ""
 echo "Download results_final/ and results_summary.json to your laptop."
+if [[ "${VALID_FAIL:-0}" -eq 1 ]]; then
+  echo "WARNING: validate_results.py reported failures — review before paper update"
+fi
 echo "============================================"
