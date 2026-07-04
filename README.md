@@ -1,3 +1,91 @@
 System Report: DIO (Distributed Inference Orchestrator)1. Problem StatementLarge Language Model (LLM) serving faces critical bottlenecks when scaling from single-node deployments to heterogeneous clusters. While engines like vLLM and SGLang optimize throughput on individual GPUs, they lack cluster-wide awareness. This leads to three primary crises:The Latency Crisis: Naive scheduling (e.g., Round-Robin) routes short, latency-sensitive requests to slower or overloaded workers, causing severe head-of-line blocking and inflated tail latencies (p99).The Memory Crisis: Simple routing policies ignore VRAM constraints. Routing a long-context request to a worker with insufficient memory triggers immediate Out-Of-Memory (OOM) failures or expensive swapping.The Deployment Crisis: Existing solutions often require invasive modifications to the inference engine (e.g., custom forks of vLLM), creating a "maintenance trap" that prevents users from easily upgrading their underlying serving software.Goal: To build a model-agnostic, non-invasive control plane that achieves predictive, memory-safe orchestration for heterogeneous GPU clusters.
 
 **DIO Cloud (product layer):** See [DIO/DIO_CLOUD.md](DIO/DIO_CLOUD.md) for OpenAI-compatible API, dashboard, and one-command `docker-compose.cloud.yaml` deploy.2. Literature Survey & Gap AnalysisCurrent approaches to LLM orchestration fall into three categories, each with distinct limitations:Naive Load Balancers (Round-Robin, Least-Loaded):Mechanism: Route based on simple counters or cyclic order.Flaw: Blind to request complexity (token count) and hardware heterogeneity (A100 vs. T4). Fails to prevent OOMs.General-Purpose Frameworks (Ray Serve, Kubernetes):Mechanism: Scale based on coarse metrics like CPU/RAM usage or average latency.Flaw: Metrics are "lagging indicators". By the time average latency spikes, the system is already congested. They lack the granularity to manage KV-cache memory pressure.Specialized Research Systems (NexusSched, DistServe):Mechanism: Use sophisticated offline profiling or disaggregated prefill/decode pipelines.Flaw: Invasiveness. NexusSched requires deep modifications to the engine's scheduler. Complexity. Some use computationally expensive predictors ($O(N^2)$) or fragile offline profiles that drift over time.DIO's Contribution: A lightweight sidecar architecture that uses online learning (NLMS) to adapt to heterogeneity without offline profiling, enforcing strict memory safety via Roofline admission control.3. System ArchitectureDIO employs a decoupled Control Plane / Data Plane architecture (see Figure 1 in context).Control Plane (Go): A high-performance, centralized orchestrator responsible for all routing decisions.HTTP/gRPC API: Accepts requests and parses metadata (tier, prompt length).Scheduler: Runs the core logic (Algorithm 1) to score workers based on predicted latency, queue wait time, and VRAM penalties.Online Predictor: Maintains the NLMS state vector for every worker.Data Plane (Python): Stateless workers running standard inference engines (vLLM).Sidecar Pattern: Wraps the engine to intercept requests and piggyback telemetry (latency, free VRAM) onto responses. This avoids modifying the engine core.Execution: Purely responsible for inference; no local scheduling logic.4. Mathematical Foundation: Dual-Timescale NLMSTo predict request latency $y_k$ for a request with $N_k$ tokens on worker $w$, DIO uses a linear model updated online:$$\hat{y}_k = s_{w} \cdot N_k + b_{w}$$Where $s_w$ is the cost-per-token (slope) and $b_w$ is fixed overhead.The Update Rule (NLMS):Standard Least Mean Squares (LMS) suffers from gradient explosion with large inputs (long prompts). DIO uses Normalized LMS to stabilize updates:$$\nabla_{\text{norm}} = \frac{y_{\text{actual}} - \hat{y}_{\text{pred}}}{N_k + \epsilon}$$Dual-Timescale Adaptation:To distinguish between random noise (jitter) and persistent hardware changes (drift/thermal throttling), DIO maintains two slope estimates:Fast Slope ($s_{\text{fast}}$): Updates quickly ($\alpha=0.1$) to react to immediate contention.$$s_{\text{fast}} \leftarrow s_{\text{fast}} + 0.1 \cdot \nabla_{\text{norm}}$$Slow Slope ($s_{\text{slow}}$): Updates slowly ($\alpha=0.01$) to track long-term trends.$$s_{\text{slow}} \leftarrow s_{\text{slow}} + 0.01 \cdot \nabla_{\text{norm}}$$Final Effective Slope: A weighted combination ($0.8 s_{\text{fast}} + 0.2 s_{\text{slow}}$) is used for scheduling.5. Experimental EvaluationDIO was evaluated on both constrained (L4) and high-performance (A100) hardware using production traces (ShareGPT, arXiv, Azure Code).Key Results:Zero-Config Convergence (T1): The NLMS predictor converged to <50ms error within 60 seconds (approx. 20 probes) on both L4 and A100 GPUs, proving no offline profiling is needed.Scalability (T7): The Go-based control plane successfully managed 32 concurrent workers with a scheduling overhead of just 14$\mu$s per request, validating the $O(1)$ complexity claim.Tail Latency Reduction (T9-T11):On the arXiv (Long Context) stress test, baselines suffered VRAM thrashing with p99 latency >80s. DIO's Roofline admission kept p99 at 13.5s (a ~6x reduction).On Azure Code (Bursty), DIO maintained 88% SLO attainment versus 12% for Round-Robin.Resilience (T4): In a "Roofline" stress test (flooding the system beyond capacity), DIO achieved 0% failure rate by gracefully shedding load, whereas baselines crashed with OOM errors.
+# System Report: DIO (Distributed Inference Orchestrator)
+
+## 1. Problem Statement
+
+Large Language Model (LLM) serving faces critical bottlenecks when scaling from single-node deployments to heterogeneous clusters. While engines like vLLM and SGLang optimize throughput on individual GPUs, they lack cluster-wide awareness. This leads to three primary crises:
+
+- **The Latency Crisis:** Naive scheduling (e.g., Round-Robin) routes short, latency-sensitive requests to slower or overloaded workers, causing severe head-of-line blocking and inflated tail latencies (p99).
+- **The Memory Crisis:** Simple routing policies ignore VRAM constraints. Routing a long-context request to a worker with insufficient memory triggers immediate Out-Of-Memory (OOM) failures or expensive swapping.
+- **The Deployment Crisis:** Existing solutions often require invasive modifications to the inference engine (e.g., custom forks of vLLM), creating a "maintenance trap" that prevents users from easily upgrading their underlying serving software.
+
+**Goal:** To build a model-agnostic, non-invasive control plane that achieves predictive, memory-safe orchestration for heterogeneous GPU clusters.
+
+## 2. Literature Survey & Gap Analysis
+
+Current approaches to LLM orchestration fall into three categories, each with distinct limitations:
+
+| Category | Mechanism | Flaw |
+| :--- | :--- | :--- |
+| **Naive Load Balancers**<br>*(Round-Robin, Least-Loaded)* | Route based on simple counters or cyclic order. | Blind to request complexity (token count) and hardware heterogeneity (A100 vs. T4). Fails to prevent OOMs. |
+| **General-Purpose Frameworks**<br>*(Ray Serve, Kubernetes)* | Scale based on coarse metrics like CPU/RAM usage or average latency. | Metrics are "lagging indicators". By the time average latency spikes, the system is already congested. They lack granularity to manage KV-cache memory pressure. |
+| **Specialized Research Systems**<br>*(NexusSched, DistServe)* | Use sophisticated offline profiling or disaggregated prefill/decode pipelines. | **Invasiveness.** NexusSched requires deep modifications to the engine's scheduler. **Complexity.** Some use computationally expensive predictors ($O(N^2)$) or fragile offline profiles that drift over time. |
+
+**DIO's Contribution:** A lightweight sidecar architecture that uses online learning (NLMS) to adapt to heterogeneity without offline profiling, enforcing strict memory safety via Roofline admission control.
+
+## 3. System Architecture
+
+DIO employs a decoupled **Control Plane / Data Plane** architecture (see Figure 1 in context).
+
+### Control Plane (Go)
+A high-performance, centralized orchestrator responsible for all routing decisions.
+- **HTTP/gRPC API:** Accepts requests and parses metadata (tier, prompt length).
+- **Scheduler:** Runs the core logic (Algorithm 1) to score workers based on predicted latency, queue wait time, and VRAM penalties.
+- **Online Predictor:** Maintains the NLMS state vector for every worker.
+
+### Data Plane (Python)
+Stateless workers running standard inference engines (vLLM).
+- **Sidecar Pattern:** Wraps the engine to intercept requests and piggyback telemetry (latency, free VRAM) onto responses. This avoids modifying the engine core.
+- **Execution:** Purely responsible for inference; no local scheduling logic.
+
+## 4. Mathematical Foundation: Dual-Timescale NLMS
+
+To predict request latency $y_k$ for a request with $N_k$ tokens on worker $w$, DIO uses a linear model updated online:
+
+$$
+\hat{y}_k = s_{w} \cdot N_k + b_{w}
+$$
+
+Where $s_w$ is the cost-per-token (slope) and $b_w$ is fixed overhead.
+
+### The Update Rule (NLMS)
+Standard Least Mean Squares (LMS) suffers from gradient explosion with large inputs (long prompts). DIO uses **Normalized LMS** to stabilize updates:
+
+$$
+\nabla_{\text{norm}} = \frac{y_{\text{actual}} - \hat{y}_{\text{pred}}}{N_k + \epsilon}
+$$
+
+### Dual-Timescale Adaptation
+To distinguish between random noise (jitter) and persistent hardware changes (drift/thermal throttling), DIO maintains two slope estimates:
+
+- **Fast Slope ($s_{\text{fast}}$):** Updates quickly ($\alpha=0.1$) to react to immediate contention.
+  
+  $$
+  s_{\text{fast}} \leftarrow s_{\text{fast}} + 0.1 \cdot \nabla_{\text{norm}}
+  $$
+
+- **Slow Slope ($s_{\text{slow}}$):** Updates slowly ($\alpha=0.01$) to track long-term trends.
+  
+  $$
+  s_{\text{slow}} \leftarrow s_{\text{slow}} + 0.01 \cdot \nabla_{\text{norm}}
+  $$
+
+**Final Effective Slope:** A weighted combination ($0.8 s_{\text{fast}} + 0.2 s_{\text{slow}}$) is used for scheduling.
+
+## 5. Experimental Evaluation
+
+DIO was evaluated on both constrained (L4) and high-performance (A100) hardware using production traces (ShareGPT, arXiv, Azure Code).
+
+### Key Results
+
+- **Zero-Config Convergence (T1):** The NLMS predictor converged to **<50ms error** within 60 seconds (approx. 20 probes) on both L4 and A100 GPUs, proving no offline profiling is needed.
+
+- **Scalability (T7):** The Go-based control plane successfully managed **32 concurrent workers** with a scheduling overhead of just **14µs** per request, validating the $O(1)$ complexity claim.
+
+- **Tail Latency Reduction (T9-T11):**
+    - *arXiv (Long Context) Stress Test:* Baselines suffered VRAM thrashing with p99 latency >80s. DIO's Roofline admission kept p99 at **13.5s** (a **~6x reduction**).
+    - *Azure Code (Bursty):* DIO maintained **88% SLO attainment** versus 12% for Round-Robin.
+
+- **Resilience (T4):** In a "Roofline" stress test (flooding the system beyond capacity), DIO achieved **0% failure rate** by gracefully shedding load, whereas baselines crashed with OOM errors.
