@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Full DIO GPU benchmark suite for Lightning AI (2×A100 recommended, 1×H100 supported).
+# Full DIO GPU benchmark suite for Lightning AI.
+# 1×A100: 1 real worker + 1 slow mock (emulated heterogeneity, paper-safe).
+# 2×A100: 2 real workers (1 per GPU, physical heterogeneity).
 # Usage: bash benchmarks/run_lightning_full.sh
 set -euo pipefail
 
@@ -30,12 +32,16 @@ fi
 
 if [[ "$GPU_COUNT" -ge 2 ]]; then
   NUM_REAL_WORKERS=2
+  NUM_PAPER_WORKERS=2
+  PAPER_WORKER_MODE="real_only"
   WORKER_GPU_MODE="multi"
-  echo "Mode: 2 real workers (1 per GPU) — real heterogeneity"
+  echo "Mode: 2 real workers (1 per GPU) — physical heterogeneity"
 else
-  NUM_REAL_WORKERS="${NUM_REAL_WORKERS:-2}"
+  NUM_REAL_WORKERS=1
+  NUM_PAPER_WORKERS=2
+  PAPER_WORKER_MODE="hetero_mock"
   WORKER_GPU_MODE="single"
-  echo "Mode: $NUM_REAL_WORKERS workers on GPU 0 (single-GPU)"
+  echo "Mode: 1 real + 1 slow mock on GPU 0 — emulated heterogeneity (safe for 1×A100)"
 fi
 
 cleanup() {
@@ -103,6 +109,23 @@ start_mock_workers() {
   wait_workers "$count"
 }
 
+start_hetero_mock_pair() {
+  CUDA_VISIBLE_DEVICES=0 python3 "$WORKER_SCRIPT" --worker-id fast --port 50060 --tier large \
+    --vram 70000 --model-id "$MODEL_ID" --manager-addr 127.0.0.1:50055 > w_fast.log 2>&1 &
+  sleep 20
+  python3 "$WORKER_SCRIPT" --mock --worker-id slow --port 50061 --tier small \
+    --latency-mult 2.5 --vram 8000 --manager-addr 127.0.0.1:50055 > w_slow.log 2>&1 &
+  wait_workers 2
+}
+
+start_paper_workers() {
+  if [[ "$PAPER_WORKER_MODE" == "hetero_mock" ]]; then
+    start_hetero_mock_pair
+  else
+    start_real_workers "$NUM_REAL_WORKERS"
+  fi
+}
+
 run_locust() {
   local test_id="$1"
   local dataset="$2"
@@ -162,26 +185,21 @@ for strat in nlms round_robin; do
   if [[ "$GPU_COUNT" -ge 2 ]]; then
     start_real_workers 2
   else
-    CUDA_VISIBLE_DEVICES=0 python3 "$WORKER_SCRIPT" --worker-id fast --port 50060 --tier large \
-      --vram 70000 --model-id "$MODEL_ID" --manager-addr 127.0.0.1:50055 > w_fast.log 2>&1 &
-    sleep 20
-    python3 "$WORKER_SCRIPT" --mock --worker-id slow --port 50061 --tier small \
-      --latency-mult 2.5 --vram 8000 --manager-addr 127.0.0.1:50055 > w_slow.log 2>&1 &
-    wait_workers 2
+    start_hetero_mock_pair
   fi
   sleep 20
   run_locust "T2_${strat}_hetero_2w" "sharegpt.jsonl"
 done
 
 # Core paper matrix
-echo ""; echo "=== Core matrix (${NUM_REAL_WORKERS} workers × ${#STRATEGIES[@]} strategies × ${#DATASETS[@]} datasets) ==="
+echo ""; echo "=== Core matrix (${NUM_PAPER_WORKERS} workers × ${#STRATEGIES[@]} strategies × ${#DATASETS[@]} datasets) ==="
 for strat in "${STRATEGIES[@]}"; do
   for ds in "${DATASETS[@]}"; do
     tag="${ds%.jsonl}"
-    test_id="${strat}_${tag}_${NUM_REAL_WORKERS}w"
+    test_id="${strat}_${tag}_${NUM_PAPER_WORKERS}w"
     echo "--- $test_id ---"
     start_manager "$strat"
-    start_real_workers "$NUM_REAL_WORKERS"
+    start_paper_workers
     echo "Warmup 45s..."
     sleep 45
     run_locust "$test_id" "$ds"

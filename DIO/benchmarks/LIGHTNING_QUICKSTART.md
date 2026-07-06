@@ -6,10 +6,12 @@ Use this after committing and pulling on your Lightning studio.
 
 | Option | Recommendation |
 |--------|----------------|
-| **2× A100 80GB** @ ~5.73 credits/hr | **Pick this** — 1 worker per GPU, real heterogeneity, paper-grade |
-| 1× H100 | Works, but both workers share one GPU (less heterogeneity story) |
+| **1× A100 80GB** | **Default / fine** — scripts auto-detect and run **1 real worker + 1 slow mock** (emulated heterogeneity) |
+| 2× A100 80GB | Optional — 2 real workers (1 per GPU), physical heterogeneity |
 
-**Estimated runtime:** ~1.5–2 hours → **~9–12 credits** for the full suite.
+**Do not** run 2 full Llama-3.2-3B workers on one GPU — that causes VRAM thrash and bogus p99s.
+
+**Estimated runtime:** ~1–1.5 hours on 1×A100 → **~4–8 credits** (full) or **~2–4 credits** (budget).
 
 ---
 
@@ -33,7 +35,7 @@ If push fails, use your branch name: `git branch` to check.
 ## Part 2 — On Lightning AI studio
 
 ### 2a. Create studio
-- Template: **GPU** → **2× A100 80GB** (or 1× H100 if 2× unavailable)
+- Template: **GPU** → **1× A100 80GB** (or 2× if you have credits and want physical heterogeneity)
 - Open **Terminal** in the studio (no SSH needed)
 
 ### 2b. Clone and setup (one-time)
@@ -69,7 +71,7 @@ bash benchmarks/preflight_gpu.sh
 ```
 
 **Must see before continuing:**
-- `[PASS] PyTorch CUDA: 2 device(s)`
+- `[PASS] PyTorch CUDA: 1 device(s)` (or 2 if multi-GPU)
 - `[PASS] Worker log confirms CUDA load`
 - `[PASS] Latency XXXXms in plausible GPU range`
 - `[PASS] GPU utilization detected`
@@ -103,7 +105,7 @@ bash benchmarks/run_lightning_budget.sh 2>&1 | tee lightning_budget.log
 | `/debug/metrics` | smoke_tests | No | **NEW dashboard API** |
 | T7 scalability | 32 mock workers | No | Control-plane O(1) |
 | T1 NLMS convergence | 25 probes | **Yes** | **NLMS hyperparams 0.1/0.01/0.005** |
-| T2 heterogeneity | 2 workers | **Yes** | 2×A100 routing / NLMS vs RR |
+| T2 heterogeneity | 2 workers | **Yes** | 1 real + 1 slow mock (1×A100) or 2×A100 |
 | ShareGPT matrix | Locust 120s | **Yes** | NLMS, **RLS**, RR, LL |
 | arXiv matrix | Locust 120s | **Yes** | VRAM roofline admission |
 | Azure matrix | Locust 120s | **Yes** | Bursty decode |

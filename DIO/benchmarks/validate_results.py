@@ -13,7 +13,7 @@ import json
 import os
 import sys
 
-# Thresholds for 3B model, 2 workers, 120s Locust run on A100
+# Thresholds for 3B model, 2 workers (1 real + 1 mock on 1×A100), 120s Locust run
 MIN_REQUESTS = 80          # below = underloaded or broken
 MAX_P99_MS = 30000         # above = CPU thrash / OOM fight
 MIN_RPS = 0.8              # below = system barely serving

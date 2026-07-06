@@ -144,4 +144,5 @@ if [[ "$FAIL" -gt 0 ]]; then
   exit 1
 fi
 echo "Safe to run: bash benchmarks/run_lightning_full.sh"
+echo "  (1×A100: core matrix uses 1 real + 1 slow mock — not 2 models on one GPU)"
 echo "============================================"
