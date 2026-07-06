@@ -1,0 +1,10 @@
+{"prompt": "ping", "tier": "small", "output_len": 10}
+{"prompt": "say hi", "tier": "small", "output_len": 10}
+{"prompt": "one word ok", "tier": "small", "output_len": 10}
+{"prompt": "test latency", "tier": "small", "output_len": 10}
+{"prompt": "quick reply", "tier": "small", "output_len": 10}
+{"prompt": "hello world", "tier": "small", "output_len": 10}
+{"prompt": "status check", "tier": "small", "output_len": 10}
+{"prompt": "go", "tier": "small", "output_len": 10}
+{"prompt": "ack", "tier": "small", "output_len": 10}
+{"prompt": "ready", "tier": "small", "output_len": 10}

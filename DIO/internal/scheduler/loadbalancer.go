@@ -85,7 +85,8 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vramMB int64) (float64, float6
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if vramMB < VRAMHardLimitMB && tokens > 1000 {
+	// Hard block only for clearly undersized workers (<4GB reported VRAM).
+	if vramMB > 0 && vramMB < VRAMHardLimitMB && tokens > 1000 {
 		return math.MaxFloat64, p.AverageLatency
 	}
 
@@ -327,7 +328,7 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 	}
 
 	if bestID == "" {
-		if anyCandidate && (minScore >= 1e300 || minScore > SLOTTFTMs) {
+		if !AdmissionDisabled() && anyCandidate && (minScore >= 1e300 || minScore > EffectiveSLOMs()) {
 			retryMs := minScore
 			if retryMs >= 1e300 {
 				retryMs = 5000
@@ -338,8 +339,8 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 	}
 
 	// SLO admission: reject if predicted total wait+exec exceeds budget
-	if s.Strategy == "NLMS" || s.Strategy == "RLS" {
-		if minScore > SLOTTFTMs {
+	if !AdmissionDisabled() && (s.Strategy == "NLMS" || s.Strategy == "RLS") {
+		if minScore > EffectiveSLOMs() {
 			return "", newAdmissionError(minScore, "predicted latency exceeds SLO")
 		}
 	}

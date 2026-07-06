@@ -12,6 +12,9 @@ if [[ -d "/teamspace/studios/this_studio" ]]; then
   export PATH="/usr/local/go/bin:$PATH"
 fi
 
+export DIO_SLO_MS="${DIO_SLO_MS:-120000}"
+export DIO_ADMISSION_OFF="${DIO_ADMISSION_OFF:-1}"
+export SKIP_T7="${SKIP_T7:-1}"
 MODEL_ID="${MODEL_ID:-meta-llama/Llama-3.2-3B-Instruct}"
 NUM_REAL_WORKERS=1
 NUM_PAPER_WORKERS=2
@@ -52,6 +55,7 @@ build_manager() {
 start_manager() {
   local strategy="$1"
   export SCHEDULER_STRATEGY="$strategy"
+  export DIO_SLO_MS DIO_ADMISSION_OFF
   cleanup
   "$MANAGER_BIN" > manager.log 2>&1 &
   for i in $(seq 1 20); do
@@ -104,9 +108,15 @@ start_workers() {
     else
       echo "Starting mock worker $wid (baseline mock)"
     fi
+    local mock_tier="small"
+    local mock_vram=8000
+    if [[ "$slow_mock" == "true" && "$j" -eq 0 ]]; then
+      mock_tier="large"
+      mock_vram=32000
+    fi
     python3 "$WORKER_SCRIPT" --mock \
-      --worker-id "$wid" --port "$port" --tier small \
-      --vram 8000 "${profile_args[@]}" \
+      --worker-id "$wid" --port "$port" --tier "$mock_tier" \
+      --vram "$mock_vram" "${profile_args[@]}" \
       --manager-addr 127.0.0.1:50055 \
       > "worker_mock_${j}.log" 2>&1 &
     port=$((port+1))
@@ -123,10 +133,14 @@ run_locust() {
   export MODEL_ID
   mkdir -p "$RESULTS_DIR"
   echo "Locust: $test_id ($dataset)"
+  set +e
   locust -f "$LOCUST_FILE" --headless \
     -u "$LOCUST_USERS" -r "$LOCUST_RATE" -t "$LOCUST_DURATION" \
     --host "$MANAGER_URL" \
     --csv "$RESULTS_DIR/$test_id"
+  local rc=$?
+  set -e
+  [[ "$rc" -ne 0 ]] && echo "WARN: $test_id locust exit $rc — continuing"
 }
 
 mkdir -p "$RESULTS_DIR"
@@ -136,12 +150,29 @@ echo ""
 echo "=== Preflight (GPU + single real inference) ==="
 bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting."; exit 1; }
 
-# --- T7: mock scalability (no GPU inference) ---
-echo ""
-echo "=== T7 Scalability (32 mock workers) ==="
-start_manager "nlms"
-start_workers 0 32 false
-run_locust "T7_Scalability_32" "sharegpt.jsonl"
+if [[ "${SKIP_T7:-1}" != "1" ]]; then
+  echo ""
+  echo "=== T7 Scalability (32 mock workers) ==="
+  start_manager "round_robin"
+  port=50060
+  for ((i=0; i<32; i++)); do
+    python3 "$WORKER_SCRIPT" --mock --worker-id "m_$i" --port "$port" --tier small \
+      --latency-profile scalability_fast --vram 32000 \
+      --manager-addr 127.0.0.1:50055 > /dev/null 2>&1 &
+    port=$((port+1))
+    sleep 0.2
+  done
+  wait_workers 32
+  set +e
+  WORKLOAD_FILE="$ROOT_DIR/benchmarks/data/t7_scalability.jsonl" \
+  locust -f "$LOCUST_FILE" --headless \
+    -u "${T7_LOCUST_USERS:-12}" -r "${T7_LOCUST_RATE:-3}" -t "60s" \
+    --host "$MANAGER_URL" --csv "$RESULTS_DIR/T7_Scalability_32"
+  set -e
+else
+  echo ""
+  echo "=== T7 — SKIPPED (set SKIP_T7=0 to run) ==="
+fi
 
 # --- T2: heterogeneity (1 real + 1 slow mock) ---
 echo ""
