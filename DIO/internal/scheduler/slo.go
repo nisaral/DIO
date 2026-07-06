@@ -3,6 +3,7 @@ package scheduler
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // EffectiveSLOMs returns the admission / routing SLO budget in milliseconds.
@@ -15,4 +16,10 @@ func EffectiveSLOMs() float64 {
 		}
 	}
 	return SLOTTFTMs
+}
+
+// AdmissionDisabled is true when DIO_ADMISSION_OFF=1 (Locust scheduler comparisons).
+func AdmissionDisabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("DIO_ADMISSION_OFF")))
+	return v == "1" || v == "true" || v == "yes"
 }
