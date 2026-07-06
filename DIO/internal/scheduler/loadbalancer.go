@@ -327,7 +327,7 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 	}
 
 	if bestID == "" {
-		if anyCandidate && (minScore >= 1e300 || minScore > SLOTTFTMs) {
+		if anyCandidate && (minScore >= 1e300 || minScore > EffectiveSLOMs()) {
 			retryMs := minScore
 			if retryMs >= 1e300 {
 				retryMs = 5000
@@ -339,7 +339,7 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 
 	// SLO admission: reject if predicted total wait+exec exceeds budget
 	if s.Strategy == "NLMS" || s.Strategy == "RLS" {
-		if minScore > SLOTTFTMs {
+		if minScore > EffectiveSLOMs() {
 			return "", newAdmissionError(minScore, "predicted latency exceeds SLO")
 		}
 	}

@@ -12,6 +12,7 @@ if [[ -d "/teamspace/studios/this_studio" ]]; then
   export PATH="/usr/local/go/bin:$PATH"
 fi
 
+export DIO_SLO_MS="${DIO_SLO_MS:-90000}"
 MODEL_ID="${MODEL_ID:-meta-llama/Llama-3.2-3B-Instruct}"
 NUM_REAL_WORKERS=1
 NUM_PAPER_WORKERS=2
@@ -140,8 +141,20 @@ bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting."; 
 echo ""
 echo "=== T7 Scalability (32 mock workers) ==="
 start_manager "nlms"
-start_workers 0 32 false
-run_locust "T7_Scalability_32" "sharegpt.jsonl"
+port=50060
+for ((i=0; i<32; i++)); do
+  python3 "$WORKER_SCRIPT" --mock --worker-id "m_$i" --port "$port" --tier small \
+    --latency-profile scalability_fast --vram 32000 \
+    --manager-addr 127.0.0.1:50055 > /dev/null 2>&1 &
+  port=$((port+1))
+  sleep 0.2
+done
+wait_workers 32
+LOCUST_USERS="${T7_LOCUST_USERS:-12}" LOCUST_RATE="${T7_LOCUST_RATE:-3}" \
+  WORKLOAD_FILE="$ROOT_DIR/benchmarks/data/t7_scalability.jsonl" \
+  bash -c 'export WORKLOAD_FILE; locust -f "'"$LOCUST_FILE"'" --headless \
+    -u "$LOCUST_USERS" -r "$LOCUST_RATE" -t "'"$LOCUST_DURATION"'" \
+    --host "'"$MANAGER_URL"'" --csv "'"$RESULTS_DIR"'/T7_Scalability_32"'
 
 # --- T2: heterogeneity (1 real + 1 slow mock) ---
 echo ""

@@ -13,6 +13,7 @@ sys.path.insert(0, current_dir)
 
 import dio_pb2 as pb
 import dio_pb2_grpc as pb_grpc
+from google.protobuf import empty_pb2
 from mock_latency_model import MockLatencySimulator, resolve_profile
 
 
@@ -135,6 +136,9 @@ class InferenceWorker(pb_grpc.InferenceWorkerServicer):
             tokens_used=int(tokens_generated),
             ttft_ms=ttft,
         )
+
+    def CheckHealth(self, request, context):
+        return empty_pb2.Empty()
 
 
 def register_worker(stub, args, worker_address: str, vram_mb: int) -> bool:

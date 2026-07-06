@@ -11,6 +11,9 @@ cd "$ROOT_DIR"
 
 export PATH="/usr/local/go/bin:${PATH:-}"
 
+# minScore is E2E wait+exec; 2s default SLO causes mass 503s on real GPU decode.
+export DIO_SLO_MS="${DIO_SLO_MS:-90000}"
+
 MODEL_ID="${MODEL_ID:-meta-llama/Llama-3.2-3B-Instruct}"
 LOCUST_USERS="${LOCUST_USERS:-20}"
 LOCUST_RATE="${LOCUST_RATE:-4}"
@@ -169,18 +172,26 @@ else
   bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting. Logs: preflight_worker.log"; exit 1; }
 fi
 
-# T7 — mock scalability (no GPU inference)
+# T7 — mock scalability (no GPU inference; short prompts only)
 echo ""; echo "=== T7 Scalability (32 mock) ==="
 start_manager "nlms"
 smoke_tests || true
 port=50060
 for ((i=0; i<32; i++)); do
-  python3 "$WORKER_SCRIPT" --mock --worker-id "m_$i" --port "$port" --tier small --vram 500 \
+  python3 "$WORKER_SCRIPT" --mock --worker-id "m_$i" --port "$port" --tier small \
+    --latency-profile scalability_fast --vram 32000 \
     --manager-addr 127.0.0.1:50055 > /dev/null 2>&1 &
   port=$((port+1))
+  sleep 0.2
 done
 wait_workers 32
-run_locust "T7_Scalability_32" "sharegpt.jsonl"
+sleep 3
+T7_USERS="${T7_LOCUST_USERS:-12}" T7_RATE="${T7_LOCUST_RATE:-3}"
+LOCUST_USERS=$T7_USERS LOCUST_RATE=$T7_RATE \
+  WORKLOAD_FILE="$ROOT_DIR/benchmarks/data/t7_scalability.jsonl" \
+  bash -c 'export WORKLOAD_FILE; locust -f "'"$LOCUST_FILE"'" --headless \
+    -u "$LOCUST_USERS" -r "$LOCUST_RATE" -t "'"$LOCUST_DURATION"'" \
+    --host "'"$MANAGER_URL"'" --csv "'"$RESULTS_DIR"'/T7_Scalability_32"'
 
 # T1 — NLMS convergence probes
 echo ""; echo "=== T1 Convergence ==="
