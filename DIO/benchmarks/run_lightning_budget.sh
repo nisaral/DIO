@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Credit-efficient DIO benchmark suite for Lightning AI (single GPU).
+# Credit-efficient DIO benchmark suite for Lightning AI (1×A100).
+# Core matrix: 1 real worker + 1 slow mock (2 workers total — never 2 models on one GPU).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +13,8 @@ if [[ -d "/teamspace/studios/this_studio" ]]; then
 fi
 
 MODEL_ID="${MODEL_ID:-meta-llama/Llama-3.2-3B-Instruct}"
-NUM_REAL_WORKERS="${NUM_REAL_WORKERS:-2}"
+NUM_REAL_WORKERS=1
+NUM_PAPER_WORKERS=2
 LOCUST_USERS="${LOCUST_USERS:-15}"
 LOCUST_RATE="${LOCUST_RATE:-3}"
 LOCUST_DURATION="${LOCUST_DURATION:-120s}"
@@ -95,12 +97,16 @@ start_workers() {
 
   for ((j=0; j<mock_count; j++)); do
     local wid="mock_$j"
-    local mult=1.0
-    if [[ "$slow_mock" == "true" && "$j" -eq 0 ]]; then mult=2.5; fi
-    echo "Starting mock worker $wid (latency_mult=$mult)"
+    local profile_args=()
+    if [[ "$slow_mock" == "true" && "$j" -eq 0 ]]; then
+      profile_args=(--latency-profile "${LATENCY_PAIRING:-t4_vs_a100}" --profile-role slow)
+      echo "Starting mock worker $wid (calibrated profile ${LATENCY_PAIRING:-t4_vs_a100})"
+    else
+      echo "Starting mock worker $wid (baseline mock)"
+    fi
     python3 "$WORKER_SCRIPT" --mock \
       --worker-id "$wid" --port "$port" --tier small \
-      --vram 8000 --latency-mult "$mult" \
+      --vram 8000 "${profile_args[@]}" \
       --manager-addr 127.0.0.1:50055 \
       > "worker_mock_${j}.log" 2>&1 &
     port=$((port+1))
@@ -126,6 +132,10 @@ run_locust() {
 mkdir -p "$RESULTS_DIR"
 build_manager
 
+echo ""
+echo "=== Preflight (GPU + single real inference) ==="
+bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting."; exit 1; }
+
 # --- T7: mock scalability (no GPU inference) ---
 echo ""
 echo "=== T7 Scalability (32 mock workers) ==="
@@ -143,17 +153,17 @@ for strat in nlms round_robin; do
   run_locust "T2_${strat}_hetero" "sharegpt.jsonl"
 done
 
-# --- Core matrix: 2 real workers × strategies × datasets ---
+# --- Core matrix: 1 real + 1 slow mock × strategies × datasets ---
 echo ""
-echo "=== Core paper matrix (${NUM_REAL_WORKERS} real workers) ==="
+echo "=== Core paper matrix (${NUM_PAPER_WORKERS} workers: 1 real + 1 slow mock) ==="
 for strat in "${STRATEGIES[@]}"; do
   for ds in "${DATASETS[@]}"; do
     tag="${ds%.jsonl}"
-    test_id="${strat}_${tag}_${NUM_REAL_WORKERS}w"
+    test_id="${strat}_${tag}_${NUM_PAPER_WORKERS}w"
     echo ""
     echo "--- $test_id ---"
     start_manager "$strat"
-    start_workers "$NUM_REAL_WORKERS" 0 false
+    start_workers "$NUM_REAL_WORKERS" 1 true
     echo "Warmup 30s..."
     sleep 30
     run_locust "$test_id" "$ds"
@@ -169,9 +179,16 @@ python3 benchmarks/real_world/analyze_results.py \
   --out-json "$ROOT_DIR/benchmarks/results_summary.json"
 
 echo ""
+echo "=== Admissibility validation ==="
+python3 benchmarks/validate_results.py --json "$ROOT_DIR/benchmarks/results_summary.json" || VALID_FAIL=1
+
+echo ""
 echo "DONE. Results:"
 echo "  CSVs:    $RESULTS_DIR"
 echo "  Summary: $ROOT_DIR/benchmarks/results_summary.json"
 echo ""
 echo "Download results_summary.json and results_final/ to your laptop, then:"
 echo "  python benchmarks/generate_figures_from_json.py --out ../figs"
+if [[ "${VALID_FAIL:-0}" -eq 1 ]]; then
+  echo "WARNING: validate_results.py reported failures — review before paper update"
+fi

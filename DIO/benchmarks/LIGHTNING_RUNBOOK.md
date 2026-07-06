@@ -4,7 +4,7 @@
 
 `unified_master_test.py` spawns **4 real HuggingFace workers**, each loading Llama-3.2-3B on `cuda:0`. On a single GPU they fight for VRAM and thrash — that explains ~50–80s p99 with only ~30 requests in 90s.
 
-**Fix:** use **2 workers max** on one GPU, or **1 real + 1 mock** for scheduling comparisons.
+**Fix:** use **1 real + 1 calibrated mock** on one GPU (never 2 full models). Mock uses `heterogeneity_profiles.json` (intercept/slope/jitter/thermal), not a flat multiplier.
 
 ---
 
@@ -48,9 +48,9 @@ Run mock-heavy tests only (T7 scalability, admission) — no real model load.
 | Test | Workers | Time | Purpose |
 |------|---------|------|---------|
 | T7 scalability | 32 mock | ~2 min | Control-plane overhead (CPU only) |
-| T2 heterogeneity | 1 real + 1 mock (2.5× slow) | ~5 min | Routing split NLMS vs RR |
-| ShareGPT | 2 real | ~15 min × 3 strategies | **Core paper numbers** |
-| arXiv (optional) | 2 real | ~15 min × 3 strategies | Long-context stress |
+| T2 heterogeneity | 1 real + 1 calibrated mock (`t4_vs_a100`) | ~5 min | Routing split NLMS vs RR |
+| ShareGPT | 1 real + 1 calibrated mock | ~15 min × 4 strategies | **Core paper numbers** |
+| arXiv (optional) | 1 real + 1 calibrated mock | ~15 min × 4 strategies | Long-context stress |
 
 **Total:** ~60–90 min GPU time (one A100 session).
 
