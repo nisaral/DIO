@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import time
+import threading
 import grpc
 from concurrent import futures
 import torch
@@ -15,13 +16,43 @@ import dio_pb2_grpc as pb_grpc
 from mock_latency_model import MockLatencySimulator, resolve_profile
 
 
+def gpu_vram_mb(fallback: int = 24000) -> int:
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
+    return fallback
+
+
+def load_model(is_mock=False, model_id="meta-llama/Llama-3.2-1B-Instruct"):
+    if is_mock:
+        return None, None
+
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    print(f"Loading {model_id} on {device}...", flush=True)
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
+        print(f"Model loaded on {device}.", flush=True)
+        return tokenizer, model
+    except Exception as e:
+        print(f"LOAD FAILURE: {e}", flush=True)
+        return None, None
+
+
 class InferenceWorker(pb_grpc.InferenceWorkerServicer):
-    def __init__(self, args, tokenizer, model):
+    def __init__(self, args):
         self.args = args
-        self.tokenizer = tokenizer
-        self.model = model
+        self.tokenizer = None
+        self.model = None
         self.mock_sim = None
-        if args.mock or model is None:
+        self._ready = threading.Event()
+        self._load_error = None
+
+        if args.mock:
             profile = resolve_profile(
                 profile_name=args.latency_profile or None,
                 profile_role=args.profile_role or "slow",
@@ -30,11 +61,33 @@ class InferenceWorker(pb_grpc.InferenceWorkerServicer):
             self.mock_sim = MockLatencySimulator(profile, seed=args.mock_seed)
             print(
                 f"Mock worker profile={profile.name} gpu={profile.gpu} "
-                f"decode_slope={profile.decode_slope_ms_per_token}ms/tok "
-                f"jitter={profile.jitter_pct} thermal={profile.thermal.enabled}"
+                f"decode_slope={profile.decode_slope_ms_per_token}ms/tok",
+                flush=True,
             )
+            self._ready.set()
+        else:
+            threading.Thread(target=self._load_model_bg, daemon=True).start()
+
+    def _load_model_bg(self):
+        try:
+            tokenizer, model = load_model(False, self.args.model_id)
+            if model is None:
+                profile = resolve_profile(latency_mult=self.args.latency_mult)
+                self.mock_sim = MockLatencySimulator(profile, seed=self.args.mock_seed)
+                print("Falling back to MOCK after load failure.", flush=True)
+            else:
+                self.tokenizer = tokenizer
+                self.model = model
+        except Exception as e:
+            self._load_error = str(e)
+            print(f"Background load error: {e}", flush=True)
+        finally:
+            self._ready.set()
 
     def Predict(self, request, context):
+        if not self._ready.wait(timeout=600):
+            context.abort(grpc.StatusCode.UNAVAILABLE, "model still loading (timeout)")
+
         try:
             prompt = request.data.decode("utf-8")
         except AttributeError:
@@ -49,6 +102,12 @@ class InferenceWorker(pb_grpc.InferenceWorkerServicer):
                 latency_ms=result.total_latency_ms,
                 tokens_used=result.tokens_generated,
                 ttft_ms=result.ttft_ms,
+            )
+
+        if self.model is None:
+            context.abort(
+                grpc.StatusCode.INTERNAL,
+                self._load_error or "model not available",
             )
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
@@ -78,24 +137,16 @@ class InferenceWorker(pb_grpc.InferenceWorkerServicer):
         )
 
 
-def load_model(is_mock=False, model_id="meta-llama/Llama-3.2-1B-Instruct"):
-    if is_mock:
-        return None, None
-
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    print(f"Loading {model_id} on {device.upper()}...")
-
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            torch_dtype=torch.float16,
-            device_map="auto",
+def register_worker(stub, args, worker_address: str, vram_mb: int) -> bool:
+    resp = stub.RegisterWorker(
+        pb.RegisterRequest(
+            worker_id=args.worker_id,
+            address=worker_address,
+            tier=args.tier,
+            vram_gb=vram_mb,
         )
-        return tokenizer, model
-    except Exception as e:
-        print(f"LOAD FAILURE: {e}. Falling back to MOCK.")
-        return None, None
+    )
+    return resp.success
 
 
 def main():
@@ -103,59 +154,36 @@ def main():
     parser.add_argument("--worker-id", required=True)
     parser.add_argument("--port", type=int, default=50060)
     parser.add_argument("--tier", default="large")
-    parser.add_argument("--vram", type=int, default=12000)
+    parser.add_argument("--vram", type=int, default=0, help="VRAM MB to report (0=auto-detect GPU)")
     parser.add_argument("--latency-mult", type=float, default=1.0)
-    parser.add_argument(
-        "--latency-profile",
-        type=str,
-        default="",
-        help="Profile name or pairing (e.g. t4_vs_a100, t4_emulated_slow)",
-    )
-    parser.add_argument(
-        "--profile-role",
-        type=str,
-        default="slow",
-        choices=["fast", "slow"],
-        help="Role when --latency-profile is a pairing name",
-    )
+    parser.add_argument("--latency-profile", type=str, default="")
+    parser.add_argument("--profile-role", type=str, default="slow", choices=["fast", "slow"])
     parser.add_argument("--mock-seed", type=int, default=None)
     parser.add_argument("--mock", action="store_true")
     parser.add_argument("--model-id", type=str, default="meta-llama/Llama-3.2-1B-Instruct")
     parser.add_argument("--manager-addr", type=str, default="localhost:50055")
     args = parser.parse_args()
 
-    tokenizer, model = load_model(args.mock, args.model_id)
-    if args.mock and model is not None:
-        model = None
-        tokenizer = None
+    vram_mb = args.vram if args.vram > 0 else gpu_vram_mb()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    pb_grpc.add_InferenceWorkerServicer_to_server(
-        InferenceWorker(args, tokenizer, model), server
-    )
+    worker_servicer = InferenceWorker(args)
+    pb_grpc.add_InferenceWorkerServicer_to_server(worker_servicer, server)
     server.add_insecure_port(f"127.0.0.1:{args.port}")
     server.start()
 
     worker_address = f"localhost:{args.port}"
-    print(f"Worker {args.worker_id} listening on {worker_address}")
+    print(f"Worker {args.worker_id} listening on {worker_address}", flush=True)
 
     try:
         with grpc.insecure_channel(args.manager_addr) as channel:
             stub = pb_grpc.OrchestratorStub(channel)
-            resp = stub.RegisterWorker(
-                pb.RegisterRequest(
-                    worker_id=args.worker_id,
-                    address=worker_address,
-                    tier=args.tier,
-                    vram_gb=args.vram,
-                )
-            )
-            if not resp.success:
-                print("Manager rejected registration.")
+            if not register_worker(stub, args, worker_address, vram_mb):
+                print("Manager rejected registration.", flush=True)
                 sys.exit(1)
-            print("Successfully registered with manager.")
+            print("Successfully registered with manager (model may still be loading).", flush=True)
     except Exception as e:
-        print(f"gRPC registration failed: {e}")
+        print(f"gRPC registration failed: {e}", flush=True)
         sys.exit(1)
 
     try:

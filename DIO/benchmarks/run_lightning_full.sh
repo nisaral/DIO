@@ -78,6 +78,17 @@ wait_workers() {
   echo "Timeout waiting for $expected workers"; exit 1
 }
 
+wait_model_loaded() {
+  local logfile="${1:-worker_0.log}"
+  info_msg="Waiting for GPU model load in $logfile..."
+  echo "$info_msg"
+  for _ in $(seq 1 120); do
+    grep -q "Model loaded" "$logfile" 2>/dev/null && echo "Model ready." && return 0
+    sleep 2
+  done
+  echo "WARN: Model load not confirmed in $logfile — continuing anyway"
+}
+
 start_real_workers() {
   local count="$1"
   local port=50060
@@ -87,11 +98,11 @@ start_real_workers() {
     echo "Starting real worker w_$i on GPU $gpu port $port"
     CUDA_VISIBLE_DEVICES=$gpu python3 "$WORKER_SCRIPT" \
       --worker-id "w_$i" --port "$port" --tier large \
-      --vram 70000 --model-id "$MODEL_ID" \
+      --vram 0 --model-id "$MODEL_ID" \
       --manager-addr 127.0.0.1:50055 \
       > "worker_${i}.log" 2>&1 &
     port=$((port+1))
-    sleep 20
+    sleep 5
   done
   wait_workers "$count"
 }
@@ -111,12 +122,13 @@ start_mock_workers() {
 
 start_hetero_mock_pair() {
   CUDA_VISIBLE_DEVICES=0 python3 "$WORKER_SCRIPT" --worker-id fast --port 50060 --tier large \
-    --vram 70000 --model-id "$MODEL_ID" --manager-addr 127.0.0.1:50055 > w_fast.log 2>&1 &
-  sleep 20
+    --vram 0 --model-id "$MODEL_ID" --manager-addr 127.0.0.1:50055 > w_fast.log 2>&1 &
+  sleep 8
   python3 "$WORKER_SCRIPT" --mock --worker-id slow --port 50061 --tier small \
     --latency-profile "${LATENCY_PAIRING:-t4_vs_a100}" --profile-role slow \
     --vram 8000 --manager-addr 127.0.0.1:50055 > w_slow.log 2>&1 &
   wait_workers 2
+  wait_model_loaded w_fast.log
 }
 
 start_paper_workers() {
@@ -151,7 +163,11 @@ mkdir -p "$RESULTS_DIR"
 build_manager
 
 echo ""; echo "=== Preflight (GPU + single real inference) ==="
-bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting."; exit 1; }
+if [[ "${SKIP_PREFLIGHT:-0}" == "1" ]]; then
+  echo "SKIP_PREFLIGHT=1 — skipping (not recommended)"
+else
+  bash "$SCRIPT_DIR/preflight_gpu.sh" || { echo "Preflight failed — aborting. Logs: preflight_worker.log"; exit 1; }
+fi
 
 # T7 — mock scalability (no GPU inference)
 echo ""; echo "=== T7 Scalability (32 mock) ==="
@@ -201,8 +217,9 @@ for strat in "${STRATEGIES[@]}"; do
     echo "--- $test_id ---"
     start_manager "$strat"
     start_paper_workers
-    echo "Warmup 45s..."
-    sleep 45
+    wait_model_loaded w_fast.log 2>/dev/null || wait_model_loaded worker_0.log || true
+    echo "Warmup 30s..."
+    sleep 30
     run_locust "$test_id" "$ds"
   done
 done
