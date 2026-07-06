@@ -88,11 +88,11 @@ start_workers() {
     echo "Starting real worker w_$i on port $port"
     CUDA_VISIBLE_DEVICES=0 python3 "$WORKER_SCRIPT" \
       --worker-id "w_$i" --port "$port" --tier large \
-      --vram 30000 --model-id "$MODEL_ID" \
+      --vram 0 --model-id "$MODEL_ID" \
       --manager-addr 127.0.0.1:50055 \
       > "worker_${i}.log" 2>&1 &
     port=$((port+1))
-    sleep 15
+    sleep 5
   done
 
   for ((j=0; j<mock_count; j++)); do
