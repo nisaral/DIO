@@ -347,9 +347,12 @@ Our experiments address four questions (RQ1--RQ4): Can the centralized Go-based 
 \subsection{Experimental Methodology}
 
 \subsubsection{Hardware Testbed}
-\textbf{Edge Configuration (L4):} Represents resource-constrained deployments typical of edge servers or mid-tier inference providers. We utilize a Google Cloud g2-standard-4 instance equipped with one NVIDIA L4 GPU (24\,GB GDDR6). Heterogeneity is emulated via controlled prefix delays on identical L4 workers (0\,ms fast vs.\ 500\,ms slow) to isolate scheduler behaviour without requiring multi-GPU hardware. This emulation reproduces the 2--4$\times$ ms/token variance observed in real A100/T4 mixed clusters~\cite{nexussched}.
+\textbf{Edge Configuration (L4):} Represents resource-constrained deployments typical of edge servers or mid-tier inference providers. We utilize a Google Cloud g2-standard-4 instance equipped with one NVIDIA L4 GPU (24\,GB GDDR6).
 
-\textbf{Data Center Configuration (A100):} Represents high-throughput production serving. We utilize an a2-highgpu-1g instance equipped with one NVIDIA A100 (80\,GB HBM2e). This environment allows us to spawn 4 concurrent model replicas, creating realistic PCIe bus contention and VRAM pressure.
+\textbf{Data Center Configuration (A100):} Represents high-throughput production serving. We utilize a Lightning AI / cloud instance with one NVIDIA A100 (80\,GB HBM2e). On single-GPU nodes we run \textbf{one real Llama-3.2-3B worker plus one calibrated mock slow worker}---never two full model replicas on the same GPU (which causes VRAM thrash and invalidates tail-latency measurements).
+
+\paragraph{Heterogeneity emulation (calibrated).}
+Due to hardware access constraints, most heterogeneity experiments emulate worker latency profiles rather than requiring mixed-GPU fleets. We do \emph{not} use a uniform latency multiplier. Each mock worker implements the same linear model DIO learns online: $\hat{y} = b_w + s_w N$, with distinct intercept $b_w$ and decode slope $s_w$, multiplicative jitter ($\pm$8--12\%), and optional thermal-throttle ramps (step-wise slowdown after 35--50 requests). Parameters are stored in \texttt{heterogeneity\_profiles.json} and calibrated to published A100/T4 decode ratios ($\approx$2.5--3$\times$ ms/token)~\cite{nexussched}. We validate this methodology with \texttt{compare\_emulation\_to\_real.py} and an optional 20-minute \texttt{run\_t2\_validation.sh} on a second real GPU (T4/L4 spot) when available.
 
 \subsubsection{Workloads and Datasets}
 We combine synthetic probes (T1--T7) for micro-benchmarks with three replayed production traces to stress specific system dimensions. \textbf{ShareGPT (T9)} represents a multi-turn conversational workload with high output variance. \textbf{arXiv Summarization (T10)} serves as a VRAM stress test with prompts up to 4k tokens. \textbf{Azure Code (T11)} introduces bursty code generation with unpredictable latencies. We preserve original inter-arrival times and token distributions for all traces.
@@ -405,7 +408,7 @@ While both DIO and RR process similar numbers of total requests, DIO's goodput (
 % 4.4 Hardware Heterogeneity
 % ------------------------------------------------------------------
 \subsection{Handling Hardware Heterogeneity}
-Real-world clusters often contain mixed GPU generations or workers with varying background loads (e.g., stragglers caused by multi-tenant interference). To evaluate DIO's resilience to this, we emulated heterogeneity on the L4 platform (Test T2) by introducing a 500\,ms artificial prefix delay to one worker while leaving the other untouched (see Section~\ref{sec:evaluation} for the emulation rationale).
+Real-world clusters often contain mixed GPU generations or workers with varying background loads (e.g., stragglers caused by multi-tenant interference). Test T2 pairs one real A100 worker with one \texttt{t4\_vs\_a100} calibrated mock worker (distinct $b_w$, $s_w$, jitter, and thermal ramp). This exercises the same NLMS signals (ms/token slope divergence, queue buildup) as physical T4/A100 mixes without claiming identical absolute latencies.
 
 \begin{figure}[!htb]
     \centering
@@ -459,7 +462,7 @@ The \textbf{Roofline Test (T4)} is particularly notable: we flooded the system w
 During overload, DIO returns HTTP 503 (Service Unavailable) with a \texttt{Retry-After} header indicating predicted queue drain time. This allows well-behaved clients to implement exponential backoff, preventing thundering herd effects. The control plane continues serving admitted requests at full quality while shedding excess load, maintaining p99 TTFT within SLO bounds even at $3{\times}$ capacity.
 
 \paragraph{Threats to validity.}
-Our evaluation has three main limitations. First, each worker runs a single model; production deployments with multiple models per GPU may exhibit different VRAM dynamics. Second, our production traces are replayed rather than served live, which preserves token distributions but not the feedback effects of real client retries. Third, VRAM telemetry accuracy depends on NVML polling, which may lag sudden allocation spikes by one reporting interval.
+Our evaluation has four main limitations. First, most heterogeneity results use \emph{calibrated emulation} on single-GPU nodes; we disclose this explicitly and provide \texttt{emulation\_validation.json} plus optional real 2-GPU spot checks (\texttt{run\_t2\_validation.sh}) to bound emulation error. Second, each worker runs a single model; multi-model colocation may change VRAM dynamics. Third, production traces are replayed rather than live, preserving token distributions but not client retry feedback loops. Fourth, VRAM telemetry from NVML may lag sudden allocation spikes by one polling interval.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. RELATED WORK

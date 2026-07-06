@@ -97,12 +97,16 @@ start_workers() {
 
   for ((j=0; j<mock_count; j++)); do
     local wid="mock_$j"
-    local mult=1.0
-    if [[ "$slow_mock" == "true" && "$j" -eq 0 ]]; then mult=2.5; fi
-    echo "Starting mock worker $wid (latency_mult=$mult)"
+    local profile_args=()
+    if [[ "$slow_mock" == "true" && "$j" -eq 0 ]]; then
+      profile_args=(--latency-profile "${LATENCY_PAIRING:-t4_vs_a100}" --profile-role slow)
+      echo "Starting mock worker $wid (calibrated profile ${LATENCY_PAIRING:-t4_vs_a100})"
+    else
+      echo "Starting mock worker $wid (baseline mock)"
+    fi
     python3 "$WORKER_SCRIPT" --mock \
       --worker-id "$wid" --port "$port" --tier small \
-      --vram 8000 --latency-mult "$mult" \
+      --vram 8000 "${profile_args[@]}" \
       --manager-addr 127.0.0.1:50055 \
       > "worker_mock_${j}.log" 2>&1 &
     port=$((port+1))

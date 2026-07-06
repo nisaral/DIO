@@ -11,6 +11,8 @@ Use this after committing and pulling on your Lightning studio.
 
 **Do not** run 2 full Llama-3.2-3B workers on one GPU — that causes VRAM thrash and bogus p99s.
 
+**Heterogeneity:** slow worker uses **calibrated profiles** (`t4_vs_a100`: distinct intercept + decode slope, jitter, thermal ramp) — not a flat `latency_mult`. See `heterogeneity_profiles.json`.
+
 **Estimated runtime:** ~1–1.5 hours on 1×A100 → **~4–8 credits** (full) or **~2–4 credits** (budget).
 
 ---

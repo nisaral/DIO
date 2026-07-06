@@ -114,7 +114,8 @@ start_hetero_mock_pair() {
     --vram 70000 --model-id "$MODEL_ID" --manager-addr 127.0.0.1:50055 > w_fast.log 2>&1 &
   sleep 20
   python3 "$WORKER_SCRIPT" --mock --worker-id slow --port 50061 --tier small \
-    --latency-mult 2.5 --vram 8000 --manager-addr 127.0.0.1:50055 > w_slow.log 2>&1 &
+    --latency-profile "${LATENCY_PAIRING:-t4_vs_a100}" --profile-role slow \
+    --vram 8000 --manager-addr 127.0.0.1:50055 > w_slow.log 2>&1 &
   wait_workers 2
 }
 
@@ -217,6 +218,8 @@ python3 benchmarks/real_world/analyze_results.py \
 python3 benchmarks/generate_figures_from_json.py --out "$ROOT_DIR/../figs" 2>/dev/null || true
 
 echo ""; echo "=== Admissibility validation ==="
+python3 benchmarks/compare_emulation_to_real.py --pairing "${LATENCY_PAIRING:-t4_vs_a100}" \
+  --real-log w_fast.log 2>/dev/null || true
 python3 benchmarks/validate_results.py --json "$ROOT_DIR/benchmarks/results_summary.json" || VALID_FAIL=1
 
 echo ""
