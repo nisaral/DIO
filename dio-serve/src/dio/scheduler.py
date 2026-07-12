@@ -10,8 +10,9 @@ from __future__ import annotations
 import math
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from collections import deque
+from dataclasses import dataclass
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -294,9 +295,10 @@ class Scheduler:
         self.rls: Dict[str, SimpleRLS] = {}
         self.prefix_cache: Dict[int, str] = {}
         self.rr_index = 0
-        self.decision_log: List[Dict[str, Any]] = []
+        # deques: O(1) append + auto-drop for tight control-plane loops
+        self.decision_log: Deque[Dict[str, Any]] = deque(maxlen=decision_log_size)
         self.decision_log_size = decision_log_size
-        self.pred_history: List[Dict[str, Any]] = []
+        self.pred_history: Deque[Dict[str, Any]] = deque(maxlen=pred_history_size)
         self.pred_history_size = pred_history_size
         self.admission = AdmissionStats()
         self.last_decision: Optional[RoutingDecision] = None
@@ -490,8 +492,6 @@ class Scheduler:
 
     def _log_decision(self, dec: RoutingDecision) -> None:
         self.decision_log.append(dec.as_dict())
-        if len(self.decision_log) > self.decision_log_size:
-            self.decision_log = self.decision_log[-self.decision_log_size :]
 
     def release(self, worker_id: str) -> None:
         with self._lock:
@@ -519,8 +519,6 @@ class Scheduler:
                     "mode": self.predictors[worker_id].mode(),
                 }
                 self.pred_history.append(sample)
-                if len(self.pred_history) > self.pred_history_size:
-                    self.pred_history = self.pred_history[-self.pred_history_size :]
             self.admission.completed_total += 1
             self.admission.sum_e2e_ms += e2e_ms
             if e2e_ms <= self.slo_ms:
@@ -536,6 +534,7 @@ class Scheduler:
             n = len(self.pred_history)
             mae = sum(s["abs_err"] for s in self.pred_history) / n if n else 0.0
             mape = (sum(s["rel_err"] for s in self.pred_history) / n * 100.0) if n else 0.0
+            tail = list(self.pred_history)[-200:] if n else []
             return {
                 "strategy": self.strategy,
                 "nlms_mode": "dual" if self.dual else "single",
@@ -548,12 +547,12 @@ class Scheduler:
                     "count": n,
                     "mae_ms": mae,
                     "mape_pct": mape,
-                    "samples": self.pred_history[-200:],
+                    "samples": tail,
                 },
             }
 
     def reset_stats(self) -> None:
         with self._lock:
             self.admission = AdmissionStats()
-            self.pred_history = []
-            self.decision_log = []
+            self.pred_history.clear()
+            self.decision_log.clear()
