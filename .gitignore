@@ -4,6 +4,7 @@ DIO/dio-manager
 DIO/dio-manager.exe
 DIO/mock-worker.exe
 DIO/demo.exe
+DIO/manager.exe
 
 # Runtime / local DB
 *.db
@@ -13,12 +14,38 @@ dio_registry.db
 # Python
 __pycache__/
 *.pyc
+*.pyo
 .venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
 
 # LaTeX build
 *.aux
 *.log
 *.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
 
-# IDE
+# Benchmarks / local noise
+DIO/benchmarks/results/
+DIO/benchmarks/results_final/
+DIO/benchmarks/results_cloud/
+DIO/benchmarks/results_camera_ready/
+terminals/
+mcps/
+.env
+*.csv
+!DIO/benchmarks/heterogeneity_profiles.json
+
+# IDE / OS
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db

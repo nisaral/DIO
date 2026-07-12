@@ -275,7 +275,42 @@ func handleDebugMetrics(sched *scheduler.Scheduler) http.HandlerFunc {
 			"last_decision": sched.GetLastDecision(),
 			"decisions":     sched.GetDecisionLog(),
 			"strategy":      sched.Strategy,
+			"admission":     sched.GetAdmissionStats(),
+			"ablation":      sched.GetAblationInfo(),
+			"prediction":    sched.GetPredHistory(200),
 		})
+	}
+}
+
+func handleDebugAdmission(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(sched.GetAdmissionStats())
+	}
+}
+
+func handleDebugPredHistory(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := 1000
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(sched.GetPredHistory(limit))
+	}
+}
+
+func handleDebugResetStats(sched *scheduler.Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		sched.ResetAdmissionStats()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`))
 	}
 }
 
@@ -362,7 +397,14 @@ func main() {
 	http.HandleFunc("/debug/prediction", enableCORS(handleDebugPrediction(sched)))
 	http.HandleFunc("/debug/workers", enableCORS(handleDebugListWorkers(sched)))
 	http.HandleFunc("/debug/metrics", enableCORS(handleDebugMetrics(sched)))
+	http.HandleFunc("/debug/admission", enableCORS(handleDebugAdmission(sched)))
+	http.HandleFunc("/debug/predictions", enableCORS(handleDebugPredHistory(sched)))
+	http.HandleFunc("/debug/reset_stats", enableCORS(handleDebugResetStats(sched)))
 	http.HandleFunc("/debug/chaos/vram", enableCORS(handleChaosVRAM(sched)))
+	http.HandleFunc("/healthz", enableCORS(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	}))
 	dashboardDir := "./dashboard/static"
 	if _, err := os.Stat(dashboardDir); err == nil {
 		http.Handle("/dashboard/", http.StripPrefix("/dashboard/", http.FileServer(http.Dir(dashboardDir))))
