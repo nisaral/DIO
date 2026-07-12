@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"hash/fnv"
+	"math"
 
 	pb "github.com/nisaral/dio/api/proto"
 	"github.com/nisaral/dio/internal/registry"
@@ -14,15 +15,15 @@ type LatencyEstimator interface {
 
 // RoutingDecision captures the last cost breakdown for observability.
 type RoutingDecision struct {
-	WorkerID    string  `json:"worker_id"`
-	ExecMs      float64 `json:"exec_ms"`
-	WaitMs      float64 `json:"wait_ms"`
-	TierCostMs  float64 `json:"tier_cost_ms"`
-	VRAMCostMs  float64 `json:"vram_cost_ms"`
+	WorkerID     string  `json:"worker_id"`
+	ExecMs       float64 `json:"exec_ms"`
+	WaitMs       float64 `json:"wait_ms"`
+	TierCostMs   float64 `json:"tier_cost_ms"`
+	VRAMCostMs   float64 `json:"vram_cost_ms"`
 	CacheBonusMs float64 `json:"cache_bonus_ms"`
-	TotalMs     float64 `json:"total_ms"`
-	Tokens      int     `json:"tokens"`
-	Strategy    string  `json:"strategy"`
+	TotalMs      float64 `json:"total_ms"`
+	Tokens       int     `json:"tokens"`
+	Strategy     string  `json:"strategy"`
 }
 
 // PredictorSnapshot exposes per-worker model state for the dashboard.
@@ -33,6 +34,10 @@ type PredictorSnapshot struct {
 	AvgLatency float64 `json:"avg_latency_ms"`
 	Updates    int     `json:"updates"`
 	Algorithm  string  `json:"algorithm"`
+	Mode       string  `json:"mode,omitempty"` // DUAL | SINGLE
+	MAE        float64 `json:"mae_ms,omitempty"`
+	MAPE       float64 `json:"mape_pct,omitempty"`
+	Frozen     bool    `json:"frozen,omitempty"` // static profile
 }
 
 type workerScoreInput struct {
@@ -42,6 +47,7 @@ type workerScoreInput struct {
 	tier        string
 	totalVRAM   int64
 	prefixCache map[uint32]string
+	ablation    AblationFlags
 }
 
 func prefixHash(data []byte) uint32 {
@@ -57,6 +63,8 @@ func prefixHash(data []byte) uint32 {
 	return h.Sum32()
 }
 
+// computeWorkerScore implements the joint latency + queue + tier + VRAM + cache cost.
+// Novelty claim: one scalar cost couples multi-model capability, memory safety, and predicted latency.
 func computeWorkerScore(in workerScoreInput) (score float64, breakdown RoutingDecision, blocked bool) {
 	tokens := len(in.req.Data) / 4
 	if tokens < 1 {
@@ -64,8 +72,15 @@ func computeWorkerScore(in workerScoreInput) (score float64, breakdown RoutingDe
 	}
 
 	execTime, avgLatency := in.estimator.Estimate(tokens, in.worker.LastKnownVRAM)
-	if execTime >= 1e300 {
+	if execTime >= 1e300 || math.IsInf(execTime, 0) {
 		return 0, RoutingDecision{}, true
+	}
+
+	// Hard VRAM admission (can be disabled for ablation -vram / -vram_hard)
+	if !in.ablation.DisableVRAMHard {
+		if in.worker.LastKnownVRAM > 0 && in.worker.LastKnownVRAM < VRAMHardLimitMB && tokens > 1000 {
+			return 0, RoutingDecision{}, true
+		}
 	}
 
 	avgTaskTime := avgLatency
@@ -73,25 +88,34 @@ func computeWorkerScore(in workerScoreInput) (score float64, breakdown RoutingDe
 		avgTaskTime = execTime
 	}
 
-	waitTime := (float64(in.worker.PendingTasks) / BatchSize) * avgTaskTime
+	waitTime := 0.0
+	if !in.ablation.DisableQueue {
+		waitTime = (float64(in.worker.PendingTasks) / BatchSize) * avgTaskTime
+	}
 
 	tierPenalty := 0.0
-	if in.req.Tier == "large" && in.tier != "large" {
-		return 0, RoutingDecision{}, true
-	}
-	if in.req.Tier == "small" && in.tier == "large" {
-		tierPenalty = TierMismatchMs
+	if !in.ablation.DisableTier {
+		if in.req.Tier == "large" && in.tier != "large" {
+			return 0, RoutingDecision{}, true
+		}
+		if in.req.Tier == "small" && in.tier == "large" {
+			tierPenalty = TierMismatchMs
+		}
 	}
 
 	vramPenalty := 0.0
-	if in.totalVRAM > 0 && in.worker.LastKnownVRAM < VRAMSoftLimitMB {
-		vramPenalty = (1.0 - (float64(in.worker.LastKnownVRAM) / float64(in.totalVRAM))) * 1000.0
+	if !in.ablation.DisableVRAMSoft {
+		if in.totalVRAM > 0 && in.worker.LastKnownVRAM < VRAMSoftLimitMB {
+			vramPenalty = (1.0 - (float64(in.worker.LastKnownVRAM) / float64(in.totalVRAM))) * 1000.0
+		}
 	}
 
 	cacheBonus := 0.0
-	ph := prefixHash(in.req.Data)
-	if cachedID, ok := in.prefixCache[ph]; ok && cachedID == in.worker.ID {
-		cacheBonus = CacheBonusMs
+	if !in.ablation.DisableCache {
+		ph := prefixHash(in.req.Data)
+		if cachedID, ok := in.prefixCache[ph]; ok && cachedID == in.worker.ID {
+			cacheBonus = CacheBonusMs
+		}
 	}
 
 	score = waitTime + execTime + tierPenalty + vramPenalty - cacheBonus

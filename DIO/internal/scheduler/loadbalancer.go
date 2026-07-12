@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,7 +16,8 @@ import (
 	"github.com/nisaral/dio/internal/registry"
 )
 
-// PerWorkerPredictor implements the Dual-Timescale NLMS algorithm.
+// PerWorkerPredictor implements Dual-Timescale NLMS (or single-µ / frozen static).
+// Novelty: dual µ separates burst jitter (fast) from thermal/slow drift (slow).
 type PerWorkerPredictor struct {
 	mu               sync.Mutex
 	FastSlope        float64
@@ -25,13 +27,35 @@ type PerWorkerPredictor struct {
 	InterferenceHist [3]float64
 	HistIdx          int
 	SumSquaredError  float64
+	SumAbsErr        float64
+	SumRelErr        float64
 	UpdateCount      int
 	UseDualSlope     bool
+	Frozen           bool // STATIC strategy: no online updates
 	KVGrowthFactor   float64
 	BandwidthPenalty float64
 	Tier             string
 	TotalVRAM        int64
 	EngineType       string
+	LastPredicted    float64
+}
+
+func (p *PerWorkerPredictor) effectiveSlopeLocked() float64 {
+	if p.UseDualSlope {
+		return (FastSlowBlend * p.FastSlope) + ((1 - FastSlowBlend) * p.SlowSlope)
+	}
+	// Single-µ: only fast slope (or only slope) drives prediction.
+	return p.FastSlope
+}
+
+func (p *PerWorkerPredictor) modeName() string {
+	if p.Frozen {
+		return "STATIC"
+	}
+	if p.UseDualSlope {
+		return "DUAL"
+	}
+	return "SINGLE"
 }
 
 func (p *PerWorkerPredictor) Update(actual float64, tokens int, vramMB int64) {
@@ -43,15 +67,31 @@ func (p *PerWorkerPredictor) Update(actual float64, tokens int, vramMB int64) {
 		bwPenalty = 1.0 + (VRAMSoftLimitMB-float64(vramMB))/VRAMSoftLimitMB
 	}
 
-	effectiveSlope := (FastSlowBlend * p.FastSlope) + ((1 - FastSlowBlend) * p.SlowSlope)
+	effectiveSlope := p.effectiveSlopeLocked()
 	predicted := (effectiveSlope*float64(tokens) + p.Intercept) * bwPenalty
+	p.LastPredicted = predicted
 	err := actual - predicted
 
+	absErr := math.Abs(err)
+	relErr := absErr / math.Max(actual, 1.0)
 	p.SumSquaredError += err * err
+	p.SumAbsErr += absErr
+	p.SumRelErr += relErr
 	p.UpdateCount++
-	if p.UpdateCount%10 == 0 {
+	if p.UpdateCount%25 == 0 {
 		mse := p.SumSquaredError / float64(p.UpdateCount)
-		log.Printf("[NLMS_TELEMETRY] Worker MSE: %.4f (N=%d)", mse, p.UpdateCount)
+		mape := (p.SumRelErr / float64(p.UpdateCount)) * 100.0
+		log.Printf("[NLMS_TELEMETRY] mode=%s MSE=%.4f MAPE=%.2f%% N=%d", p.modeName(), mse, mape, p.UpdateCount)
+	}
+
+	// Frozen static profile: track error but do not adapt (offline baseline).
+	if p.Frozen {
+		if p.AverageLatency == 0 {
+			p.AverageLatency = actual
+		} else {
+			p.AverageLatency = 0.9*p.AverageLatency + 0.1*actual
+		}
+		return
 	}
 
 	if tokens > 0 {
@@ -59,12 +99,18 @@ func (p *PerWorkerPredictor) Update(actual float64, tokens int, vramMB int64) {
 		p.FastSlope += MuFast * grad
 		if p.UseDualSlope {
 			p.SlowSlope += MuSlow * grad
+		} else {
+			// Single-µ: keep slow slope glued to fast so dumps stay consistent.
+			p.SlowSlope = p.FastSlope
 		}
 	}
 	p.Intercept += MuBias * err
 
 	if p.FastSlope < InitialSlope {
 		p.FastSlope = InitialSlope
+	}
+	if p.SlowSlope < InitialSlope {
+		p.SlowSlope = InitialSlope
 	}
 	if p.Intercept < 0.1 {
 		p.Intercept = 0.1
@@ -85,12 +131,12 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vramMB int64) (float64, float6
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Hard block only for clearly undersized workers (<4GB reported VRAM).
+	// Hard VRAM check also applied in cost.go; keep here for estimator-only paths.
 	if vramMB > 0 && vramMB < VRAMHardLimitMB && tokens > 1000 {
 		return math.MaxFloat64, p.AverageLatency
 	}
 
-	slope := (FastSlowBlend * p.FastSlope) + ((1 - FastSlowBlend) * p.SlowSlope)
+	slope := p.effectiveSlopeLocked()
 	base := slope*float64(tokens) + p.Intercept
 
 	memCost := 0.0
@@ -104,14 +150,23 @@ func (p *PerWorkerPredictor) Estimate(tokens int, vramMB int64) (float64, float6
 		avgInterference += v
 	}
 	avgInterference /= 3.0
+	if avgInterference < 1e-9 {
+		avgInterference = 1.0
+	}
 
-	predicted := math.Max(base, memCost)*math.Max(1.0, avgInterference)
+	predicted := math.Max(base, memCost) * math.Max(1.0, avgInterference)
+	p.LastPredicted = predicted
 	return predicted, p.AverageLatency
 }
 
 func (p *PerWorkerPredictor) Snapshot() PredictorSnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	mae, mape := 0.0, 0.0
+	if p.UpdateCount > 0 {
+		mae = p.SumAbsErr / float64(p.UpdateCount)
+		mape = (p.SumRelErr / float64(p.UpdateCount)) * 100.0
+	}
 	return PredictorSnapshot{
 		FastSlope:  p.FastSlope,
 		SlowSlope:  p.SlowSlope,
@@ -119,6 +174,10 @@ func (p *PerWorkerPredictor) Snapshot() PredictorSnapshot {
 		AvgLatency: p.AverageLatency,
 		Updates:    p.UpdateCount,
 		Algorithm:  "NLMS",
+		Mode:       p.modeName(),
+		MAE:        mae,
+		MAPE:       mape,
+		Frozen:     p.Frozen,
 	}
 }
 
@@ -142,6 +201,10 @@ type Scheduler struct {
 	prefixCache   map[uint32]string
 	lastDecision  *RoutingDecision
 	decisionLog   []RoutingDecision
+	ablation      AblationFlags
+	admission     AdmissionStats
+	predHistory   *PredHistory
+	lastMinScore  float64
 }
 
 func normalizeStrategy(raw string) string {
@@ -155,6 +218,8 @@ func normalizeStrategy(raw string) string {
 		return "NLMS"
 	case "RLS":
 		return "RLS"
+	case "STATIC", "STATIC_PROFILE", "OFFLINE":
+		return "STATIC"
 	case "ROUNDROBIN", "ROUND_ROBIN":
 		return "RoundRobin"
 	case "LEASTLOADED", "LEAST_LOAD", "LEASTLOAD":
@@ -170,7 +235,16 @@ func normalizeStrategy(raw string) string {
 
 func NewScheduler() *Scheduler {
 	strategy := normalizeStrategy(os.Getenv("SCHEDULER_STRATEGY"))
-	nlmsMode := os.Getenv("NLMS_MODE")
+	abl := LoadAblationFlags()
+	nlmsMode := strings.ToUpper(strings.TrimSpace(os.Getenv("NLMS_MODE")))
+	if abl.SingleTimescale {
+		nlmsMode = "SINGLE"
+	}
+	if nlmsMode == "" {
+		nlmsMode = "DUAL"
+	}
+	log.Printf("[SCHEDULER] strategy=%s nlms_mode=%s ablation=%s admission_off=%v slo_ms=%.0f",
+		strategy, nlmsMode, abl.Name, AdmissionDisabled(), EffectiveSLOMs())
 	return &Scheduler{
 		workers:       make(map[string]*registry.Worker),
 		predictors:    make(map[string]*PerWorkerPredictor),
@@ -180,6 +254,8 @@ func NewScheduler() *Scheduler {
 		NLMSMode:      nlmsMode,
 		prefixCache:   make(map[uint32]string),
 		decisionLog:   make([]RoutingDecision, 0, 128),
+		ablation:      abl,
+		predHistory:   NewPredHistory(PredHistoryCap),
 	}
 }
 
@@ -206,11 +282,33 @@ func (s *Scheduler) RegisterWorkerWithEngine(id, address, tier string, vramMB in
 		EngineType:    engineType,
 	}
 
+	useDual := s.NLMSMode != "SINGLE" && !s.ablation.SingleTimescale
+	frozen := s.Strategy == "STATIC"
+	slope := InitialSlope
+	intercept := InitialIntercept
+	if frozen {
+		// Offline-calibrated baseline: env overrides for paper STATIC vs NLMS.
+		if v := os.Getenv("STATIC_SLOPE"); v != "" {
+			if f, err := strconvParse(v); err == nil {
+				slope = f
+			}
+		} else {
+			slope = StaticDefaultSlope
+		}
+		if v := os.Getenv("STATIC_INTERCEPT"); v != "" {
+			if f, err := strconvParse(v); err == nil {
+				intercept = f
+			}
+		} else {
+			intercept = StaticDefaultIntercept
+		}
+	}
 	s.predictors[id] = &PerWorkerPredictor{
-		FastSlope:        InitialSlope,
-		SlowSlope:        InitialSlope,
-		Intercept:        InitialIntercept,
-		UseDualSlope:     s.NLMSMode != "SINGLE",
+		FastSlope:        slope,
+		SlowSlope:        slope,
+		Intercept:        intercept,
+		UseDualSlope:     useDual && !frozen,
+		Frozen:           frozen,
 		KVGrowthFactor:   0.5,
 		BandwidthPenalty: 1.5,
 		Tier:             tier,
@@ -218,7 +316,12 @@ func (s *Scheduler) RegisterWorkerWithEngine(id, address, tier string, vramMB in
 		EngineType:       engineType,
 	}
 	s.rlsPredictors[id] = NewRLSPredictor(tier, vramMB, engineType)
-	log.Printf("[SCHEDULER] Worker %s registered. Tier: %s, VRAM: %d MB, Engine: %s", id, tier, vramMB, engineType)
+	log.Printf("[SCHEDULER] Worker %s registered. Tier: %s, VRAM: %d MB, Engine: %s, dual=%v frozen=%v",
+		id, tier, vramMB, engineType, useDual && !frozen, frozen)
+}
+
+func strconvParse(v string) (float64, error) {
+	return strconv.ParseFloat(v, 64)
 }
 
 func (s *Scheduler) GetWorker(id string) (*registry.Worker, bool) {
@@ -318,29 +421,39 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 			recordDecision(bestBreakdown)
 		}
 
-	case "NLMS":
+	case "STATIC", "NLMS":
 		fallthrough
 	default:
+		// STATIC uses frozen NLMS predictors; same cost path as NLMS.
 		bestID, minScore, bestBreakdown, anyCandidate = s.pickPredictive(req, false)
 		if bestID != "" {
 			recordDecision(bestBreakdown)
 		}
 	}
 
+	s.lastMinScore = minScore
+
+	// Formal admission rule (goodput optimizer):
+	//   reject if no feasible worker OR min_w S_w > SLO
 	if bestID == "" {
 		if !AdmissionDisabled() && anyCandidate && (minScore >= 1e300 || minScore > EffectiveSLOMs()) {
 			retryMs := minScore
 			if retryMs >= 1e300 {
 				retryMs = 5000
+				s.admission.RecordRejectVRAM()
+			} else {
+				s.admission.RecordRejectSLO()
 			}
 			return "", newAdmissionError(retryMs, "all workers exceed SLO or VRAM capacity")
 		}
+		s.admission.RecordRejectNoWorker()
 		return "", errors.New("no healthy workers available")
 	}
 
 	// SLO admission: reject if predicted total wait+exec exceeds budget
-	if !AdmissionDisabled() && (s.Strategy == "NLMS" || s.Strategy == "RLS") {
+	if !AdmissionDisabled() && (s.Strategy == "NLMS" || s.Strategy == "RLS" || s.Strategy == "STATIC") {
 		if minScore > EffectiveSLOMs() {
+			s.admission.RecordRejectSLO()
 			return "", newAdmissionError(minScore, "predicted latency exceeds SLO")
 		}
 	}
@@ -349,6 +462,7 @@ func (s *Scheduler) PickBestWorker(req *pb.InferenceRequest) (string, error) {
 		w.PendingTasks++
 		ph := prefixHash(req.Data)
 		s.prefixCache[ph] = bestID
+		s.admission.RecordAdmit()
 		return bestID, nil
 	}
 
@@ -392,6 +506,7 @@ func (s *Scheduler) pickPredictive(req *pb.InferenceRequest, useRLS bool) (bestI
 			tier:        tier,
 			totalVRAM:   totalVRAM,
 			prefixCache: s.prefixCache,
+			ablation:    s.ablation,
 		})
 		if blocked {
 			continue
@@ -426,18 +541,83 @@ func (s *Scheduler) FeedbackLoop(workerID string, metrics DetailedMetrics, token
 	}
 
 	if metrics.E2ELatency > 0 {
+		var predicted float64
+		var fast, slow float64
+		mode := s.NLMSMode
 		if pred, ok := s.predictors[workerID]; ok {
+			// Pre-update prediction for honest MAPE (latency model only, ignore hard VRAM ∞).
+			pred.mu.Lock()
+			slope := pred.effectiveSlopeLocked()
+			predicted = slope*float64(tokens) + pred.Intercept
+			pred.mu.Unlock()
 			pred.Update(metrics.E2ELatency, tokens, vram)
+			snap := pred.Snapshot()
+			fast, slow = snap.FastSlope, snap.SlowSlope
+			mode = snap.Mode
 		}
 		if rp, ok := s.rlsPredictors[workerID]; ok {
 			rp.Update(metrics.E2ELatency, tokens, vram)
 		}
 		s.statsHistory[workerID] = append(s.statsHistory[workerID], metrics)
+
+		absErr := math.Abs(metrics.E2ELatency - predicted)
+		rel := absErr / math.Max(metrics.E2ELatency, 1.0)
+		if s.predHistory != nil && predicted > 0 && predicted < 1e300 {
+			s.predHistory.Add(PredSample{
+				UnixMs:    nowUnixMs(),
+				WorkerID:  workerID,
+				Tokens:    tokens,
+				Predicted: predicted,
+				Actual:    metrics.E2ELatency,
+				AbsErr:    absErr,
+				RelErr:    rel,
+				FastSlope: fast,
+				SlowSlope: slow,
+				Mode:      mode,
+			})
+		}
+		s.admission.RecordCompletion(metrics.E2ELatency, predicted)
 	}
 
 	if w, ok := s.workers[workerID]; ok && w.PendingTasks > 0 {
 		w.PendingTasks--
 	}
+}
+
+// GetAdmissionStats exports goodput/admission counters for the camera-ready suite.
+func (s *Scheduler) GetAdmissionStats() map[string]interface{} {
+	return s.admission.Snapshot()
+}
+
+// GetPredHistory exports dual-vs-single MAPE samples.
+func (s *Scheduler) GetPredHistory(limit int) map[string]interface{} {
+	if s.predHistory == nil {
+		return map[string]interface{}{"count": 0, "samples": []PredSample{}}
+	}
+	return s.predHistory.Snapshot(limit)
+}
+
+// GetAblationInfo returns active ablation / mode configuration.
+func (s *Scheduler) GetAblationInfo() map[string]interface{} {
+	return map[string]interface{}{
+		"name":               s.ablation.Name,
+		"disable_queue":      s.ablation.DisableQueue,
+		"disable_vram_soft":  s.ablation.DisableVRAMSoft,
+		"disable_vram_hard":  s.ablation.DisableVRAMHard,
+		"disable_tier":       s.ablation.DisableTier,
+		"disable_cache":      s.ablation.DisableCache,
+		"single_timescale":   s.ablation.SingleTimescale || s.NLMSMode == "SINGLE",
+		"nlms_mode":          s.NLMSMode,
+		"strategy":           s.Strategy,
+		"slo_ms":             EffectiveSLOMs(),
+		"admission_disabled": AdmissionDisabled(),
+	}
+}
+
+// ResetAdmissionStats clears counters between suite experiments.
+func (s *Scheduler) ResetAdmissionStats() {
+	s.admission = AdmissionStats{}
+	s.predHistory = NewPredHistory(PredHistoryCap)
 }
 
 func (s *Scheduler) CancelRequest(workerID string) {

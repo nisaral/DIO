@@ -1,0 +1,55 @@
+# Artifact: one-command DIO demo (manager + 2 mock workers)
+#   docker compose -f docker-compose.camera.yaml up --build
+# Then:
+#   python benchmarks/demo_openai_client.py
+#   python benchmarks/camera_ready_suite.py --mode mock --quick --only novelty
+
+services:
+  dio-manager:
+    build:
+      context: .
+      dockerfile: cmd/manager/Dockerfile
+    ports:
+      - "50055:50055"
+      - "8085:8085"
+    environment:
+      SCHEDULER_STRATEGY: NLMS
+      NLMS_MODE: DUAL
+      DIO_SLO_MS: "5000"
+      DIO_ADMISSION_OFF: "0"
+      TELEMETRY_FILE: /tmp/manager_telemetry.csv
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8085/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  worker-fast:
+    build:
+      context: .
+      dockerfile: workers/python_worker/Dockerfile
+    environment:
+      MANAGER_ADDRESS: dio-manager:50055
+      WORKER_ID: fast
+      WORKER_PORT: "50060"
+      WORKER_HOST: worker-fast
+      WORKER_TIER: small
+      LATENCY_MULT: "1.0"
+      MOCK: "1"
+    depends_on:
+      - dio-manager
+
+  worker-slow:
+    build:
+      context: .
+      dockerfile: workers/python_worker/Dockerfile
+    environment:
+      MANAGER_ADDRESS: dio-manager:50055
+      WORKER_ID: slow
+      WORKER_PORT: "50061"
+      WORKER_HOST: worker-slow
+      WORKER_TIER: small
+      LATENCY_MULT: "2.5"
+      MOCK: "1"
+    depends_on:
+      - dio-manager
