@@ -239,6 +239,31 @@ Sibling (optional systems path): `../DIO/` Go control plane + camera-ready Locus
 
 ---
 
+
+## Production vs mock
+
+| Mode | What runs | Use |
+|------|-----------|-----|
+| **Production** | Real vLLM/SGLang/TGI/Ollama URLs | `dio serve -b http://gpu:8000 ...` or `examples/production_vllm.py` |
+| **Paper / CI** | Library sim + optional mock HTTP | `scripts/run_paper_experiments.py` |
+
+Mocks are **only** for demos/CI. Production never needs them. See [docs/PRODUCTION.md](docs/PRODUCTION.md).
+
+**Why OpenAI-shaped API?** Self-hosted engines (vLLM, SGLang, Ollama, TGI OpenAI mode) all speak OpenAI HTTP — that covers **Llama, Mistral, Qwen, …**, not “only GPT”. TGI native `/generate` is also supported via `api_style="tgi_generate"`.
+
+## Paper experiments (one script, library methods)
+
+```bash
+pip install -e .
+# algorithmic suite (anywhere, no GPU)
+python scripts/run_paper_experiments.py --quick
+python scripts/run_paper_experiments.py
+
+# optional: real engines after vLLM is up
+python scripts/run_paper_experiments.py --real-backends http://127.0.0.1:8000,http://127.0.0.1:8001
+```
+
+Results → `results_paper/` (or `--out`). Also: `scripts/run_publishable_suite.py`.
 ## Documentation index
 
 | Doc | Contents |
