@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
+  <a href="docs/PERFORMANCE.md">Performance guide</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/API.md">API Reference</a> ·
-  <a href="#quick-start">Quick Start</a> ·
-  <a href="#why-dio">Why DIO</a>
+  <a href="#quick-start">Quick Start</a>
 </p>
 
 ---
