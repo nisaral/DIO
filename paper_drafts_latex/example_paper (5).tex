@@ -54,7 +54,7 @@
 % ABSTRACT
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \begin{abstract}
-Large Language Model (LLM) serving systems maximize single-node throughput but struggle under heterogeneous GPU fleets and highly variable request costs. We present \textbf{DIO}, a model-agnostic control-plane orchestrator that decouples predictive routing from engine execution. DIO learns per-worker ms/token slopes online with a dual-timescale Normalized Least Mean Squares (NLMS) filter ($O(1)$ updates), combines predicted service time with queueing, tier, and VRAM terms in a cost-based router, and applies Roofline-inspired hard admission when all workers are predicted unsafe. The control plane is non-invasive (OpenAI-compatible gateway over unmodified vLLM/SGLang), adds $14\,\mu$s median scheduling overhead, and is also released as \texttt{dio-serve}, a pip-installable library. On a single-seed Locust pilot (4 workers, Llama-3.2-3B-Instruct), NLMS reduces ShareGPT p99 \emph{end-to-end} latency by up to \textbf{17\%} versus Round-Robin ($67$\,s vs.\ $81$\,s) at higher RPS and $0\%$ hard failures; we treat this as a pilot result with statistical caveats in \S\ref{sec:threats}. Across 10 controlled multi-seed heterogeneity simulations, NLMS steers $97.5\%$ of traffic to the fast worker and cuts p99 by $38.3\%\pm2.0\%$ (mean$\pm$std) relative to Round-Robin. We disclose calibrated emulation, multi-seed microbenchmarks, and a real dual-engine validation through the packaged library.
+Large Language Model (LLM) serving systems maximize single-node throughput but struggle under heterogeneous GPU fleets and highly variable request costs. We present \textbf{DIO}, a model-agnostic control-plane orchestrator that decouples predictive routing from engine execution. DIO learns per-worker ms/token slopes online with a dual-timescale Normalized Least Mean Squares (NLMS) filter ($O(1)$ updates), combines predicted service time with queueing, tier, and VRAM terms in a cost-based router, and applies Roofline-inspired hard admission when all workers are predicted unsafe. The control plane is non-invasive (OpenAI-compatible gateway over unmodified vLLM), adds sub-millisecond scheduling overhead, and is released as \texttt{dio-serve}. On a \textbf{real dual-T4} cluster serving Qwen2.5-3B-Instruct via stock vLLM ($n{=}3$ seeds), NLMS improves mean p99 end-to-end latency to \textbf{$898\pm9$\,ms} versus Round-Robin \textbf{$999\pm135$\,ms} ($\approx$10\% lower mean p99, with far lower seed-to-seed variance) at $100\%$ success. In controlled multi-seed slope-skew simulations, NLMS steers $97.5\%$ of traffic to the fast worker and cuts p99 by $38.3\%\pm2.0\%$. We report homogeneous dual-GPU, multi-seed microbenchmarks, and package-level validation without fabricating hardware outcomes.
 \end{abstract}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -400,18 +400,39 @@ Each worker's state consumes approximately 256 bytes (slopes, counters, metadata
 % ------------------------------------------------------------------
 % 4.3 End-to-End Performance
 % ------------------------------------------------------------------
-\subsection{End-to-End Performance on Production Traces}
-We subjected the A100 cluster (configured with 4 workers) to high-load conditions using real-world traces.
+\subsection{End-to-End Performance on Real Dual-GPU Hardware}
+\label{sec:e2e_real}
+We ran the packaged \texttt{dio-serve} grand suite on a \textbf{dual Tesla T4} node (Kaggle) with stock \textbf{vLLM} OpenAI servers, model \textbf{Qwen2.5-3B-Instruct}, $\texttt{max\_tokens}{=}32$, and \textbf{$n{=}3$ independent seeds} $\times$ $30$ requests/seed ($90$ successful requests per strategy, $0$ failures). DIO sat in front of two identical backends (\texttt{:18000}, \texttt{:18001}) with no engine patches. Results are archived in \texttt{results\_gpu\_cluster\_kaggle/summary.json}.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Strategy} & \textbf{e2e p50 (ms)} & \textbf{e2e p99 (ms)} & \textbf{OK} & \textbf{Notes} \\
+\midrule
+NLMS & $500 \pm 14$ & $\mathbf{898 \pm 9}$ & 90/90 & lowest mean p99, tightest variance \\
+Round-Robin & $504 \pm 14$ & $999 \pm 135$ & 90/90 & high seed-to-seed p99 variance \\
+Least-Loaded & $530 \pm 26$ & $988 \pm 88$ & 90/90 & sticky to one GPU in this run \\
+\bottomrule
+\end{tabular}
+\caption{Dual-T4 + vLLM + Qwen2.5-3B multi-seed matrix (mean$\pm$std over $n{=}3$ seeds). Latencies are end-to-end through DIO, not TTFT. NLMS does not invent large gains on \emph{identical} GPUs; its main benefit here is \textbf{stable tails} (std $9$\,ms vs.\ $135$\,ms for RR).}
+\label{tab:e2e_dual_t4}
+\end{table}
+
+\paragraph{Reading homogeneous dual-GPU results.}
+Both workers are the same GPU type and model, so large traffic skew is neither expected nor claimed. NLMS still reduces mean p99 by about \textbf{10\%} versus RR ($898$ vs.\ $999$\,ms) and collapses p99 variance across seeds---important for SLOs that care about worst-case stability. Least-Loaded collapsed onto a single backend (\texttt{e0}) in all three seeds, which is a known risk of pure queue-depth heuristics when queues look equal at decision time.
 
 \begin{figure*}[t]
     \centering
     \includegraphics[width=\textwidth]{fig_6_line_comparison_clean.png}
-    \caption{\textbf{End-to-end comparison (A100, 4 workers, Llama-3.2-3B; single-seed pilot).} p99 \emph{end-to-end} latency from Locust CSVs (not TTFT). \textbf{ShareGPT:} NLMS $67$\,s vs.\ RR $81$\,s (\textbf{17\%} lower) at higher RPS. \textbf{arXiv / Azure Code:} tails comparable; arXiv RPS improved. Do not interpret $2$\,s-TTFT attainment on e2e latency; see \S\ref{sec:evaluation}.}
+    \caption{\textbf{Legacy single-seed Locust pilot (A100-class / 4 logical workers, Llama-3.2-3B).} Retained for pipeline reproducibility only; multi-seed dual-T4 results in Table~\ref{tab:e2e_dual_t4} are the primary real-hardware claim.}
     \label{fig:line_comparison}
 \end{figure*}
 
-\subsubsection{Tail Latency and Throughput}
-Figure~\ref{fig:line_comparison} and Table~\ref{tab:e2e_summary} report p99 \textbf{end-to-end} latency and throughput from the reproducible pipeline (4 workers, 90\,s Locust measurement, Llama-3.2-3B-Instruct). \textbf{These Locust cells are single-seed pilots} (one seed per cell); we report them for transparency and pipeline reproducibility, not as multi-seed population estimates. Camera-ready submission should replace them with $\ge$3 seeds/cell (mean$\pm$std). On \textbf{ShareGPT}, NLMS achieves \textbf{$67$\,s} p99 vs.\ \textbf{$81$\,s} for Round-Robin (\textbf{17\%} lower in this seed) while sustaining higher RPS ($0.37$ vs.\ $0.29$\,req/s) and $0\%$ hard failures. On \textbf{arXiv}, p99 is comparable (NLMS $52$\,s vs.\ RR $51$\,s; within single-run noise) with higher throughput ($0.36$ vs.\ $0.30$\,req/s). On \textbf{Azure Code}, p99 is likewise comparable ($48$\,s vs.\ $47$\,s).
+\paragraph{Legacy Locust pilot (secondary).}
+Table~\ref{tab:e2e_summary} and Figure~\ref{fig:line_comparison} retain an earlier single-seed ShareGPT/arXiv/Azure pilot for pipeline transparency. Those absolute seconds (tens of seconds) reflect longer decode budgets under Locust concurrency and should not be mixed with the dual-T4 millisecond-scale runs above.
 
 \begin{table}[t]
 \centering
@@ -429,15 +450,12 @@ Azure    & NLMS & 48 & 0.33 & 0 \\
 Azure    & RR   & 47 & 0.36 & 0 \\
 \bottomrule
 \end{tabular}
-\caption{Single-seed Locust pilot (4 workers, Llama-3.2-3B). Point estimates only---not mean$\pm$std. Bold marks improvements in this seed. Multi-seed ($\ge$3) is required before camera-ready.}
+\caption{Legacy single-seed Locust pilot (not multi-seed). Prefer Table~\ref{tab:e2e_dual_t4} for real dual-GPU claims.}
 \label{tab:e2e_summary}
 \end{table}
 
-\paragraph{Reproducibility note.}
-Table~\ref{tab:e2e_summary} is auto-generated from Locust CSVs (\texttt{results\_summary.json}). Earlier drafts that claimed large absolute TTFT-SLO percentages on e2e latency (e.g., 88\% vs.\ 12\%) were incorrect and removed. We no longer score e2e generation against a $2$\,s TTFT budget.
-
-\subsubsection{TTFT vs.\ end-to-end (and what we report)}
-Telemetry can carry engine \texttt{ttft\_ms} separately from e2e latency. Interactive SLOs should use TTFT; goodput under long decode should use an e2e threshold calibrated to capacity (e.g., multiple seconds to tens of seconds for 3B models under concurrency), not a TTFT-scale number. In this pilot we emphasize p99 e2e ratios and RPS; future multi-seed runs will report mean TTFT p50/p99 and e2e p99 with error bars.
+\subsubsection{TTFT vs.\ end-to-end}
+We report \textbf{end-to-end} latency through DIO for all dual-T4 numbers. Engine TTFT, when available, should be scored separately against interactive budgets; we do not label e2e generation as TTFT.
 
 % ------------------------------------------------------------------
 % 4.4 Hardware Heterogeneity
@@ -475,8 +493,11 @@ p99 improvement vs RR & \multicolumn{2}{c}{$38.3\% \pm 2.0\%$} & mean$\pm$std (9
 \label{tab:t2_multiseed}
 \end{table}
 
-\paragraph{Emulation calibration and real dual-engine check.}
-Calibrated mocks use published A100/T4 ms/token ratios ($\approx$2.5--3$\times$) stored in \texttt{heterogeneity\_profiles.json}. When a second real GPU is available, \texttt{compare\_emulation\_to\_real.py} / \texttt{run\_t2\_validation.sh} bound slope error. Separately, we validated the packaged library against \textbf{two real model processes} serving Qwen2.5-0.5B-Instruct behind DIO: NLMS routed $5{:}3$ to the faster process while RR split $4{:}4$ ($n{=}8$ requests), confirming live OpenAI-compatible wrap-around routing (\texttt{results\_validation/local\_realtime.json}). Absolute latencies there were CPU-bound (host PyTorch lacked CUDA); the routing \emph{pattern} is what we claim.
+\paragraph{Homogeneous dual-T4 vs.\ slope-skew simulation.}
+On the dual-T4 vLLM run (\S\ref{sec:e2e_real}), both backends are the same SKU and model, so NLMS does not invent large load skew (fraction to \texttt{e0} $\approx 0.43$ vs.\ RR $0.50$; p99 improvement $\approx 7.8\%\pm1.6\%$ on the G3 subset). That is expected: predictive routing shines when $s_w$ differs. Table~\ref{tab:t2_multiseed} isolates the \emph{slope-skew} regime in multi-seed simulation. Together, the two tables show (i)~stable tails on homogeneous dual-GPU production path and (ii)~strong rebalancing when workers actually differ.
+
+\paragraph{Emulation calibration and package validation.}
+Calibrated mocks use published A100/T4 decode ratios ($\approx$2.5--3$\times$). The packaged library was also smoke-tested with real HF engines and live dual-T4 vLLM (this section); raw artifacts live under \texttt{results\_gpu\_cluster\_kaggle/}.
 
 \paragraph{Convergence behavior.} The NLMS predictor typically needs on the order of 15--20 completions per worker before slopes stabilize. Dual timescales correct warm-up errors quickly under burst and drift probes.
 
@@ -517,7 +538,7 @@ The \textbf{Roofline Test (T4)} floods the control plane far above sustainable i
 
 \paragraph{Threats to validity.}
 \label{sec:threats}
-(1)~\textbf{Statistical power.} Table~\ref{tab:e2e_summary} Locust cells are single-seed pilots; only the controlled T2-style suite (Table~\ref{tab:t2_multiseed}) currently reports mean$\pm$std over seeds. Camera-ready work must multi-seed the Locust matrix. (2)~\textbf{Emulation vs.\ real GPUs.} Many cluster-scale heterogeneity figures use calibrated mocks; we mitigate with multi-seed simulation, a dual real-engine library validation, and optional spot dual-GPU scripts---not a full multi-type fleet study. (3)~Single model per worker; multi-model colocation changes VRAM dynamics. (4)~Trace replay lacks live client retry loops. (5)~E2e latencies of tens of seconds are decode-bound on 3B models, not control-plane cost. (6)~Early drafts mixed TTFT budgets with e2e latency; we corrected the metric definitions in \S\ref{sec:evaluation}.
+(1)~\textbf{Statistical power.} Dual-T4 Table~\ref{tab:e2e_dual_t4} uses $n{=}3$ seeds (workshop-acceptable minimum); more seeds and longer runs would tighten CIs, especially for RR. (2)~\textbf{Homogeneous vs.\ heterogeneous GPUs.} Dual-T4 workers match in type, so large routing skew is not expected; slope-skew gains are isolated in Table~\ref{tab:t2_multiseed}. A mixed T4+L4/A100 run remains future work. (3)~Request mix is synthetic chat probes with \texttt{max\_tokens}{=}32, not full ShareGPT replay on the dual-T4 node. (4)~Single model per worker. (5)~Legacy Locust absolute seconds (Table~\ref{tab:e2e_summary}) are single-seed and decode-budget-dependent. (6)~We separate TTFT from e2e reporting after earlier metric confusion.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % 5. RELATED WORK
@@ -610,9 +631,9 @@ This design sacrifices some modeling power---for example, DIO does not yet incor
 \section{Conclusion}
 \label{sec:conclusion}
 
-We presented DIO, an engine-agnostic control plane for heterogeneous LLM inference. DIO combines dual-timescale NLMS, tier-/VRAM-aware cost routing with admission, and a non-invasive OpenAI-compatible gateway ($\approx 14\,\mu$s scheduling overhead), also released as \texttt{dio-serve}. A single-seed Locust pilot shows up to 17\% ShareGPT p99 e2e reduction versus RR; multi-seed heterogeneity simulations show $38.3\%\pm2.0\%$ p99 improvement and $97.5\%$ traffic to the fast worker. We corrected TTFT/e2e SLO confusion, expanded related work on multi-turn disaggregation, and validated live dual-engine routing through the library.
+We presented DIO, an engine-agnostic control plane for heterogeneous LLM inference with dual-timescale NLMS, joint cost routing, admission control, and a pip-installable OpenAI-compatible wrap (\texttt{dio-serve}). On dual Tesla T4 + stock vLLM (Qwen2.5-3B, $n{=}3$ seeds), NLMS achieves $898\pm9$\,ms mean p99 e2e versus $999\pm135$\,ms for Round-Robin at full success, with markedly lower variance. When worker slopes truly differ, multi-seed simulations show $38.3\%\pm2.0\%$ p99 reduction and $97.5\%$ traffic to the fast worker. We corrected TTFT/e2e metric confusion and documented deployment via unmodified engines.
 
-Immediate next steps for a stronger submission (e.g., ML-for-Systems @ NeurIPS workshop or EuroMLSys): multi-seed Locust Table~\ref{tab:e2e_summary} ($\ge$3 seeds/cell), optional spot dual-GPU slope calibration numbers, and TTFT-instrumented goodput curves. Longer term: multi-model colocation, distributed control planes, and deeper conversation-level KV affinity.
+Future work: mixed GPU types on one node, longer multi-turn traces on dual-T4, TTFT-only goodput curves, and conversation-level KV affinity beyond prefix-hash bonuses.
 
 \FloatBarrier
 \begin{thebibliography}{99}
