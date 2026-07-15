@@ -221,7 +221,24 @@ Backend(
 
 ---
 
-## 5. Measured performance (this repo)
+## 5. GPU cluster grand validation
+
+On any multi-GPU node (after `pip install -e .`):
+
+```bash
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm \
+  --gpus 0,1 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --seeds 3 \
+  --requests-per-seed 40
+```
+
+Full recipes: [../scripts/GPU_CLUSTER_RUNBOOK.md](../scripts/GPU_CLUSTER_RUNBOOK.md).
+
+Outputs `results_gpu_cluster/summary.json` + `paper_snippets.md` (mean±std for the paper).
+
+## 6. Measured performance (this repo)
 
 ### 5.1 Control-plane microbench (library only)
 
