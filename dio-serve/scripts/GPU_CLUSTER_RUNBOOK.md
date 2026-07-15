@@ -17,7 +17,7 @@ python scripts/run_gpu_cluster_validation.py --help
 | P0 | Env probe (CUDA, nvidia-smi, dio) | probe only | env block |
 | G1 | Real engine smoke through DIO | yes | pass/fail |
 | G2 | Multi-seed strategy matrix (NLMS/RR/LL/…) | yes | **mean±std p99** |
-| G3 | Dual-backend hetero NLMS vs RR | 2 engines | frac to fast, p99 impr% |
+| G3 | Dual-backend hetero NLMS vs RR (delay-proxy throttle if mult>1) | 2 engines | frac to fast, p99 impr%, MAPE |
 | G4 | Dual vs single NLMS | yes | MAPE / p99 |
 | G5 | Admission ON vs OFF | yes | 503 counts, p99 |
 | G6 | TTFT fields when engine provides them | yes | ttft_p50/p99 if present |
@@ -25,7 +25,7 @@ python scripts/run_gpu_cluster_validation.py --help
 
 ## Recipes
 
-### A) Recommended cluster (2× GPU + vLLM)
+### A) Recommended cluster (2× GPU + vLLM) — homogeneous Regime A
 
 ```bash
 export HF_TOKEN=...   # if gated model
@@ -42,6 +42,28 @@ python scripts/run_gpu_cluster_validation.py \
   --out results_gpu_cluster
 ```
 
+### A2) One more round — real dual-GPU **heterogeneity** (throttled peer, 5 seeds)
+
+Homogeneous G2 is not enough for hetero claims. This keeps both engines **real**
+(vLLM on two T4s) but multiplies the second backend’s wall-clock via
+`latency_delay_proxy.py` so NLMS sees slope skew. Prefer **5 seeds**.
+
+```bash
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --gpus 0,1 \
+  --skip-g2 --skip-g4 --skip-g5 \
+  --hetero-slow-mult 2.0 \
+  --hetero-seeds 5 \
+  --requests-per-seed 30 \
+  --max-tokens 32 \
+  --out results_gpu_cluster_hetero
+```
+
+Report from `summary.json` → `G3_hetero`: `nlms_frac_e0`, `p99_improvement_pct`,
+and **`nlms_mape`** (honest absolute error). Framing: ranking quality, not low MAPE.
+
 ### B) Engines already running
 
 ```bash
@@ -51,7 +73,9 @@ python scripts/run_gpu_cluster_validation.py \
   --backends http://127.0.0.1:8000,http://127.0.0.1:8001 \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --seeds 3 \
-  --requests-per-seed 40
+  --requests-per-seed 40 \
+  --hetero-slow-mult 2.0 \
+  --hetero-seeds 5
 ```
 
 ### C) Laptop / RTX 4050 (small model, HF server)
@@ -72,6 +96,7 @@ python scripts/run_gpu_cluster_validation.py \
 ### D) Paper minimum bar (do this before submission)
 
 ```bash
+# 1) Homogeneous multi-seed matrix (Regime A)
 python scripts/run_gpu_cluster_validation.py \
   --engine-mode vllm \
   --model <YOUR_MODEL> \
@@ -79,9 +104,19 @@ python scripts/run_gpu_cluster_validation.py \
   --seeds 3 \
   --requests-per-seed 50 \
   --strategies nlms,round_robin,least_loaded,rls
+
+# 2) Throttled real-GPU hetero (Regime C hardware complement)
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm \
+  --model <YOUR_MODEL> \
+  --gpus 0,1 \
+  --skip-g2 --skip-g4 --skip-g5 \
+  --hetero-slow-mult 2.0 --hetero-seeds 5 \
+  --out results_gpu_cluster_hetero
 ```
 
 Copy numbers from `results_gpu_cluster/paper_snippets.md` into the LaTeX tables.
+**Never** mix Regime B Locust ShareGPT seconds (67s/81s) with Regime A dual-T4 ms.
 
 ## Outputs
 

@@ -11,7 +11,7 @@ What it covers
   P0  Environment probe (CUDA, torch, GPUs, dio version)
   G1  Single-backend smoke (real OpenAI-compatible engine)
   G2  Multi-seed strategy matrix (NLMS / RR / LL / RLS / STATIC) × seeds
-  G3  Dual-backend heterogeneity (fast vs slow GPU or latency mult)
+  G3  Dual-backend heterogeneity (real engines + optional delay-proxy throttle)
   G4  Dual vs single NLMS mode (multi-seed MAPE / p99)
   G5  Admission ON vs OFF under load
   G6  TTFT vs end-to-end instrumentation (if engine returns usage/timing)
@@ -22,6 +22,13 @@ Engine modes
   --engine-mode vllm     Start vLLM OpenAI servers (preferred on cluster)
   --engine-mode hf       Start scripts/real_engine_server.py (transformers)
   --engine-mode external Use already-running backends (no start/stop)
+
+Heterogeneity (important)
+-------------------------
+  Homogeneous dual-GPU (G2) keeps both backends raw.
+  G3 optionally wraps the *second* backend with latency_delay_proxy.py when
+  --hetero-slow-mult > 1 so one peer looks 2× slower while still serving
+  real tokens (T2-style real-GPU hetero). Prefer --hetero-seeds 5.
 
 Quick start (cluster)
 ---------------------
@@ -35,6 +42,17 @@ Quick start (cluster)
       --seeds 3 \\
       --requests-per-seed 40 \\
       --max-tokens 32
+
+  # One more round: real dual-T4 hetero only (5 seeds, one throttled worker)
+  python scripts/run_gpu_cluster_validation.py \\
+      --engine-mode vllm \\
+      --model Qwen/Qwen2.5-3B-Instruct \\
+      --gpus 0,1 \\
+      --skip-g2 --skip-g4 --skip-g5 \\
+      --hetero-slow-mult 2.0 \\
+      --hetero-seeds 5 \\
+      --requests-per-seed 30 \\
+      --out results_gpu_cluster_hetero
 
   # Engines already up
   python scripts/run_gpu_cluster_validation.py \\
@@ -84,6 +102,7 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
 ENGINE_HF = ROOT / "scripts" / "real_engine_server.py"
+DELAY_PROXY = ROOT / "scripts" / "latency_delay_proxy.py"
 DEFAULT_OUT = ROOT / "results_gpu_cluster"
 
 
@@ -305,6 +324,72 @@ def start_hf_engine(
     if gpu is not None:
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
     return session.start(name, cmd, env=env or None, url=f"http://127.0.0.1:{port}")
+
+
+def start_delay_proxy(
+    session: ClusterSession,
+    *,
+    upstream: str,
+    port: int,
+    latency_mult: float,
+    name: str = "delay_proxy",
+) -> ProcHandle:
+    """Wrap a real OpenAI backend so e2e wall time ≈ mult × upstream time."""
+    if not DELAY_PROXY.exists():
+        raise FileNotFoundError(f"missing delay proxy script: {DELAY_PROXY}")
+    cmd = [
+        PY,
+        str(DELAY_PROXY),
+        "--upstream",
+        upstream,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--latency-mult",
+        str(latency_mult),
+    ]
+    return session.start(name, cmd, url=f"http://127.0.0.1:{port}")
+
+
+def make_hetero_backends(
+    session: ClusterSession,
+    backends: List[str],
+    *,
+    slow_mult: float,
+    proxy_port: int,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    For G3: keep backend[0] raw (fast), wrap backend[1] with delay proxy when mult>1.
+    Homogeneous G2 should keep using the raw ``backends`` list.
+    """
+    meta: Dict[str, Any] = {
+        "slow_mult": slow_mult,
+        "raw_backends": list(backends),
+        "throttled": False,
+    }
+    if len(backends) < 2 or slow_mult <= 1.0:
+        meta["note"] = "no throttle (homogeneous or single backend)"
+        return list(backends), meta
+    h = start_delay_proxy(
+        session,
+        upstream=backends[1],
+        port=proxy_port,
+        latency_mult=slow_mult,
+        name="delay_proxy_slow",
+    )
+    proxy_url = f"http://127.0.0.1:{proxy_port}"
+    # proxy serves /health; engines serve /v1/models
+    if not wait_url(proxy_url + "/health", timeout=60):
+        log("WARN: delay proxy health check failed — G3 may be unreliable")
+    meta["throttled"] = True
+    meta["proxy_url"] = proxy_url
+    meta["proxy_log"] = str(h.log_path)
+    meta["note"] = (
+        f"e1 is real engine {backends[1]} behind delay proxy ×{slow_mult} "
+        "(real tokens; inflated e2e for slope-skew)"
+    )
+    return [backends[0], proxy_url], meta
 
 
 def start_dio(
@@ -560,10 +645,13 @@ def exp_G3_hetero(
     max_tokens: int,
     dio_port: int,
     session: ClusterSession,
+    hetero_meta: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     log("=== G3 Dual-backend heterogeneity (NLMS vs RR) ===")
     if len(backends) < 2:
         return {"skipped": True, "reason": "need ≥2 backends"}
+    if hetero_meta:
+        log(f"  hetero setup: {hetero_meta.get('note')}")
 
     out: Dict[str, Any] = {"nlms": [], "round_robin": []}
     for strat, key in [("nlms", "nlms"), ("round_robin", "round_robin")]:
@@ -585,11 +673,16 @@ def exp_G3_hetero(
                 continue
             row = run_load(url, model=model, n=n_per_seed, max_tokens=max_tokens, seed=1000 + seed)
             row["seed"] = seed
-            # fraction to e0 (first backend = typically fast)
+            # fraction to e0 (first backend = typically fast / unthrottled)
             total = sum(row.get("routes", {}).values()) or 1
             row["frac_e0"] = row.get("routes", {}).get("e0", 0) / total
+            # also capture MAPE for honesty (absolute prediction quality)
+            row["mape"] = (row.get("prediction") or {}).get("mape_pct")
             out[key].append(row)
-            log(f"  {strat} seed={seed}: frac_e0={row['frac_e0']:.2f} p99={row.get('e2e_p99_ms')} routes={row.get('routes')}")
+            log(
+                f"  {strat} seed={seed}: frac_e0={row['frac_e0']:.2f} "
+                f"p99={row.get('e2e_p99_ms')} mape={row.get('mape')} routes={row.get('routes')}"
+            )
             kill_proc(h.proc)
             time.sleep(0.8)
 
@@ -597,11 +690,16 @@ def exp_G3_hetero(
         xs = [float(r[field]) for r in rows if field in r and r[field] is not None]
         return mean_std(xs)
 
-    summary = {
+    summary: Dict[str, Any] = {
+        "setup": hetero_meta or {"throttled": False},
+        "seeds": seeds,
+        "n_per_seed": n_per_seed,
         "nlms_frac_e0": agg(out["nlms"], "frac_e0"),
         "rr_frac_e0": agg(out["round_robin"], "frac_e0"),
         "nlms_p99": agg(out["nlms"], "e2e_p99_ms"),
         "rr_p99": agg(out["round_robin"], "e2e_p99_ms"),
+        "nlms_mape": agg(out["nlms"], "mape"),
+        "rr_mape": agg(out["round_robin"], "mape"),
         "per_seed": out,
     }
     # improvement
@@ -613,7 +711,9 @@ def exp_G3_hetero(
     summary["p99_improvement_pct"] = mean_std(imps)
     log(
         f"  >> NLMS frac_e0={summary['nlms_frac_e0']['mean']:.3f}±{summary['nlms_frac_e0']['std']:.3f} "
-        f"p99_impr%={summary['p99_improvement_pct']['mean']:.1f}±{summary['p99_improvement_pct']['std']:.1f}"
+        f"p99_impr%={summary['p99_improvement_pct']['mean']:.1f}±{summary['p99_improvement_pct']['std']:.1f} "
+        f"MAPE={summary['nlms_mape']['mean']:.1f}%±{summary['nlms_mape']['std']:.1f}% "
+        f"(n={seeds} seeds, throttled={bool((hetero_meta or {}).get('throttled'))})"
     )
     return summary
 
@@ -802,9 +902,15 @@ def write_tables(summary: Dict[str, Any], out: Path) -> None:
                 )
         lines.append("")
     if g3 and not g3.get("skipped"):
-        lines.append("## G3 heterogeneity")
+        setup = g3.get("setup") or {}
+        lines.append("## G3 heterogeneity (real engines)")
+        lines.append(
+            f"- setup: throttled={setup.get('throttled')} mult={setup.get('slow_mult')} "
+            f"seeds={g3.get('seeds')} note={setup.get('note')}"
+        )
         f = g3.get("nlms_frac_e0") or {}
         imp = g3.get("p99_improvement_pct") or {}
+        mape = g3.get("nlms_mape") or {}
         lines.append(
             f"- NLMS fraction to first (fast) backend: "
             f"${f.get('mean', float('nan')):.3f} \\pm {f.get('std', float('nan')):.3f}$"
@@ -813,14 +919,24 @@ def write_tables(summary: Dict[str, Any], out: Path) -> None:
             f"- p99 improvement vs RR: "
             f"${imp.get('mean', float('nan')):.1f}\\% \\pm {imp.get('std', float('nan')):.1f}\\%$"
         )
+        if mape.get("n"):
+            lines.append(
+                f"- NLMS absolute MAPE (honest): "
+                f"${mape['mean']:.1f}\\% \\pm {mape['std']:.1f}\\%$ "
+                f"(high MAPE does not preclude useful ranking)"
+            )
         lines.append("")
     g4 = summary.get("G4_dual_single") or {}
     if g4:
-        lines.append("## G4 dual vs single")
+        lines.append("## G4 dual vs single (MAPE)")
         for k in ("dual_p99", "single_p99", "dual_mape", "single_mape"):
             p = g4.get(k) or {}
             if p.get("n"):
                 lines.append(f"- {k}: ${p['mean']:.2f} \\pm {p['std']:.2f}$")
+        lines.append(
+            "- Note: report MAPE explicitly; DIO's routing claim is relative ranking, "
+            "not point-accurate ms prediction."
+        )
     snip = out / "paper_snippets.md"
     snip.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log(f"Wrote {snip}")
@@ -868,7 +984,22 @@ def parse_args() -> argparse.Namespace:
         "--hetero-slow-mult",
         type=float,
         default=2.0,
-        help="HF second engine latency mult (simulates slower GPU)",
+        help=(
+            "For G3: multiply second backend e2e via delay proxy (vLLM/external) "
+            "or HF --latency-mult. Use 1.0 for homogeneous G3. Default 2.0."
+        ),
+    )
+    p.add_argument(
+        "--hetero-seeds",
+        type=int,
+        default=0,
+        help="Seeds for G3 only (0 = use --seeds). Prefer 5 for real-GPU hetero claims.",
+    )
+    p.add_argument(
+        "--proxy-port",
+        type=int,
+        default=18101,
+        help="Port for latency delay proxy wrapping the slow peer",
     )
     p.add_argument("--quick", action="store_true", help="Fewer seeds/requests")
     return p.parse_args()
@@ -879,6 +1010,9 @@ def main() -> int:
     if args.quick:
         args.seeds = min(args.seeds, 2)
         args.requests_per_seed = min(args.requests_per_seed, 12)
+        if args.hetero_seeds:
+            args.hetero_seeds = min(args.hetero_seeds, 2)
+    hetero_seeds = args.hetero_seeds if args.hetero_seeds and args.hetero_seeds > 0 else args.seeds
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -888,13 +1022,14 @@ def main() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "script": "run_gpu_cluster_validation.py",
         "args": vars(args),
+        "hetero_seeds_effective": hetero_seeds,
         "env": probe_env(),
         "purpose": [
-            "Multi-seed real-engine matrix for paper Table 2 style claims",
-            "Heterogeneity routing with mean±std",
-            "Dual vs single NLMS",
+            "Multi-seed real-engine matrix (homogeneous dual-GPU)",
+            "Real-GPU heterogeneity via delay-proxy throttle (G3) with mean±std",
+            "Dual vs single NLMS + MAPE honesty",
             "Admission under load",
-            "TTFT/e2e fields when available",
+            "CPU slope-skew microbench (G7) for ranking evidence",
         ],
     }
 
@@ -967,6 +1102,8 @@ def main() -> int:
             )
             backends.append(f"http://127.0.0.1:{args.engine_base_port}")
             if len(gpus) >= 2:
+                # Keep second HF engine at mult=1.0; G3 applies delay proxy so
+                # both vLLM and HF paths share the same throttle mechanism.
                 start_hf_engine(
                     session,
                     gpu=gpus[1],
@@ -1031,16 +1168,24 @@ def main() -> int:
                 session=session,
             )
 
-        # ----- G3 hetero -----
+        # ----- G3 hetero (optionally throttle second peer) -----
+        # Homogeneous G2 uses raw backends; G3 may wrap e1 with delay proxy.
         if not args.skip_g3 and len(backends) >= 2:
-            summary["G3_hetero"] = exp_G3_hetero(
+            hetero_backends, hetero_meta = make_hetero_backends(
+                session,
                 backends,
+                slow_mult=args.hetero_slow_mult,
+                proxy_port=args.proxy_port,
+            )
+            summary["G3_hetero"] = exp_G3_hetero(
+                hetero_backends,
                 model=args.model,
-                seeds=args.seeds,
+                seeds=hetero_seeds,
                 n_per_seed=args.requests_per_seed,
                 max_tokens=args.max_tokens,
                 dio_port=args.dio_base_port + 200,
                 session=session,
+                hetero_meta=hetero_meta,
             )
         elif not args.skip_g3:
             summary["G3_hetero"] = {"skipped": True, "reason": "need 2 backends"}
@@ -1104,7 +1249,15 @@ def main() -> int:
     g3 = summary.get("G3_hetero") or {}
     if g3 and not g3.get("skipped"):
         imp = g3.get("p99_improvement_pct") or {}
-        print(f"  hetero p99 impr: {imp.get('mean')}±{imp.get('std')} %")
+        fr = g3.get("nlms_frac_e0") or {}
+        mp = g3.get("nlms_mape") or {}
+        setup = g3.get("setup") or {}
+        print(
+            f"  hetero (throttled={setup.get('throttled')}, n={g3.get('seeds')}): "
+            f"frac_fast={fr.get('mean')}±{fr.get('std')} "
+            f"p99_impr={imp.get('mean')}±{imp.get('std')}% "
+            f"MAPE={mp.get('mean')}±{mp.get('std')}%"
+        )
     print(f"\nResults → {out}")
     print("  summary.json  tables.csv  paper_snippets.md  logs/")
     return 0 if summary.get("status") == "ok" else 1

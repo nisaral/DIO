@@ -17,12 +17,28 @@
 - **Much more stable tails:** p99 std **9 ms** (NLMS) vs **135 ms** (RR).  
 - **100% success** — real engines, not mocks.
 
+## MAPE is bad — say so first
+
+| Suite | MAPE (approx) |
+|-------|----------------|
+| G1 smoke | ~67% |
+| G2 NLMS multi-seed | ~76–82% (often ~81%) |
+| G4 dual-µ | ~81.6% |
+| G4 single-µ | ~85.9% |
+
+**Example under-prediction:** predicted 55–193 ms vs actual 194–1222 ms early in a seed.  
+**Cause:** cold-start slopes too low vs fixed overhead + small-batch e2e; token feature ≈ prompt/4 + max_tokens; scalar linear model under continuous batching.
+
+**Honest paper frame (do not claim accurate ms prediction):**
+
+> Absolute MAPE on dual-T4 short-decode is ~66–95%. DIO’s contribution is **relative cost ranking** under fixed hardware. G7 / Regime C shows 97.5% traffic to the fast worker when slopes differ — ranking works even when absolute error is large.
+
 ## What is *not* a failure
 
-### G3 “only 7.8% hetero improvement / 43% to e0”
+### G3 “only 7.8% hetero improvement / 43% to e0” (unthrottled)
 Both backends are **identical T4 + same model**. NLMS should **not** invent a 75/25 split.  
 Seeing ~43% vs 50% means workers look similar online — correct behavior.  
-Strong skew results stay in the **slope-skew simulation** (G7 / Table t2_multiseed: 97.5% to fast, 38% p99 cut).
+Strong skew results stay in the **slope-skew simulation** (G7: 97.5% to fast, 38% p99 cut) and in the **throttled real-GPU G3** (one peer behind delay proxy ×2, prefer 5 seeds).
 
 ### G4 dual ≈ single p99
 On short, stable decode (`max_tokens=32`) without induced burst/thermal, dual-µ and single-µ look similar. Dual still has slightly better MAPE (81.6 vs 85.9). Don’t overclaim dual-µ here; cite controlled burst/thermal microbench for that story.
@@ -35,18 +51,39 @@ Tight SLO was 3000 ms but measured e2e was ~1 s and predictors stayed under budg
 We do **not** rewrite these numbers to 17%/41%/75% on dual-T4.  
 That would be scientific fraud. Framing:
 
-1. **Homogeneous dual-GPU production path** → stable p99 (this run).  
-2. **Heterogeneous / slope-skew** → multi-seed sim + optional future mixed GPUs.  
-3. Legacy single-seed Locust → secondary only.
+1. **Regime A — Homogeneous dual-GPU** → stable p99 (this run).  
+2. **Regime B — Legacy Locust ShareGPT 67s/81s** → different setup (4 workers, long decode); never mix with Regime A ms.  
+3. **Regime C — Slope-skew** → multi-seed sim + optional real delay-proxy hetero.
+
+## One more round (Kaggle) — real dual-T4 hetero multi-seed
+
+```bash
+cd dio-serve
+pip install -e .
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --gpus 0,1 \
+  --skip-g2 --skip-g4 --skip-g5 \
+  --hetero-slow-mult 2.0 \
+  --hetero-seeds 5 \
+  --requests-per-seed 30 \
+  --max-tokens 32 \
+  --out results_gpu_cluster_hetero
+```
+
+This keeps real tokens on both T4s, multiplies e1 wall-clock via `latency_delay_proxy.py`, and reports mean±std frac_fast / p99 / MAPE.
 
 ## Paper paste lines
 
 ```text
 On dual Tesla T4 GPUs serving Qwen2.5-3B-Instruct with stock vLLM
 (n=3 seeds × 30 requests), DIO-NLMS achieves end-to-end p99 latency of
-898±9 ms versus 999±135 ms for Round-Robin and 988±88 ms for Least-Loaded
-(100% success). On identical GPUs, routing remains roughly balanced;
-NLMS primarily reduces tail variance. In multi-seed slope-skew simulations,
-NLMS places 97.5% of requests on the faster worker and reduces p99 by
-38.3%±2.0% relative to Round-Robin.
+898±9 ms versus 999±135 ms for Round-Robin (100% success). Absolute MAPE
+is high (~66–95%); we do not claim point-accurate latency prediction.
+On identical GPUs, routing remains roughly balanced and NLMS primarily
+reduces tail variance. When worker costs differ, multi-seed slope-skew
+simulations place 97.5% of requests on the faster worker and reduce p99
+by 38.3%±2.0% relative to Round-Robin — evidence that relative ranking
+is what drives routing quality.
 ```

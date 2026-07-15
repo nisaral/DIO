@@ -6,15 +6,16 @@ from dio.scheduler import AblationFlags, AdmissionError, Scheduler
 def test_nlms_learns_slope():
     s = Scheduler(strategy="nlms", dual=True, admission_off=True, slo_ms=1e9)
     s.register("w0", tier="small")
-    for i in range(30):
-        tokens = 50 + i
-        # true: 2ms/token + 40ms
-        actual = 2.0 * tokens + 40.0
+    # Ground truth near real-engine e2e scale (joint slope+intercept learning
+    # needs enough samples when cold-start intercept is ~150 ms).
+    for i in range(60):
+        tokens = 40 + (i % 40)
+        actual = 4.0 * tokens + 120.0
         s.pick("x" * (tokens * 4), tokens=tokens)
         s.feedback("w0", actual, tokens)
     snap = s.predictors["w0"].snapshot()
-    assert snap["updates"] == 30
-    assert 1.0 < snap["fast_slope"] < 3.5
+    assert snap["updates"] == 60
+    assert 2.5 < snap["fast_slope"] < 6.0
 
 
 def test_admission_rejects_over_slo():

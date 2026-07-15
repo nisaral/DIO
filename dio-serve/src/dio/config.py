@@ -34,8 +34,9 @@ class DIOConfig(BaseSettings):
     mu_slow: float = 0.01
     mu_bias: float = 0.005
     fast_slow_blend: float = 0.8
-    initial_slope: float = 0.1
-    initial_intercept: float = 50.0
+    # Mildly pessimistic cold-start for real engines (still online-adapted).
+    initial_slope: float = 2.0
+    initial_intercept: float = 150.0
     static_slope: float = 1.0
     static_intercept: float = 50.0
 

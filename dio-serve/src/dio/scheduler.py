@@ -92,8 +92,11 @@ class DualTimescaleNLMS:
         mu_slow: float = 0.01,
         mu_bias: float = 0.005,
         blend: float = 0.8,
-        initial_slope: float = 0.1,
-        initial_intercept: float = 50.0,
+        # Cold-start priors: slightly higher than legacy 0.1/50 so early
+        # estimates are less wildly low on real vLLM e2e (~hundreds of ms).
+        # Absolute MAPE can still be large; routing uses *relative* costs.
+        initial_slope: float = 2.0,
+        initial_intercept: float = 150.0,
         dual: bool = True,
         frozen: bool = False,
         tier: str = "small",
@@ -196,7 +199,7 @@ class DualTimescaleNLMS:
 class SimpleRLS:
     """2×2 RLS baseline (paper comparison)."""
 
-    def __init__(self, lam: float = 0.99, slope: float = 0.1, intercept: float = 50.0) -> None:
+    def __init__(self, lam: float = 0.99, slope: float = 2.0, intercept: float = 150.0) -> None:
         self.lam = lam
         self.slope = slope
         self.intercept = intercept
@@ -267,8 +270,8 @@ class Scheduler:
         mu_slow: float = 0.01,
         mu_bias: float = 0.005,
         blend: float = 0.8,
-        initial_slope: float = 0.1,
-        initial_intercept: float = 50.0,
+        initial_slope: float = 2.0,
+        initial_intercept: float = 150.0,
         static_slope: float = 1.0,
         static_intercept: float = 50.0,
         decision_log_size: int = 200,
