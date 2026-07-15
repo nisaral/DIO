@@ -1,78 +1,68 @@
 # Workshop triage — remaining Kaggle / cloud cells
 
-Code already shipped for #1 admission modes, #2 RLS harness, #6 tokenizer.
-Run these on Kaggle after `git pull` + `pip install -e .`.
+## ONE SCRIPT (preferred)
 
-## A) RLS head-to-head on real dual-T4 (Priority 1)
-
-Homogeneous (Regime A style):
+All outstanding dual-T4 re-runs in one job (no mixed SKU needed):
 
 ```bash
-python scripts/run_rls_headtohead.py --mode real \
-  --gpus 0,1 --model Qwen/Qwen2.5-3B-Instruct \
-  --seeds 3 --requests-per-seed 30 --max-tokens 32 \
-  --slow-mult 1.0 \
+cd dio-serve
+pip install -e . -q
+python scripts/run_workshop_final_suite.py \
+  --engine-mode vllm \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --gpus 0,1 \
   --tokenizer Qwen/Qwen2.5-3B-Instruct \
-  --strategies nlms,rls,round_robin,least_loaded \
-  --out results_rls_headtohead_real
+  --out results_workshop_final
 ```
 
-Throttled hetero (Regime C style):
+Kaggle notebook cell:
+
+```python
+!cd /kaggle/working/DIO/dio-serve && git pull origin feat-v2-rls-scheduler && pip install -e . -q
+
+!python scripts/run_workshop_final_suite.py \
+  --engine-mode vllm \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --gpus 0,1 \
+  --tokenizer Qwen/Qwen2.5-3B-Instruct \
+  --out /kaggle/working/results_workshop_final
+```
+
+### What it runs
+
+| Phase | What | Default |
+|-------|------|---------|
+| W2 | MAPE heuristic vs HF tokenizer | 3 seeds |
+| W3 | Regime A n=10 NLMS/RLS/RR/LL | 10×30, max_tokens=32 |
+| W4 | Regime C delay-proxy ×2 n=10 NLMS/RLS/RR | 10×30 |
+| W5 | Longer decode multi-seed | n=3, max_tokens=128 |
+| W6 | Coefficient ±50% live sweep | 7 variants |
+
+### Outputs
+
+```
+results_workshop_final/
+  summary.json
+  paper_snippets.md
+  logs/
+```
+
+### Options
 
 ```bash
-python scripts/run_rls_headtohead.py --mode real \
-  --gpus 0,1 --model Qwen/Qwen2.5-3B-Instruct \
-  --seeds 5 --requests-per-seed 30 --max-tokens 32 \
-  --slow-mult 2.0 \
-  --tokenizer Qwen/Qwen2.5-3B-Instruct \
-  --strategies nlms,rls,round_robin,least_loaded \
-  --out results_rls_headtohead_real_hetero
+# Short smoke (2 seeds, fewer reqs)
+python scripts/run_workshop_final_suite.py --quick --gpus 0,1 ...
+
+# Only some phases
+python scripts/run_workshop_final_suite.py --only w2,w3,w4 --gpus 0,1 ...
+
+# Engines already up
+python scripts/run_workshop_final_suite.py --engine-mode external \
+  --backends http://127.0.0.1:18000,http://127.0.0.1:18001 ...
 ```
 
-## B) More seeds (Priority 4)
-
-```bash
-# Regime A n=10
-python scripts/run_gpu_cluster_validation.py \
-  --engine-mode vllm --model Qwen/Qwen2.5-3B-Instruct --gpus 0,1 \
-  --seeds 10 --requests-per-seed 30 --max-tokens 32 \
-  --strategies nlms,rls,round_robin,least_loaded \
-  --tokenizer Qwen/Qwen2.5-3B-Instruct \
-  --skip-g3 --skip-g4 --skip-g5 \
-  --out results_regime_a_n10
-
-# Regime C real throttle n=10
-python scripts/run_real_hetero_multiseed.py \
-  --gpus 0,1 --seeds 10 --requests-per-seed 30 --slow-mult 2.0 \
-  --out results_gpu_cluster_hetero_n10
-```
-
-## C) Longer decode (Priority 6)
-
-```bash
-python scripts/run_gpu_cluster_validation.py \
-  --engine-mode vllm --model Qwen/Qwen2.5-3B-Instruct --gpus 0,1 \
-  --seeds 3 --requests-per-seed 20 --max-tokens 128 \
-  --strategies nlms,round_robin \
-  --tokenizer Qwen/Qwen2.5-3B-Instruct \
-  --skip-g3 --skip-g4 --skip-g5 \
-  --out results_long_decode_mt128
-```
-
-## D) Tokenizer MAPE re-measure (Priority 2 — free if bundled with A)
-
-Use `--tokenizer Qwen/Qwen2.5-3B-Instruct` on any of the above; compare MAPE in `summary.json` vs heuristic baseline.
-
-## Already done in code/paper (no GPU required)
-
-| Item | Status |
-|------|--------|
-| #1 Admission empirical/rank_only + absolute diagnostic | shipped; paper §admission_decouple |
-| #2 RLS sim head-to-head table | `results_rls_headtohead/` + Table rls_h2h |
-| #6 HF tokenizer path | `--tokenizer` / `DIO_TOKENIZER_NAME` |
-| #4 Cross-SKU reframe | top limitation in paper |
-| #3 Power caveat | threats § |
+**Runtime note:** full suite is long (many seeds × strategies × vLLM). Prefer a dual-T4 session with several hours. Use `--quick` first to verify, then full run.
 
 ## Optional paid
 
-1 hour L4/A10 on RunPod/Vast + Kaggle T4 for true mixed-SKU (highest credibility/$).
+1 hour L4/A10 on RunPod/Vast + Kaggle T4 for true mixed-SKU (highest credibility/$). Not required for W2–W6.
