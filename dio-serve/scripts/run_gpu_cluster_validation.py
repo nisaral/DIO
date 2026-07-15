@@ -254,6 +254,8 @@ def start_vllm_engine(
     name: str,
 ) -> ProcHandle:
     # Prefer module entrypoint
+    # Note: older vLLM used --disable-log-requests; newer uses --no-enable-log-requests.
+    # Omit optional log flags for max version compatibility (Kaggle/cluster).
     cmd = [
         PY,
         "-m",
@@ -268,7 +270,6 @@ def start_vllm_engine(
         str(max_model_len),
         "--gpu-memory-utilization",
         str(gpu_mem_util),
-        "--disable-log-requests",
     ]
     env = {"CUDA_VISIBLE_DEVICES": str(gpu)}
     return session.start(
