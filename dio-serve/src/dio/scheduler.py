@@ -62,11 +62,16 @@ class AdmissionStats:
     completed_over_slo: int = 0
     completed_total: int = 0
     sum_e2e_ms: float = 0.0
+    # Diagnostics: how often absolute-ŷ admission would disagree with active mode
+    would_reject_absolute: int = 0
+    would_admit_absolute: int = 0
+    absolute_vs_active_disagree: int = 0
 
-    def snapshot(self, slo_ms: float, admission_enabled: bool) -> Dict[str, Any]:
+    def snapshot(self, slo_ms: float, admission_enabled: bool, **extra: Any) -> Dict[str, Any]:
         total = self.completed_total
         goodput_frac = (self.completed_under_slo / total) if total else 0.0
         avg = (self.sum_e2e_ms / total) if total else 0.0
+        cmp_n = self.would_reject_absolute + self.would_admit_absolute
         return {
             "admitted": self.admitted,
             "rejected_slo": self.rejected_slo,
@@ -79,6 +84,13 @@ class AdmissionStats:
             "avg_e2e_ms": avg,
             "slo_ms": slo_ms,
             "admission_enabled": admission_enabled,
+            "would_reject_absolute": self.would_reject_absolute,
+            "would_admit_absolute": self.would_admit_absolute,
+            "absolute_vs_active_disagree": self.absolute_vs_active_disagree,
+            "absolute_disagree_frac": (
+                (self.absolute_vs_active_disagree / cmp_n) if cmp_n else 0.0
+            ),
+            **extra,
         }
 
 
@@ -250,7 +262,11 @@ class Scheduler:
     Joint cost router.
 
     score = wait + predicted_exec + tier_penalty + vram_penalty - cache_bonus
-    Admit only if min score ≤ SLO (unless admission_off).
+
+    NLMS/RLS scores are used for *ranking*. Admission is separate:
+      - absolute: reject if min score > SLO (legacy; depends on ŷ magnitude)
+      - empirical: reject if rolling observed latency percentile > SLO
+      - rank_only: hard VRAM/tier blocks only (no absolute ŷ gate)
     """
 
     def __init__(
@@ -261,6 +277,9 @@ class Scheduler:
         ablation: Optional[AblationFlags] = None,
         slo_ms: float = 5000.0,
         admission_off: bool = False,
+        admission_mode: str = "empirical",
+        admission_percentile: float = 95.0,
+        recent_latency_window: int = 64,
         batch_size: float = 8.0,
         tier_mismatch_ms: float = 500.0,
         cache_bonus_ms: float = 200.0,
@@ -284,6 +303,8 @@ class Scheduler:
             self.dual = False
         self.slo_ms = slo_ms
         self.admission_off = admission_off
+        self.admission_mode = (admission_mode or "empirical").lower().replace("-", "_")
+        self.admission_percentile = float(admission_percentile)
         self.batch_size = batch_size
         self.tier_mismatch_ms = tier_mismatch_ms
         self.cache_bonus_ms = cache_bonus_ms
@@ -303,8 +324,51 @@ class Scheduler:
         self.decision_log_size = decision_log_size
         self.pred_history: Deque[Dict[str, Any]] = deque(maxlen=pred_history_size)
         self.pred_history_size = pred_history_size
+        self.recent_e2e: Deque[float] = deque(maxlen=max(8, recent_latency_window))
         self.admission = AdmissionStats()
         self.last_decision: Optional[RoutingDecision] = None
+
+    def _percentile(self, xs: List[float], p: float) -> float:
+        if not xs:
+            return 0.0
+        ys = sorted(xs)
+        if len(ys) == 1:
+            return ys[0]
+        k = (max(0.0, min(100.0, p)) / 100.0) * (len(ys) - 1)
+        lo = int(math.floor(k))
+        hi = int(math.ceil(k))
+        if lo == hi:
+            return ys[lo]
+        t = k - lo
+        return ys[lo] * (1.0 - t) + ys[hi] * t
+
+    def _should_reject_slo(self, best_score: float, scores: List[float]) -> Tuple[bool, str]:
+        """
+        Return (reject, reason). Decouples ranking (always min score) from absolute ŷ.
+        """
+        if self.admission_off or self.admission_mode in ("rank_only", "ranking", "none"):
+            return False, "rank_only"
+
+        if self.admission_mode in ("empirical", "observed", "percentile"):
+            # Prefer observed latency distribution; cold-start: do not reject on ŷ alone.
+            if len(self.recent_e2e) < 8:
+                return False, "empirical_warmup"
+            p = self._percentile(list(self.recent_e2e), self.admission_percentile)
+            # Also relative: if best worker cost sits in the worst quartile of
+            # *currently available* scores AND empirical tail exceeds SLO.
+            if len(scores) >= 2:
+                thr = self._percentile(scores, 75.0)
+                worst_quartile = best_score >= thr - 1e-9
+            else:
+                worst_quartile = True
+            if p > self.slo_ms and worst_quartile:
+                return True, f"empirical_p{self.admission_percentile:.0f}={p:.0f}>SLO"
+            return False, "empirical_ok"
+
+        # absolute (legacy): min ŷ-cost vs SLO
+        if best_score > self.slo_ms:
+            return True, f"absolute_score={best_score:.0f}>SLO"
+        return False, "absolute_ok"
 
     def register(
         self,
@@ -478,11 +542,31 @@ class Scheduler:
                 self.admission.rejected_no_worker += 1
                 raise AdmissionError("no feasible backend")
 
-            if not self.admission_off and best_score > self.slo_ms:
+            # Collect all non-blocked scores for relative admission checks
+            all_scores: List[float] = []
+            for wid in ids:
+                sc, _, blocked = self._score(
+                    wid, self.predictors[wid], tokens, tier, prompt, use_rls
+                )
+                if not blocked and sc is not None:
+                    all_scores.append(float(sc))
+
+            # Diagnostic: absolute-ŷ gate vs active mode (paper honesty)
+            absolute_would_reject = best_score > self.slo_ms
+            if absolute_would_reject:
+                self.admission.would_reject_absolute += 1
+            else:
+                self.admission.would_admit_absolute += 1
+
+            reject, reason = self._should_reject_slo(best_score, all_scores)
+            if absolute_would_reject != reject:
+                self.admission.absolute_vs_active_disagree += 1
+
+            if reject:
                 self.admission.rejected_slo += 1
                 retry = max(1, int(best_score / 1000.0))
                 raise AdmissionError(
-                    f"predicted latency {best_score:.0f}ms exceeds SLO {self.slo_ms:.0f}ms",
+                    f"admission rejected ({self.admission_mode}: {reason})",
                     retry_after_sec=retry,
                 )
 
@@ -524,6 +608,7 @@ class Scheduler:
                 self.pred_history.append(sample)
             self.admission.completed_total += 1
             self.admission.sum_e2e_ms += e2e_ms
+            self.recent_e2e.append(float(e2e_ms))
             if e2e_ms <= self.slo_ms:
                 self.admission.completed_under_slo += 1
             else:
@@ -538,12 +623,23 @@ class Scheduler:
             mae = sum(s["abs_err"] for s in self.pred_history) / n if n else 0.0
             mape = (sum(s["rel_err"] for s in self.pred_history) / n * 100.0) if n else 0.0
             tail = list(self.pred_history)[-200:] if n else []
+            emp_p = (
+                self._percentile(list(self.recent_e2e), self.admission_percentile)
+                if self.recent_e2e
+                else None
+            )
             return {
                 "strategy": self.strategy,
                 "nlms_mode": "dual" if self.dual else "single",
                 "ablation": self.ablation.name,
                 "workers": workers,
-                "admission": self.admission.snapshot(self.slo_ms, not self.admission_off),
+                "admission": self.admission.snapshot(
+                    self.slo_ms,
+                    not self.admission_off,
+                    admission_mode=self.admission_mode,
+                    empirical_p_ms=emp_p,
+                    recent_e2e_n=len(self.recent_e2e),
+                ),
                 "last_decision": self.last_decision.as_dict() if self.last_decision else None,
                 "decisions": list(self.decision_log),
                 "prediction": {

@@ -18,9 +18,15 @@ class DIOConfig(BaseSettings):
         "full", "no_queue", "no_vram", "no_vram_hard", "no_tier", "no_cache", "no_dual"
     ] = "full"
 
-    # Admission: reject if min_w score > slo_ms
+    # Admission: see admission_mode. slo_ms is the absolute/empirical budget.
     slo_ms: float = 5000.0
     admission_off: bool = False
+    # absolute = reject if min ŷ-cost > slo (legacy; ŷ MAPE-sensitive)
+    # empirical = reject using rolling observed latency percentile (preferred)
+    # rank_only = VRAM/tier hard blocks only; NLMS used purely for ranking
+    admission_mode: Literal["absolute", "empirical", "rank_only"] = "empirical"
+    admission_percentile: float = 95.0  # for empirical mode
+    recent_latency_window: int = 64
 
     # Cost coefficients (paper defaults)
     tier_mismatch_ms: float = 500.0
@@ -39,6 +45,10 @@ class DIOConfig(BaseSettings):
     initial_intercept: float = 150.0
     static_slope: float = 1.0
     static_intercept: float = 50.0
+
+    # Token feature for NLMS (prefer HF tokenizer when available)
+    tokenizer_name: Optional[str] = None  # e.g. Qwen/Qwen2.5-3B-Instruct
+    use_tokenizer: bool = True
 
     # Proxy
     host: str = "0.0.0.0"

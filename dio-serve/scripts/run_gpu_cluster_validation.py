@@ -401,6 +401,8 @@ def start_dio(
     nlms_mode: str = "dual",
     slo_ms: float = 120_000,
     admission_off: bool = True,
+    admission_mode: str = "rank_only",
+    tokenizer: str = "",
     name: str = "dio",
 ) -> ProcHandle:
     cmd = [
@@ -418,9 +420,13 @@ def start_dio(
         nlms_mode,
         "--slo-ms",
         str(slo_ms),
+        "--admission-mode",
+        admission_mode,
     ]
     if admission_off:
         cmd.append("--admission-off")
+    if tokenizer:
+        cmd.extend(["--tokenizer", tokenizer])
     for i, b in enumerate(backends):
         cmd.extend(["-b", f"e{i}={b}"])
     env = {
@@ -428,7 +434,11 @@ def start_dio(
         "DIO_NLMS_MODE": nlms_mode,
         "DIO_SLO_MS": str(slo_ms),
         "DIO_ADMISSION_OFF": "1" if admission_off else "0",
+        "DIO_ADMISSION_MODE": admission_mode,
     }
+    if tokenizer:
+        env["DIO_TOKENIZER_NAME"] = tokenizer
+        env["DIO_USE_TOKENIZER"] = "1"
     return session.start(name, cmd, env=env, url=f"http://127.0.0.1:{port}")
 
 
@@ -587,6 +597,8 @@ def exp_G2_multiseed_matrix(
     dio_base_port: int,
     slo_ms: float,
     session: ClusterSession,
+    tokenizer: str = "",
+    admission_mode: str = "rank_only",
 ) -> Dict[str, Any]:
     log("=== G2 Multi-seed strategy matrix ===")
     results: Dict[str, Any] = {"strategies": {}, "seeds": seeds, "n_per_seed": n_per_seed}
@@ -604,6 +616,8 @@ def exp_G2_multiseed_matrix(
                 nlms_mode="dual",
                 slo_ms=slo_ms,
                 admission_off=True,
+                tokenizer=tokenizer,
+                admission_mode=admission_mode,
                 name=f"dio_{strat}_s{seed}",
             )
             url = f"http://127.0.0.1:{port}"
@@ -972,8 +986,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--strategies",
         type=str,
-        default="nlms,round_robin,least_loaded",
-        help="Comma list for G2 matrix",
+        default="nlms,rls,round_robin,least_loaded",
+        help="Comma list for G2 matrix (include rls for head-to-head)",
+    )
+    p.add_argument(
+        "--tokenizer",
+        type=str,
+        default="",
+        help="HF tokenizer name for NLMS token feature (e.g. Qwen/Qwen2.5-3B-Instruct)",
+    )
+    p.add_argument(
+        "--admission-mode",
+        type=str,
+        default="rank_only",
+        help="absolute|empirical|rank_only (routing A/B uses rank_only by default)",
     )
     p.add_argument("--skip-g2", action="store_true")
     p.add_argument("--skip-g3", action="store_true")
@@ -1166,6 +1192,8 @@ def main() -> int:
                 dio_base_port=args.dio_base_port + 100,
                 slo_ms=args.slo_ms,
                 session=session,
+                tokenizer=args.tokenizer,
+                admission_mode=args.admission_mode,
             )
 
         # ----- G3 hetero (optionally throttle second peer) -----

@@ -63,6 +63,16 @@ def serve(
     nlms_mode: str = typer.Option("dual", "--nlms-mode", help="dual|single"),
     slo_ms: float = typer.Option(5000.0, "--slo-ms", help="Admission threshold (ms)"),
     admission_off: bool = typer.Option(False, "--admission-off", help="Disable SLO admission rejects"),
+    admission_mode: str = typer.Option(
+        "empirical",
+        "--admission-mode",
+        help="absolute|empirical|rank_only (ŷ ranking vs observed-percentile gate)",
+    ),
+    tokenizer: str = typer.Option(
+        "",
+        "--tokenizer",
+        help="HF tokenizer name for token feature (default: heuristic ⌊len/4⌋)",
+    ),
     ablation: str = typer.Option("full", "--ablation"),
     tier: List[str] = typer.Option([], "--tier", help="Tier per backend (same order as --backend)"),
     vram: List[float] = typer.Option([], "--vram", help="Total VRAM MB per backend"),
@@ -93,6 +103,9 @@ def serve(
         nlms_mode=nlms_mode,  # type: ignore
         slo_ms=slo_ms,
         admission_off=admission_off,
+        admission_mode=admission_mode,  # type: ignore
+        tokenizer_name=tokenizer or None,
+        use_tokenizer=bool(tokenizer),
         ablation=ablation,  # type: ignore
     )
     table = Table(title="DIO backends")

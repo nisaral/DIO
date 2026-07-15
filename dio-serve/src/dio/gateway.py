@@ -39,10 +39,47 @@ def _extract_prompt(body: Dict[str, Any]) -> str:
     return str(body.get("prompt") or "")
 
 
-def _estimate_tokens(prompt: str, body: Dict[str, Any]) -> int:
-    # prompt tokens + planned max output (drives NLMS feature)
+def _estimate_tokens_heuristic(prompt: str, body: Dict[str, Any]) -> int:
+    # Legacy byte heuristic (inflates MAPE when tokenizer differs).
     out = int(body.get("max_tokens") or body.get("max_completion_tokens") or 64)
     return max(1, len(prompt) // 4) + max(1, out)
+
+
+class _TokenCounter:
+    """Prefer HF tokenizer; fall back to ⌊|prompt|/4⌋ + max_tokens."""
+
+    def __init__(self, name: Optional[str], enabled: bool = True) -> None:
+        self.name = name
+        self.enabled = enabled
+        self._tok = None
+        self._mode = "heuristic"
+        if enabled and name:
+            try:
+                from transformers import AutoTokenizer  # type: ignore
+
+                self._tok = AutoTokenizer.from_pretrained(name, trust_remote_code=True)
+                self._mode = "hf"
+                log.info("Token counter: HF tokenizer %s", name)
+            except Exception as e:
+                log.warning(
+                    "Token counter: HF tokenizer unavailable (%s); using heuristic", e
+                )
+
+    def count(self, prompt: str, body: Dict[str, Any]) -> int:
+        out = int(body.get("max_tokens") or body.get("max_completion_tokens") or 64)
+        out = max(1, out)
+        if self._tok is not None:
+            try:
+                # encode without special tokens for feature size (matches e2e usage better)
+                n_prompt = len(self._tok.encode(prompt, add_special_tokens=False))
+                return max(1, int(n_prompt) + out)
+            except Exception:
+                pass
+        return _estimate_tokens_heuristic(prompt, body)
+
+    @property
+    def mode(self) -> str:
+        return self._mode
 
 
 class DIOGateway:
@@ -79,6 +116,9 @@ class DIOGateway:
             ablation=abl,
             slo_ms=cfg.slo_ms,
             admission_off=cfg.admission_off,
+            admission_mode=cfg.admission_mode,
+            admission_percentile=cfg.admission_percentile,
+            recent_latency_window=cfg.recent_latency_window,
             batch_size=cfg.batch_size,
             tier_mismatch_ms=cfg.tier_mismatch_ms,
             cache_bonus_ms=cfg.cache_bonus_ms,
@@ -95,6 +135,12 @@ class DIOGateway:
             decision_log_size=cfg.decision_log_size,
             pred_history_size=cfg.pred_history_size,
         )
+        # Prefer model-id as tokenizer name when not set
+        tok_name = cfg.tokenizer_name
+        if cfg.use_tokenizer and not tok_name and backends:
+            # try first backend model hint via env or leave None (heuristic until set)
+            tok_name = None
+        self.token_counter = _TokenCounter(tok_name, enabled=cfg.use_tokenizer)
         for b in self.pool.list():
             self.scheduler.register(
                 b.id,
@@ -288,7 +334,7 @@ class DIOGateway:
         self, body: Dict[str, Any], path: str, tier: str
     ) -> Union[JSONResponse, Response]:
         prompt = _extract_prompt(body)
-        tokens = _estimate_tokens(prompt, body)
+        tokens = self.token_counter.count(prompt, body)
         client = self._http()
 
         try:
@@ -389,7 +435,7 @@ class DIOGateway:
         self, body: Dict[str, Any], path: str, tier: str
     ) -> StreamingResponse:
         prompt = _extract_prompt(body)
-        tokens = _estimate_tokens(prompt, body)
+        tokens = self.token_counter.count(prompt, body)
         client = self._http()
 
         try:
