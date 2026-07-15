@@ -55,24 +55,15 @@ That would be scientific fraud. Framing:
 2. **Regime B — Legacy Locust ShareGPT 67s/81s** → different setup (4 workers, long decode); never mix with Regime A ms.  
 3. **Regime C — Slope-skew** → multi-seed sim + optional real delay-proxy hetero.
 
-## One more round (Kaggle) — real dual-T4 hetero multi-seed
+## Done: real dual-T4 hetero multi-seed (see `results_gpu_cluster_hetero/`)
 
-```bash
-cd dio-serve
-pip install -e .
-python scripts/run_gpu_cluster_validation.py \
-  --engine-mode vllm \
-  --model Qwen/Qwen2.5-3B-Instruct \
-  --gpus 0,1 \
-  --skip-g2 --skip-g4 --skip-g5 \
-  --hetero-slow-mult 2.0 \
-  --hetero-seeds 5 \
-  --requests-per-seed 30 \
-  --max-tokens 32 \
-  --out results_gpu_cluster_hetero
-```
+| Metric | NLMS | RR |
+|--------|------|-----|
+| Frac to fast (e0) | **0.680 ± 0.073** (n=5) | 0.500 |
+| p99 improvement | **34.3% ± 7.1%** | — |
+| e2e p99 (ms) | 2058 ± 237 | 3196 ± 747 |
 
-This keeps real tokens on both T4s, multiplies e1 wall-clock via `latency_delay_proxy.py`, and reports mean±std frac_fast / p99 / MAPE.
+Delay proxy ×2 on e1; real vLLM tokens. Complements G7 sim (97.5% / 38.3%).
 
 ## Paper paste lines
 
