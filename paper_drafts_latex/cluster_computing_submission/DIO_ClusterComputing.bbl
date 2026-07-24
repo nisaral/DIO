@@ -1,0 +1,266 @@
+%% BioMed_Central_Bib_Style_v1.01
+
+\begin{thebibliography}{20}
+% BibTex style file: bmc-mathphys.bst (version 2.1), 2014-07-24
+\ifx \bisbn   \undefined \def \bisbn  #1{ISBN #1}\fi
+\ifx \binits  \undefined \def \binits#1{#1}\fi
+\ifx \bauthor  \undefined \def \bauthor#1{#1}\fi
+\ifx \batitle  \undefined \def \batitle#1{#1}\fi
+\ifx \bjtitle  \undefined \def \bjtitle#1{#1}\fi
+\ifx \bvolume  \undefined \def \bvolume#1{\textbf{#1}}\fi
+\ifx \byear  \undefined \def \byear#1{#1}\fi
+\ifx \bissue  \undefined \def \bissue#1{#1}\fi
+\ifx \bfpage  \undefined \def \bfpage#1{#1}\fi
+\ifx \blpage  \undefined \def \blpage #1{#1}\fi
+\ifx \burl  \undefined \def \burl#1{\textsf{#1}}\fi
+\ifx \doiurl  \undefined \def \doiurl#1{\url{https://doi.org/#1}}\fi
+\ifx \betal  \undefined \def \betal{\textit{et al.}}\fi
+\ifx \binstitute  \undefined \def \binstitute#1{#1}\fi
+\ifx \binstitutionaled  \undefined \def \binstitutionaled#1{#1}\fi
+\ifx \bctitle  \undefined \def \bctitle#1{#1}\fi
+\ifx \beditor  \undefined \def \beditor#1{#1}\fi
+\ifx \bpublisher  \undefined \def \bpublisher#1{#1}\fi
+\ifx \bbtitle  \undefined \def \bbtitle#1{#1}\fi
+\ifx \bedition  \undefined \def \bedition#1{#1}\fi
+\ifx \bseriesno  \undefined \def \bseriesno#1{#1}\fi
+\ifx \blocation  \undefined \def \blocation#1{#1}\fi
+\ifx \bsertitle  \undefined \def \bsertitle#1{#1}\fi
+\ifx \bsnm \undefined \def \bsnm#1{#1}\fi
+\ifx \bsuffix \undefined \def \bsuffix#1{#1}\fi
+\ifx \bparticle \undefined \def \bparticle#1{#1}\fi
+\ifx \barticle \undefined \def \barticle#1{#1}\fi
+\bibcommenthead
+\ifx \bconfdate \undefined \def \bconfdate #1{#1}\fi
+\ifx \botherref \undefined \def \botherref #1{#1}\fi
+\ifx \url \undefined \def \url#1{\textsf{#1}}\fi
+\ifx \bchapter \undefined \def \bchapter#1{#1}\fi
+\ifx \bbook \undefined \def \bbook#1{#1}\fi
+\ifx \bcomment \undefined \def \bcomment#1{#1}\fi
+\ifx \oauthor \undefined \def \oauthor#1{#1}\fi
+\ifx \citeauthoryear \undefined \def \citeauthoryear#1{#1}\fi
+\ifx \endbibitem  \undefined \def \endbibitem {}\fi
+\ifx \bconflocation  \undefined \def \bconflocation#1{#1}\fi
+\ifx \arxivurl  \undefined \def \arxivurl#1{\textsf{#1}}\fi
+\csname PreBibitemsHook\endcsname
+
+%%% 1
+\bibitem[\protect\citeauthoryear{Kwon et~al.}{2023}]{vllm}
+\begin{bchapter}
+\bauthor{\bsnm{Kwon}, \binits{W.}}, \betal:
+\bctitle{Efficient memory management for large language model serving with
+  {PagedAttention}}.
+In: \bbtitle{SOSP}
+(\byear{2023})
+\end{bchapter}
+\endbibitem
+
+%%% 2
+\bibitem[\protect\citeauthoryear{Zheng et~al.}{2023}]{sglang}
+\begin{botherref}
+\oauthor{\bsnm{Zheng}, \binits{L.}}, et al.:
+{SGLang}: Efficient Execution of Structured Language Model Programs
+(2023)
+\end{botherref}
+\endbibitem
+
+%%% 3
+\bibitem[\protect\citeauthoryear{{Hugging Face}}{2023}]{tgi}
+\begin{botherref}
+\oauthor{\bsnm{{Hugging Face}}}:
+Text Generation Inference.
+\url{https://github.com/huggingface/text-generation-inference}
+(2023)
+\end{botherref}
+\endbibitem
+
+%%% 4
+\bibitem[\protect\citeauthoryear{Zhang et~al.}{2025}]{nexussched}
+\begin{botherref}
+\oauthor{\bsnm{Zhang}, \binits{Y.}},
+\oauthor{\bsnm{Chen}, \binits{Y.}},
+\oauthor{\bsnm{Mo}, \binits{X.}},
+\oauthor{\bsnm{Xi}, \binits{A.}},
+\oauthor{\bsnm{Li}, \binits{J.}},
+\oauthor{\bsnm{Wu}, \binits{W.}}:
+A Predictive and Synergistic Two-Layer Scheduling Framework for {LLM} Serving
+  ({NexusSched})
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 5
+\bibitem[\protect\citeauthoryear{Dean and Barroso}{2013}]{dean2013tail}
+\begin{botherref}
+\oauthor{\bsnm{Dean}, \binits{J.}},
+\oauthor{\bsnm{Barroso}, \binits{L.A.}}:
+The tail at scale.
+Communications of the ACM
+\textbf{56}(2)
+(2013)
+\end{botherref}
+\endbibitem
+
+%%% 6
+\bibitem[\protect\citeauthoryear{others}{2024}]{melange}
+\begin{botherref}
+et al.:
+{M\'elange}: Cost-Efficient {LLM} Serving on Heterogeneous {GPUs}.
+arXiv preprint
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 7
+\bibitem[\protect\citeauthoryear{Haykin}{2002}]{haykin2002adaptive}
+\begin{bbook}
+\bauthor{\bsnm{Haykin}, \binits{S.}}:
+\bbtitle{Adaptive Filter Theory},
+\bedition{4}th edn.
+\bpublisher{Prentice Hall}, \blocation{???}
+(\byear{2002})
+\end{bbook}
+\endbibitem
+
+%%% 8
+\bibitem[\protect\citeauthoryear{Zhong et~al.}{2024}]{distserve}
+\begin{bchapter}
+\bauthor{\bsnm{Zhong}, \binits{Y.}}, \betal:
+\bctitle{{DistServe}: Disaggregating prefill and decoding for goodput-optimized
+  large language model serving}.
+In: \bbtitle{OSDI}
+(\byear{2024})
+\end{bchapter}
+\endbibitem
+
+%%% 9
+\bibitem[\protect\citeauthoryear{Patel et~al.}{2024}]{splitwise}
+\begin{botherref}
+\oauthor{\bsnm{Patel}, \binits{P.}}, et al.:
+Splitwise: Efficient Generative {LLM} Inference Using Phase Splitting.
+arXiv preprint
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 10
+\bibitem[\protect\citeauthoryear{Agrawal et~al.}{2024}]{bullet}
+\begin{bchapter}
+\bauthor{\bsnm{Agrawal}, \binits{A.}}, \betal:
+\bctitle{{Sarathi-Serve}: Efficiently serving large language models via hybrid
+  scheduling}.
+In: \bbtitle{OSDI}
+(\byear{2024})
+\end{bchapter}
+\endbibitem
+
+%%% 11
+\bibitem[\protect\citeauthoryear{{Ray Project}}{2024}]{rayserve}
+\begin{botherref}
+\oauthor{\bsnm{{Ray Project}}}:
+Ray Serve.
+\url{https://docs.ray.io/en/latest/serve/}
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 12
+\bibitem[\protect\citeauthoryear{{NVIDIA Corporation}}{2024}]{triton}
+\begin{botherref}
+\oauthor{\bsnm{{NVIDIA Corporation}}}:
+Triton Inference Server
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 13
+\bibitem[\protect\citeauthoryear{Yu et~al.}{2022}]{orca}
+\begin{bchapter}
+\bauthor{\bsnm{Yu}, \binits{G.-I.}}, \betal:
+\bctitle{{Orca}: A distributed serving system for {Transformer}-based
+  generative models}.
+In: \bbtitle{OSDI}
+(\byear{2022})
+\end{bchapter}
+\endbibitem
+
+%%% 14
+\bibitem[\protect\citeauthoryear{Li et~al.}{2023}]{alpaserve}
+\begin{bchapter}
+\bauthor{\bsnm{Li}, \binits{Z.}}, \betal:
+\bctitle{{AlpaServe}: Statistical multiplexing with model parallelism for deep
+  learning serving}.
+In: \bbtitle{OSDI}
+(\byear{2023})
+\end{bchapter}
+\endbibitem
+
+%%% 15
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2025}]{CocoServe}
+\begin{botherref}
+\oauthor{\bsnm{Wu}, \binits{J.}}, et al.:
+Unlock the Potential of Fine-grained {LLM} Serving via Module-wise Autoscaling
+  ({CoCoServe})
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 16
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2024a}]{llumnix}
+\begin{botherref}
+\oauthor{\bsnm{Wu}, \binits{B.}}, et al.:
+{Llumnix}: Dynamic Scheduling for Large Language Model Serving
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 17
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2024b}]{loongserve}
+\begin{bchapter}
+\bauthor{\bsnm{Wu}, \binits{B.}},
+\bauthor{\bsnm{Liu}, \binits{S.}},
+\bauthor{\bsnm{Zhong}, \binits{Y.}},
+\bauthor{\bsnm{Sun}, \binits{P.}},
+\bauthor{\bsnm{Liu}, \binits{X.}},
+\bauthor{\bsnm{Jin}, \binits{X.}}:
+\bctitle{{LoongServe}: Efficiently serving long-context large language models
+  with elastic sequence parallelism}.
+In: \bbtitle{SOSP}
+(\byear{2024})
+\end{bchapter}
+\endbibitem
+
+%%% 18
+\bibitem[\protect\citeauthoryear{Little}{1961}]{littleslaw}
+\begin{botherref}
+\oauthor{\bsnm{Little}, \binits{J.D.C.}}:
+A proof for the queuing formula: {$L=\lambda W$}.
+Operations Research
+(1961)
+\end{botherref}
+\endbibitem
+
+%%% 19
+\bibitem[\protect\citeauthoryear{Coffman and Denning}{1973}]{sjf}
+\begin{bbook}
+\bauthor{\bsnm{Coffman}, \binits{E.G.}},
+\bauthor{\bsnm{Denning}, \binits{P.J.}}:
+\bbtitle{Operating Systems Theory}.
+\bpublisher{Prentice-Hall}, \blocation{???}
+(\byear{1973})
+\end{bbook}
+\endbibitem
+
+%%% 20
+\bibitem[\protect\citeauthoryear{Williams et~al.}{2009}]{williams2009roofline}
+\begin{botherref}
+\oauthor{\bsnm{Williams}, \binits{S.}},
+\oauthor{\bsnm{Waterman}, \binits{A.}},
+\oauthor{\bsnm{Patterson}, \binits{D.}}:
+Roofline: An insightful visual performance model for multicore architectures.
+Communications of the ACM
+\textbf{52}(4)
+(2009)
+\end{botherref}
+\endbibitem
+
+\end{thebibliography}
