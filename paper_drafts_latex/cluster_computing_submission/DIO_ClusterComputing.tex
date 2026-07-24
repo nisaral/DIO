@@ -294,38 +294,16 @@ On an L4 stressed long-prompt microbench, removing VRAM admission elevates hard 
 \label{fig:resilience}
 \end{figure}
 
-\subsection{Multi-SKU physical validation (ongoing)}
+\subsection{Multi-SKU physical fleets (future work)}
 \label{sec:multisource}
-Prior real-GPU skew used identical Tesla T4 SKUs with a delay proxy. To address external validity, we are running a \textbf{physical multi-SKU} campaign (e.g., T4$+$L4 or T4$+$A10-class peers) with the same workshop suite protocol:
-\begin{itemize}
-\item strategies: NLMS, RLS, RR, LL;
-\item multi-seed mean$\pm$std p99, MAPE, frac to fast GPU;
-\item optional longer decode ($\texttt{max\_tokens}\ge 128$).
-\end{itemize}
-\textbf{Placeholder.} Table~\ref{tab:multiSKU} will be filled from the multi-SKU run before camera-ready; until then, claims about cross-architecture fleets remain provisional and delay-proxy results stand as controlled service-time skew on real engines.
-
-\begin{table}[t]
-\caption{Multi-SKU real cluster (to be completed). Protocol matches Regime C without delay proxy.}
-\label{tab:multiSKU}
-\centering
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-Strategy & p99 (ms) & frac fast & vs RR & MAPE (\%) \\
-\midrule
-NLMS & TBD & TBD & TBD & TBD \\
-RLS & TBD & TBD & TBD & TBD \\
-RR & TBD & TBD & TBD & TBD \\
-LL & TBD & TBD & TBD & TBD \\
-\bottomrule
-\end{tabular}
-\end{table}
+Real-GPU slope skew in this paper uses identical Tesla T4 SKUs with a delay proxy (controlled service-time skew on real engines and tokens). Validating the same protocol on a \textbf{physical multi-SKU} pair (e.g., T4$+$L4) is left to future work; we do not claim cross-architecture fleets from the present dual-T4 data alone.
 
 %%=============================================================================
 \section{Discussion and limitations}
 \label{sec:limitations}
 
 \begin{enumerate}
-\item \textbf{Multi-SKU fleets.} Physical mixed SKUs are ongoing (Section~\ref{sec:multisource}); current real skew is delay-proxy on identical T4s.
+\item \textbf{Multi-SKU fleets.} Physical mixed SKUs are future work (Section~\ref{sec:multisource}); current real skew is delay-proxy on identical T4s.
 \item \textbf{Baseline breadth.} RR/LL/RLS on the same vLLM pair; not a full multi-node Orca/vLLM-distributed study.
 \item \textbf{High MAPE.} Absolute prediction is poor; admission is ranking-/observation-based.
 \item \textbf{Homogeneous p99.} NLMS does not beat RR when workers match; value appears under skew.
@@ -337,7 +315,7 @@ LL & TBD & TBD & TBD & TBD \\
 \section{Conclusion}
 \label{sec:conclusion}
 
-DIO is a practical cluster control plane for LLM inference: dual-timescale NLMS ranking, joint cost routing, admission decoupled from absolute $\hat{y}$, and open-source \texttt{dio-serve} over stock engines. Multi-seed dual-T4 evidence shows strong p99 gains under controlled service-time skew and no invented wins on homogeneous GPUs. Completing multi-SKU physical validation will further strengthen external claims for heterogeneous clusters.
+DIO is a practical cluster control plane for LLM inference: dual-timescale NLMS ranking, joint cost routing, admission decoupled from absolute $\hat{y}$, and open-source \texttt{dio-serve} over stock vLLM-compatible engines. Multi-seed dual-T4 evidence shows strong p99 gains under controlled service-time skew and no invented wins on homogeneous GPUs. We release this as a systems technical report / open preprint so others can reproduce and extend the stack; multi-SKU fleets and broader production baselines remain natural extensions.
 
 %%=============================================================================
 \backmatter
