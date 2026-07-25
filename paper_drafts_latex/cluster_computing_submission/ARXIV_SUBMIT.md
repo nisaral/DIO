@@ -1,66 +1,100 @@
-# Post DIO as an arXiv systems paper (free, ~15 minutes)
+# arXiv submit kit — DIO systems paper
 
-You already have a real systems artifact (vLLM wrap, multi-seed dual-T4, open `dio-serve`).  
-**arXiv is the right “ship it” move** — no APC, citable, standard for systems work.
+**PDF to upload:**  
+`paper_drafts_latex/cluster_computing_submission/DIO_ClusterComputing.pdf`
 
-## 1. Categories (primary + secondary)
+**Portal:** https://arxiv.org/login → Start new submission
 
-| Slot | Category | Why |
-|------|----------|-----|
-| **Primary** | **cs.DC** (Distributed, Parallel, and Cluster Computing) | Cluster orchestration / multi-worker serving |
-| Cross-list | **cs.LG** (Machine Learning) | LLM inference systems |
-| Optional | **cs.OS** or **cs.PF** | Scheduling / performance |
+---
 
-## 2. Files to upload
+## Categories
 
-From `paper_drafts_latex/cluster_computing_submission/`:
+| Role | Category |
+|------|----------|
+| **Primary** | **cs.DC** (Distributed, Parallel, and Cluster Computing) |
+| Cross-list | **cs.LG** (Machine Learning) |
+| Optional | cs.PF (Performance) |
 
-1. **`DIO_ClusterComputing.pdf`** (main)
-2. Optional: source zip (`.tex` + `.bib` + figures) if you want reproducibility of the paper build
+If first time in cs.DC, arXiv may ask for **endorsement** — follow their email, or use a coauthor who is already endorsed.
 
-Also link code: `https://github.com/nisaral/DIO`
+---
 
-## 3. Title (use as-is or shorten)
-
-```
-DIO: Dual-Timescale Predictive Orchestration for Heterogeneous LLM Inference Clusters
-```
-
-## 4. Abstract (paste into arXiv form)
+## Title
 
 ```
-Large language model (LLM) serving stacks maximize single-node throughput but underperform when multiple GPUs differ in speed, queueing, or memory headroom. We present DIO, a non-invasive cluster control plane that sits in front of unmodified OpenAI-compatible engines (e.g., stock vLLM). DIO learns per-worker ms/token slopes online with dual-timescale Normalized Least Mean Squares (NLMS) using O(1) arithmetic per completion, ranks workers by a joint cost (service estimate, queue wait, tier, VRAM pressure, cache affinity), and applies Roofline-inspired hard blocks without trusting absolute latency predictions for admission. The system is released as dio-serve, a pip-installable gateway and library.
-
-Under fixed hardware, DIO's contribution is relative cost ranking for routing, not point-accurate millisecond prediction. On dual Tesla T4 GPUs with Qwen2.5-3B-Instruct and stock vLLM, multi-seed evaluation (n=10) shows that when one peer is delay-throttled (x2 observed e2e), NLMS reduces p99 end-to-end latency by 48.3%+/-0.7% versus Round-Robin and outperforms a d=2 RLS predictor; when both GPUs are identical, strategies are nearly tied, as expected. Absolute MAPE remains high (~90-130%). We release code, validation suites, and dual-T4 artifacts for reproduction.
+DIO: A Non-Invasive Control Plane for Multi-Instance LLM Serving over Stock vLLM
 ```
 
-## 5. Comments field (optional)
+---
+
+## Authors
 
 ```
-14 pages. Code: https://github.com/nisaral/DIO (dio-serve). Systems technical report: predictive routing for multi-GPU LLM serving over stock vLLM.
+Keyush Nisar
+Krishil Parikh
+Krisha Maisheri
 ```
 
-## 6. Submit steps
+Affiliations: Dwarkadas J. Sanghvi College of Engineering, Mumbai, India  
+Emails: Nisarkeyush3@gmail.com, Krishilparikh75@gmail.com, KrishaMaisheri16@gmail.com
 
-1. Create/login: https://arxiv.org/login  
+---
+
+## Abstract (paste into form)
+
+```
+Deployments often place several stock vLLM (or OpenAI-compatible) instances behind Round-Robin or connection-count balancers. That works poorly when backends differ in effective service cost—queue depth, interference, or a temporarily slow peer—even when GPU SKUs match. We present DIO/dio-serve, a non-invasive OpenAI-compatible gateway that ranks backends with dual-timescale NLMS slopes learned from request end-to-end latency and token counts (plus optional VRAM hints and in-gateway queue depth), not full GPU SM/power telemetry.
+
+Honest scope: absolute latency prediction is weak (MAPE ~90-130% on dual-T4); DIO is useful as a relative ranker under measurable service skew. On dual Tesla T4 + Qwen2.5-3B + stock vLLM (n=10 seeds): (i) when backends are identical, NLMS p99 is not better than Round-Robin (within ~3%, slightly worse); (ii) when one peer's observed e2e is delay-inflated x2, NLMS cuts p99 by 48.3%+/-0.7% vs RR and beats d=2 RLS. We release open code and multi-seed artifacts. Multi-SKU fleets are out of scope.
+```
+
+---
+
+## Comments (optional)
+
+```
+14 pages. Code: https://github.com/nisaral/DIO (dio-serve wraps stock vLLM). Systems technical report on multi-instance LLM routing; honest evaluation when backends match vs under service-time skew.
+```
+
+---
+
+## License
+
+Prefer **CC BY 4.0** (or arXiv non-exclusive distribution license).  
+Later journal (e.g. Cluster Computing) is still OK if you disclose the arXiv ID.
+
+---
+
+## Steps
+
+1. https://arxiv.org/login  
 2. **Start new submission** → Computer Science  
-3. Primary: **cs.DC**, cross-list **cs.LG**  
-4. Upload PDF  
-5. Paste title, authors, abstract  
-6. License: recommend **CC BY 4.0** or arXiv’s non-exclusive distribution  
-7. Submit → wait for announce (usually next business day)
+3. Primary **cs.DC**, add **cs.LG**  
+4. Upload **DIO_ClusterComputing.pdf**  
+5. Paste title, authors, abstract, comments  
+6. Preview → Submit  
+7. Wait for announcement (often next business day US Eastern)
 
-**First-time in cs.DC?** You may need an **endorsement** (arXiv emails instructions). Ask a colleague with arXiv history, or submit via an endorsed coauthor account.
+---
 
-## 7. After it posts
+## After you get arXiv ID (e.g. 2607.xxxxx)
 
-- Put the arXiv link in `README.md`  
-- Tag a GitHub release: `v0.2-paper`  
-- Optional later: still submit to Cluster Computing using the same PDF (cite arXiv)
+Add to GitHub README:
 
-## 8. What this is *not*
+```markdown
+## Paper
+Preprint: https://arxiv.org/abs/XXXX.XXXXX  
+Code: this repo (`dio-serve`)
+```
 
-- Not a peer-reviewed journal accept (yet)  
-- Still a **real systems paper**: integrated with vLLM, multi-seed GPU results, open software  
+You can still submit to **Cluster Computing** later; put the arXiv link in the cover letter.
 
-That’s enough to claim the work, get citations, and park the idea while you move on.
+---
+
+## Checklist
+
+- [ ] Latest PDF (honest multi-instance reframe)
+- [ ] cs.DC + cs.LG
+- [ ] All authors agree
+- [ ] Not under review at two peer-reviewed venues at once (arXiv is fine)
+- [ ] Code link in comments
