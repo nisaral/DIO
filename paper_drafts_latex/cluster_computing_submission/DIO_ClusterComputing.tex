@@ -25,7 +25,7 @@
 
 \begin{document}
 
-\title[DIO: Cluster Orchestration for Heterogeneous LLM Inference]{DIO: Dual-Timescale Predictive Orchestration for Heterogeneous LLM Inference Clusters}
+\title[DIO: Multi-Instance LLM Routing over Stock Engines]{DIO: A Non-Invasive Control Plane for Multi-Instance LLM Serving over Stock vLLM}
 
 \author*[1]{\fnm{Keyush} \sur{Nisar}}\email{Nisarkeyush3@gmail.com}
 \author[1]{\fnm{Krishil} \sur{Parikh}}\email{Krishilparikh75@gmail.com}
@@ -35,12 +35,12 @@
 
 %% Abstract
 \abstract{%
-Large language model (LLM) serving stacks maximize single-node throughput but underperform when multiple GPUs differ in speed, queueing, or memory headroom. We present \textbf{DIO}, a non-invasive \emph{cluster control plane} that sits in front of unmodified OpenAI-compatible engines (e.g., stock vLLM). DIO learns per-worker ms/token slopes online with dual-timescale Normalized Least Mean Squares (NLMS) using $O(1)$ arithmetic per completion, ranks workers by a joint cost (service estimate, queue wait, tier, VRAM pressure, cache affinity), and applies Roofline-inspired hard blocks without trusting absolute latency predictions for admission. The system is released as \texttt{dio-serve}, a pip-installable gateway and library.
+Deployments often place several stock vLLM (or OpenAI-compatible) instances behind Round-Robin or connection-count balancers. That works poorly when backends differ in \emph{effective} service cost---queue depth, interference, or a temporarily slow peer---even when GPU SKUs match. We present \textbf{DIO}/\texttt{dio-serve}, a non-invasive OpenAI-compatible gateway that ranks backends with dual-timescale NLMS slopes learned from \textbf{request end-to-end latency and token counts} (plus optional VRAM hints and in-gateway queue depth), not full GPU SM/power telemetry.
 
-\textbf{Claim scope.} Under fixed hardware, DIO's contribution is \emph{relative cost ranking} for routing, not point-accurate millisecond prediction. On dual Tesla T4 GPUs with Qwen2.5-3B-Instruct and stock vLLM, multi-seed evaluation ($n{=}10$) shows that when one peer is delay-throttled ($\times 2$ observed e2e), NLMS reduces p99 end-to-end latency by $48.3\%\pm0.7\%$ versus Round-Robin and outperforms a $d{=}2$ RLS predictor; when both GPUs are identical, strategies are nearly tied---as expected. Absolute MAPE remains high ($\sim$90--130\%). Multi-SKU physical fleets are reported as ongoing validation (Section~\ref{sec:multisource}).
+\textbf{Honest scope.} Absolute latency prediction is weak (MAPE $\sim$90--130\% on dual-T4); DIO is useful only as a \emph{relative ranker} under measurable service skew. On dual Tesla T4 + Qwen2.5-3B + stock vLLM ($n{=}10$ seeds): (i)~when backends are identical, NLMS p99 is \emph{not} better than Round-Robin (within $\sim$3\%, slightly worse); (ii)~when one peer's observed e2e is delay-inflated $\times 2$, NLMS cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR and beats $d{=}2$ RLS. We release open code and multi-seed artifacts. Multi-SKU fleets are out of scope for this paper.
 }
 
-\keywords{LLM serving, cluster scheduling, heterogeneous GPUs, NLMS, load balancing, vLLM, open-source systems}
+\keywords{LLM serving, multi-instance load balancing, vLLM, NLMS, cluster gateway, open-source systems}
 
 \maketitle
 
@@ -48,24 +48,19 @@ Large language model (LLM) serving stacks maximize single-node throughput but un
 \section{Introduction}
 \label{sec:intro}
 
-LLM inference is increasingly deployed as a \emph{cluster service}: multiple OpenAI-compatible engines behind a gateway, often on mixed GPU generations or with unequal background load. Single-node systems such as vLLM~\cite{vllm}, SGLang~\cite{sglang}, and TGI~\cite{tgi} optimize continuous batching and KV-cache layout, but provide little request-granularity routing across workers. External balancers (Round-Robin, connection count, Kubernetes/Ray defaults) treat workers as interchangeable and request costs as uniform. In heterogeneous clusters this causes head-of-line blocking, idle fast GPUs, and memory-unsafe assignments that risk KV thrashing or OOM~\cite{nexussched,dean2013tail}.
+Practitioners commonly run \emph{multiple} stock vLLM~\cite{vllm} (or SGLang/TGI~\cite{sglang,tgi}) instances and put Nginx, Kubernetes Services, or Ray Serve~\cite{rayserve} in front with Round-Robin or least-connections. Single-node engines optimize continuous batching; they do not solve \emph{which backend} should take the next request. Naive balancers treat backends as equal. In practice effective cost still diverges---pending queue, batching noise, host interference, or a peer that is temporarily slow---even on identical GPU SKUs. The result is avoidable tail latency~\cite{dean2013tail}.
 
-We design \textbf{DIO} (Distributed Inference Orchestrator) as a thin control plane for this setting. Unlike engine-invasive two-layer schedulers~\cite{nexussched} or static multi-SKU capacity tables~\cite{melange}, DIO:
-\begin{enumerate}
-\item learns a scalar latency model per worker online with dual-timescale NLMS~\cite{haykin2002adaptive};
-\item routes with a joint cost that couples predicted service time to queueing, tier capability, VRAM pressure, and prefix affinity;
-\item decouples \emph{ranking} from absolute admission thresholds when prediction error is large;
-\item deploys as an OpenAI-compatible front door (\texttt{dio-serve}) without patching engines.
-\end{enumerate}
+We design \textbf{DIO} (\texttt{dio-serve}) as a thin, non-invasive OpenAI-compatible gateway for this multi-instance pattern. DIO is \emph{not} a full GPU telemetry stack (no continuous NVML SM/power/temperature loop in the default path). It learns from what a stock engine already returns: \textbf{end-to-end request latency and token usage}, plus \textbf{in-gateway pending counts}, optional static/API VRAM hints, and a cheap prefix-hash affinity bonus.
 
-\paragraph{Contributions (methods and evaluation scope).}
+\paragraph{What NLMS can and cannot do (preview of results).}
+Dual-timescale NLMS~\cite{haykin2002adaptive} does \textbf{not} magically invent wins when backends are equal: on homogeneous dual-T4, NLMS p99 is within a few percent of Round-Robin and slightly worse (Section~\ref{sec:regimeA}). Absolute $\hat{y}$ is poor (MAPE $\sim$90--130\%). Where NLMS helps is when backends differ in \emph{observed} service cost: under a controlled $\times 2$ e2e inflation on one real peer, NLMS reduces p99 by $48.3\%\pm0.7\%$ vs.\ RR and beats $d{=}2$ RLS (Section~\ref{sec:regimeC}). That is ranking under skew---not GPU-SKU wizardry and not accurate ms forecasting.
+
+\paragraph{Contributions.}
 \begin{enumerate}
-\item \textbf{Dual-timescale NLMS ranking signal.} Per-worker fast/slow slopes and bias with $O(1)$ updates; absolute MAPE is reported and is not treated as a success metric.
-\item \textbf{Joint cost and Roofline-style safety.} Scalar score $S_w$ with soft VRAM penalties and hard exclusion of unsafe workers; admission modes that do not rely on untrustworthy $\hat{y}$ magnitude.
-\item \textbf{Cluster software artifact.} Open-source Go reference plane and Python \texttt{dio-serve} library wrapping stock vLLM/compatible servers; measured scheduling overhead of order $10$--$15\,\mu$s.
-\item \textbf{Multi-seed cluster evaluation.} Homogeneous dual-T4 validation, delay-proxy slope skew on real engines, controlled simulations, ablations, and NLMS vs.\ RLS under a fixed cost function. A multi-SKU physical campaign is in progress (Section~\ref{sec:multisource}).
+\item \textbf{Deployable multi-instance gateway.} Open-source \texttt{dio-serve} wraps stock OpenAI-compatible engines without patches; scheduling overhead $\sim$10--15\,$\mu$s.
+\item \textbf{Online relative ranking under weak absolute models.} Dual-timescale NLMS + joint cost; admission decoupled from absolute $\hat{y}$ when MAPE is high.
+\item \textbf{Honest multi-seed evaluation on real dual-T4 + vLLM.} Homogeneous (no free lunch) and service-time skew (clear p99 gains), plus NLMS vs.\ RLS/RR/LL under a fixed cost function. Multi-SKU fleets are out of scope.
 \end{enumerate}
-Numeric outcomes appear only in Section~\ref{sec:evaluation}.
 
 %%=============================================================================
 \section{Background and related work}
@@ -87,10 +82,13 @@ NLMS stability and step-size practice follow adaptive filter theory~\cite{haykin
 \subsection{Architecture}
 DIO separates a \textbf{control plane} from a \textbf{data plane} of unmodified engines (Fig.~\ref{fig:architecture}). Clients send OpenAI-compatible \texttt{/v1/chat/completions} to DIO. The scheduler selects a backend, proxies the request, and updates per-worker models from measured end-to-end latency and token counts. Product path: \texttt{dio-serve} (FastAPI + Python scheduler). Research path: Go manager with gRPC workers (optional).
 
+\paragraph{Telemetry used in practice.}
+The default closed loop uses: (i)~wall-clock e2e latency through the gateway; (ii)~token counts from \texttt{usage} or a tokenizer estimate; (iii)~per-backend \texttt{pending} queue depth inside DIO. Soft/hard VRAM terms exist in the cost function but require free-VRAM to be set (config, API, or optional hooks); stock vLLM OpenAI responses do \textbf{not} automatically stream full GPU telemetry into DIO. We therefore do not claim continuous awareness of SM utilization, power, or temperature.
+
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{system_Design.png}
-\caption{DIO cluster architecture: OpenAI-compatible gateway, dual-timescale NLMS predictors, joint cost router, and unmodified engine backends (vLLM or compatible).}
+\caption{DIO as a multi-instance gateway: OpenAI-compatible front door, dual-timescale NLMS from e2e latency/tokens, joint cost router, stock vLLM backends.}
 \label{fig:architecture}
 \end{figure}
 
@@ -168,8 +166,7 @@ Because absolute MAPE is high (Section~\ref{sec:mape}), admission is \emph{not} 
 \begin{enumerate}
 \item \textbf{Regime A --- homogeneous dual-T4 (real):} 2$\times$ Tesla T4, stock vLLM, Qwen2.5-3B-Instruct, HF tokenizer, $\texttt{max\_tokens}{=}32$, $n{=}10$ seeds $\times$ 30 requests.
 \item \textbf{Regime B --- legacy Locust pilot (secondary):} longer-decode ShareGPT/arXiv/Azure, single seed, different setup; absolute seconds not mixed with Regime A ms.
-\item \textbf{Regime C --- slope skew:} (i) CPU multi-seed simulation $n{=}10$; (ii) real dual-T4 with e1 behind delay proxy $\times 2$, $n{=}10$.
-\item \textbf{Regime D --- multi-SKU (ongoing):} physical mixed GPU types (Section~\ref{sec:multisource}).
+\item \textbf{Regime C --- service-time skew:} (i) CPU multi-seed simulation $n{=}10$; (ii) real dual-T4 with e1 behind delay proxy $\times 2$, $n{=}10$ (slow peer, same SKU).
 \end{enumerate}
 
 \paragraph{Baselines.}
@@ -189,9 +186,9 @@ On the T7 scalability microbench with many concurrent mock workers, instrumented
 \label{fig:scalability}
 \end{figure}
 
-\subsection{Regime A: homogeneous dual-T4}
+\subsection{Regime A: homogeneous dual-T4 (NLMS is not better than RR)}
 \label{sec:regimeA}
-Table~\ref{tab:regimeA} reports the primary homogeneous multi-seed matrix (workshop suite). On \emph{identical} SKUs, NLMS does not invent large p99 gains versus RR (slightly worse mean p99: $-2.6\%\pm1.0\%$). Useful signals: tight NLMS p99 variance versus LL sticky routing ($100\%$ to e0, p99 std $430$\,ms), and RLS mis-routing (frac e0 $0.12$).
+Table~\ref{tab:regimeA} is the primary homogeneous multi-seed matrix. On \emph{identical} backends, \textbf{NLMS does not beat Round-Robin on mean p99} (NLMS is slightly worse: $-2.6\%\pm1.0\%$ ``improvement''). This is the correct outcome if ranking is driven by learned service cost and workers truly look alike. Useful secondary signals: NLMS keeps tight p99 std ($31$\,ms) while Least-Loaded is sticky ($100\%$ to e0, p99 std $430$\,ms); RLS mis-routes (frac e0 $0.12$).
 
 \begin{table}[t]
 \caption{Regime A (real, primary). Dual-T4 + vLLM + Qwen2.5-3B, HF tokenizer, $n{=}10\times 30$, $\texttt{max\_tokens}{=}32$. Mean$\pm$std.}
@@ -256,8 +253,8 @@ p99 vs RR & \multicolumn{2}{c}{$38.3\%\pm2.0\%$} & \\
 \end{tabular}
 \end{table}
 
-\paragraph{Real dual-T4 delay-proxy ($n{=}10$).}
-e1 observed e2e $\times 2$ via \texttt{latency\_delay\_proxy} (real tokens). Table~\ref{tab:realC}: NLMS p99 $3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms ($48.3\%\pm0.7\%$ improvement). RLS is weaker and noisier ($23.2\%\pm22.9\%$). Mean frac to e0 under NLMS is modest ($0.47\pm0.08$); the headline is \textbf{tail reduction}, not a $97.5\%$-style split.
+\paragraph{Real dual-T4 service-time skew ($n{=}10$).}
+We inflate e1 wall-clock e2e by $\times 2$ via \texttt{latency\_delay\_proxy} while still serving real tokens on a real T4---a controlled \emph{slow peer}, not a second GPU SKU. Table~\ref{tab:realC}: NLMS p99 $3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms ($48.3\%\pm0.7\%$ improvement). RLS is weaker and noisier ($23.2\%\pm22.9\%$). Mean frac to e0 under NLMS is only modest ($0.47\pm0.08$): NLMS is \textbf{not} a dramatic sticky ``always hit the fast GPU'' policy in this sequential short-probe setting; the supported claim is \textbf{better p99 under skew than RR/RLS}, not sim-style $97.5\%$ splits.
 
 \begin{table}[t]
 \caption{Regime C (real GPU, primary). Dual-T4 + delay-proxy $\times 2$, $n{=}10\times 30$, HF tokenizer.}
@@ -294,34 +291,33 @@ On an L4 stressed long-prompt microbench, removing VRAM admission elevates hard 
 \label{fig:resilience}
 \end{figure}
 
-\subsection{Multi-SKU physical fleets (future work)}
-\label{sec:multisource}
-Real-GPU slope skew in this paper uses identical Tesla T4 SKUs with a delay proxy (controlled service-time skew on real engines and tokens). Validating the same protocol on a \textbf{physical multi-SKU} pair (e.g., T4$+$L4) is left to future work; we do not claim cross-architecture fleets from the present dual-T4 data alone.
-
 %%=============================================================================
 \section{Discussion and limitations}
 \label{sec:limitations}
 
+\paragraph{Is NLMS ``good at routing''?}
+Honestly: \textbf{only when backends differ in observed service cost.} On matched dual-T4 workers, NLMS is no better than RR on mean p99 (Section~\ref{sec:regimeA}). Under a slow peer, NLMS improves p99 substantially vs.\ RR and RLS (Section~\ref{sec:regimeC}), but mean traffic share to the faster backend stays modest. Absolute $\hat{y}$ is not trustworthy (high MAPE). DIO should be sold as a \emph{lightweight multi-instance ranker under skew}, not as a GPU-omniscient scheduler.
+
+\paragraph{Limitations.}
 \begin{enumerate}
-\item \textbf{Multi-SKU fleets.} Physical mixed SKUs are future work (Section~\ref{sec:multisource}); current real skew is delay-proxy on identical T4s.
-\item \textbf{Baseline breadth.} RR/LL/RLS on the same vLLM pair; not a full multi-node Orca/vLLM-distributed study.
-\item \textbf{High MAPE.} Absolute prediction is poor; admission is ranking-/observation-based.
-\item \textbf{Homogeneous p99.} NLMS does not beat RR when workers match; value appears under skew.
-\item \textbf{Workload.} Primary multi-seed cells use short chat probes; concurrent ShareGPT multi-seed on dual-T4 is incomplete.
-\item \textbf{Out of scope.} Pipeline-parallel/disaggregated PD co-design, multimodal split inference, and privacy-preserving routing.
+\item \textbf{Telemetry depth.} Default loop is e2e latency + tokens + gateway pending; not continuous GPU SM/power telemetry.
+\item \textbf{Skew model.} Real skew uses delay-proxy on identical T4s, not physical multi-SKU fleets.
+\item \textbf{Baselines.} RR/LL/RLS on the same vLLM pair; not multi-node Orca/vLLM-distributed.
+\item \textbf{Workload.} Short sequential chat probes dominate multi-seed cells; concurrent ShareGPT multi-seed is incomplete.
+\item \textbf{Out of scope.} Prefill/decode disaggregation co-design, multimodal split inference.
 \end{enumerate}
 
 %%=============================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 
-DIO is a practical cluster control plane for LLM inference: dual-timescale NLMS ranking, joint cost routing, admission decoupled from absolute $\hat{y}$, and open-source \texttt{dio-serve} over stock vLLM-compatible engines. Multi-seed dual-T4 evidence shows strong p99 gains under controlled service-time skew and no invented wins on homogeneous GPUs. We release this as a systems technical report / open preprint so others can reproduce and extend the stack; multi-SKU fleets and broader production baselines remain natural extensions.
+DIO (\texttt{dio-serve}) is a non-invasive multi-instance gateway for stock vLLM-class engines: dual-timescale NLMS ranking from request e2e latency and tokens, joint cost routing, and admission that does not pretend absolute $\hat{y}$ is accurate. Multi-seed dual-T4 results show \textbf{no free lunch when backends match} and \textbf{clear p99 gains when one peer is effectively slower}. That is a deployable systems contribution for common multi-vLLM deployments---without requiring multi-SKU hardware or full GPU telemetry.
 
 %%=============================================================================
 \backmatter
 
 \bmhead{Acknowledgements}
-The authors thank colleagues who provided feedback on earlier drafts. Multi-SKU experiments are in progress at the time of submission preparation.
+The authors thank colleagues who provided feedback on earlier drafts.
 
 %% Declarations required by Springer Nature journals
 \section*{Declarations}
