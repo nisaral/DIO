@@ -30,10 +30,19 @@ class DIOConfig(BaseSettings):
 
     # Cost coefficients (paper defaults)
     tier_mismatch_ms: float = 500.0
-    cache_bonus_ms: float = 200.0
+    cache_bonus_ms: float = 200.0  # session/prefix affinity bonus (headline for multi-turn)
     vram_soft_limit_mb: float = 4096.0
     vram_hard_limit_mb: float = 2400.0
     batch_size: float = 8.0
+
+    # Hybrid engine metrics (vLLM /metrics scrape — still non-invasive)
+    engine_metrics: bool = True
+    metrics_interval_s: float = 1.0
+    # Extra cost terms when metrics available (ms-scale, same units as other costs)
+    kv_cache_cost_ms: float = 800.0  # * kv_cache_usage (0..1)
+    engine_queue_cost_ms: float = 50.0  # * num_requests_waiting
+    # Affinity: bonus scaled up when engine reports high prefix hit rate
+    engine_prefix_hit_bonus_ms: float = 150.0
 
     # NLMS
     mu_fast: float = 0.1

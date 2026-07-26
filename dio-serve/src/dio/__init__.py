@@ -6,8 +6,9 @@ Non-invasive control plane that sits in front of vLLM / SGLang / TGI / Ollama
 (any OpenAI-compatible HTTP server) and routes requests with:
 
   • Dual-timescale NLMS latency learning (online, O(1) updates)
-  • Joint cost: predicted latency + queue + tier + VRAM pressure
-  • Roofline-inspired admission (reject when min cost > SLO)
+  • Hybrid joint cost: NLMS ranking + optional vLLM /metrics (KV, queue, prefix)
+  • Session/prefix affinity for multi-turn workloads
+  • Admission decoupled from absolute ŷ (empirical / rank_only / absolute)
 
 Quick start
 -----------
@@ -28,6 +29,7 @@ Python API::
 
 from dio.backends import Backend, BackendPool
 from dio.config import DIOConfig
+from dio.engine_metrics import EngineSnapshot, scrape_metrics_url
 from dio.gateway import DIOGateway
 from dio.scheduler import (
     AblationFlags,
@@ -37,7 +39,7 @@ from dio.scheduler import (
     Scheduler,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "Backend",
     "BackendPool",
@@ -48,5 +50,7 @@ __all__ = [
     "RoutingDecision",
     "AdmissionStats",
     "AblationFlags",
+    "EngineSnapshot",
+    "scrape_metrics_url",
     "__version__",
 ]

@@ -124,6 +124,10 @@ class DIOGateway:
             cache_bonus_ms=cfg.cache_bonus_ms,
             vram_soft_mb=cfg.vram_soft_limit_mb,
             vram_hard_mb=cfg.vram_hard_limit_mb,
+            kv_cache_cost_ms=cfg.kv_cache_cost_ms,
+            engine_queue_cost_ms=cfg.engine_queue_cost_ms,
+            engine_prefix_hit_bonus_ms=cfg.engine_prefix_hit_bonus_ms,
+            use_engine_metrics=cfg.engine_metrics,
             mu_fast=cfg.mu_fast,
             mu_slow=cfg.mu_slow,
             mu_bias=cfg.mu_bias,
@@ -151,6 +155,8 @@ class DIOGateway:
 
         self.app = self._build_app()
         self._client: Optional[httpx.AsyncClient] = None
+        self._metrics_task = None
+        self._health_task = None
 
     def add_backend(self, backend: Backend) -> None:
         self.pool.add(backend)
@@ -176,39 +182,36 @@ class DIOGateway:
 
         @app.on_event("startup")
         async def _startup() -> None:
+            import asyncio
+
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.config.request_timeout_s),
                 limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
                 follow_redirects=True,
             )
+            if self.config.engine_metrics:
+                self._metrics_task = asyncio.create_task(self._metrics_loop())
+            self._health_task = asyncio.create_task(self._health_loop())
             log.info(
-                "DIO gateway ready | strategy=%s mode=%s backends=%s",
+                "DIO gateway ready | strategy=%s mode=%s hybrid_metrics=%s backends=%s",
                 self.config.strategy,
                 self.config.nlms_mode,
+                self.config.engine_metrics,
                 [b.id for b in self.pool.list()],
             )
-            # Background health probes — mark dead engines unhealthy (production LB)
-            import asyncio
-
-            async def _health_loop() -> None:
-                while True:
-                    try:
-                        client = self._http()
-                        for b in self.pool.list():
-                            ok = await self.pool.probe_health(client, b.id)
-                            self.scheduler.set_healthy(b.id, ok)
-                            if not ok:
-                                log.warning("Backend unhealthy: %s (%s)", b.id, b.base_url)
-                    except Exception:
-                        log.exception("health loop error")
-                    await asyncio.sleep(max(2.0, self.config.health_interval_s))
-
-            asyncio.create_task(_health_loop())
 
         @app.on_event("shutdown")
         async def _shutdown() -> None:
-            if self._client:
+            for task in (self._metrics_task, getattr(self, "_health_task", None)):
+                if task is not None:
+                    task.cancel()
+                    try:
+                        await task
+                    except Exception:
+                        pass
+            if self._client is not None:
                 await self._client.aclose()
+                self._client = None
 
         @app.get("/healthz")
         @app.get("/health")
@@ -218,6 +221,7 @@ class DIOGateway:
                 "service": "dio",
                 "backends": len(self.pool.backends),
                 "strategy": self.config.strategy,
+                "engine_metrics": self.config.engine_metrics,
             }
 
         @app.get("/v1/models")
@@ -267,9 +271,24 @@ class DIOGateway:
         async def metrics():
             return self.scheduler.metrics()
 
+        @app.get("/debug/engine")
+        async def engine_metrics():
+            """Scraped vLLM-style /metrics snapshots (hybrid cost inputs)."""
+            m = self.scheduler.metrics()
+            return {
+                "enabled": m.get("use_engine_metrics"),
+                "interval_s": self.config.metrics_interval_s,
+                "snapshots": m.get("engine_metrics") or {},
+                "affinity": m.get("affinity") or {},
+            }
+
         @app.get("/debug/admission")
         async def admission():
             return self.scheduler.metrics()["admission"]
+
+        @app.get("/debug/affinity")
+        async def affinity():
+            return self.scheduler.metrics().get("affinity") or {}
 
         @app.get("/debug/predictions")
         async def predictions(limit: int = 1000):
@@ -285,6 +304,7 @@ class DIOGateway:
                 "workers": list(m["workers"].keys()),
                 "strategy": m["strategy"],
                 "detail": m["workers"],
+                "engine": m.get("engine_metrics") or {},
             }
 
         @app.post("/debug/reset_stats")
@@ -329,6 +349,54 @@ class DIOGateway:
                 follow_redirects=True,
             )
         return self._client
+
+    async def _metrics_loop(self) -> None:
+        """
+        Non-invasive hybrid telemetry (contribution A): poll each backend's
+        Prometheus /metrics and feed KV-cache / queue / prefix-hit into the
+        joint cost function. Zero engine source patches — HTTP GET only.
+        """
+        import asyncio
+
+        from dio.engine_metrics import parse_prometheus_text, snapshot_from_metrics
+
+        interval = max(0.25, float(self.config.metrics_interval_s))
+        while True:
+            try:
+                client = self._http()
+                for b in self.pool.list():
+                    try:
+                        r = await client.get(b.metrics_url(), timeout=2.0)
+                        if r.status_code >= 400:
+                            continue
+                        snap = snapshot_from_metrics(parse_prometheus_text(r.text))
+                        if snap.ok:
+                            self.scheduler.set_engine_metrics(b.id, snap)
+                    except Exception as e:
+                        log.debug("metrics scrape %s: %s", b.id, e)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("metrics loop error")
+            await asyncio.sleep(interval)
+
+    async def _health_loop(self) -> None:
+        """Background health probes — mark dead engines unhealthy."""
+        import asyncio
+
+        while True:
+            try:
+                client = self._http()
+                for b in self.pool.list():
+                    ok = await self.pool.probe_health(client, b.id)
+                    self.scheduler.set_healthy(b.id, ok)
+                    if not ok:
+                        log.warning("Backend unhealthy: %s (%s)", b.id, b.base_url)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("health loop error")
+            await asyncio.sleep(max(2.0, self.config.health_interval_s))
 
     async def _proxy_json(
         self, body: Dict[str, Any], path: str, tier: str

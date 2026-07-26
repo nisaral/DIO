@@ -37,6 +37,10 @@ class RoutingDecision:
     total_ms: float
     tokens: int
     strategy: str = "nlms"
+    engine_kv_cost_ms: float = 0.0
+    engine_queue_cost_ms: float = 0.0
+    engine_prefix_bonus_ms: float = 0.0
+    affinity_hit: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -49,6 +53,10 @@ class RoutingDecision:
             "total_ms": self.total_ms,
             "tokens": self.tokens,
             "strategy": self.strategy,
+            "engine_kv_cost_ms": self.engine_kv_cost_ms,
+            "engine_queue_cost_ms": self.engine_queue_cost_ms,
+            "engine_prefix_bonus_ms": self.engine_prefix_bonus_ms,
+            "affinity_hit": self.affinity_hit,
         }
 
 
@@ -261,7 +269,11 @@ class Scheduler:
     """
     Joint cost router.
 
-    score = wait + predicted_exec + tier_penalty + vram_penalty - cache_bonus
+    score = wait + predicted_exec + tier + vram + engine_kv + engine_queue
+            - cache_affinity - engine_prefix_bonus
+
+    Hybrid mode (optional): scrapes vLLM /metrics for KV usage, waiting queue,
+    prefix hit rate — still non-invasive (HTTP only).
 
     NLMS/RLS scores are used for *ranking*. Admission is separate:
       - absolute: reject if min score > SLO (legacy; depends on ŷ magnitude)
@@ -285,6 +297,10 @@ class Scheduler:
         cache_bonus_ms: float = 200.0,
         vram_soft_mb: float = 4096.0,
         vram_hard_mb: float = 2400.0,
+        kv_cache_cost_ms: float = 800.0,
+        engine_queue_cost_ms: float = 50.0,
+        engine_prefix_hit_bonus_ms: float = 150.0,
+        use_engine_metrics: bool = True,
         mu_fast: float = 0.1,
         mu_slow: float = 0.01,
         mu_bias: float = 0.005,
@@ -310,6 +326,10 @@ class Scheduler:
         self.cache_bonus_ms = cache_bonus_ms
         self.vram_soft_mb = vram_soft_mb
         self.vram_hard_mb = vram_hard_mb
+        self.kv_cache_cost_ms = kv_cache_cost_ms
+        self.engine_queue_cost_ms = engine_queue_cost_ms
+        self.engine_prefix_hit_bonus_ms = engine_prefix_hit_bonus_ms
+        self.use_engine_metrics = use_engine_metrics
         self._mu = (mu_fast, mu_slow, mu_bias, blend, initial_slope, initial_intercept)
         self.static_slope = static_slope
         self.static_intercept = static_intercept
@@ -318,7 +338,11 @@ class Scheduler:
         self.predictors: Dict[str, DualTimescaleNLMS] = {}
         self.rls: Dict[str, SimpleRLS] = {}
         self.prefix_cache: Dict[int, str] = {}
+        self.engine_snap: Dict[str, Any] = {}  # worker_id -> EngineSnapshot-like dict
         self.rr_index = 0
+        # affinity stats (for paper B)
+        self.affinity_decisions = 0
+        self.affinity_hits = 0
         # deques: O(1) append + auto-drop for tight control-plane loops
         self.decision_log: Deque[Dict[str, Any]] = deque(maxlen=decision_log_size)
         self.decision_log_size = decision_log_size
@@ -409,13 +433,32 @@ class Scheduler:
             if worker_id in self.predictors:
                 self.predictors[worker_id].free_vram_mb = free_mb
 
+    def set_engine_metrics(self, worker_id: str, snap: Any) -> None:
+        """Update scraped engine snapshot (EngineSnapshot or dict)."""
+        with self._lock:
+            if hasattr(snap, "as_dict"):
+                d = snap.as_dict()
+            elif isinstance(snap, dict):
+                d = snap
+            else:
+                return
+            self.engine_snap[worker_id] = d
+            # Map KV usage to free VRAM estimate when total is known
+            if worker_id in self.predictors and d.get("ok"):
+                kv = float(d.get("kv_cache_usage") or 0.0)
+                tot = self.predictors[worker_id].total_vram_mb
+                if tot > 0 and kv >= 0:
+                    # rough: used fraction of KV → free headroom signal
+                    self.predictors[worker_id].free_vram_mb = max(0.0, tot * (1.0 - kv))
+
     def set_healthy(self, worker_id: str, healthy: bool) -> None:
         with self._lock:
             if worker_id in self.predictors:
                 self.predictors[worker_id].healthy = healthy
 
     def _prefix_hash(self, text: str) -> int:
-        return hash(text[:100]) & 0xFFFFFFFF
+        # Longer prefix for multi-turn session affinity (session-ish)
+        return hash(text[:256]) & 0xFFFFFFFF
 
     def _score(
         self,
@@ -429,10 +472,15 @@ class Scheduler:
         """Returns (score, breakdown, blocked)."""
         abl = self.ablation
         free = pred.free_vram_mb
+        eng = self.engine_snap.get(worker_id) or {}
 
         if not abl.disable_vram_hard:
             if free > 0 and free < self.vram_hard_mb and tokens > 1000:
                 return None, None, True
+            # Engine-reported KV nearly full → hard block for long requests
+            if self.use_engine_metrics and eng.get("ok") and float(eng.get("kv_cache_usage") or 0) > 0.95:
+                if tokens > 500:
+                    return None, None, True
 
         if not abl.disable_tier:
             if tier == "large" and pred.tier != "large":
@@ -458,23 +506,49 @@ class Scheduler:
         if not abl.disable_vram_soft and pred.total_vram_mb > 0 and free < self.vram_soft_mb:
             vram_cost = (1.0 - free / pred.total_vram_mb) * 1000.0
 
+        # --- Hybrid engine metrics (A) ---
+        eng_kv = 0.0
+        eng_q = 0.0
+        eng_pref = 0.0
+        if self.use_engine_metrics and eng.get("ok"):
+            eng_kv = float(eng.get("kv_cache_usage") or 0.0) * self.kv_cache_cost_ms
+            eng_q = float(eng.get("num_waiting") or 0.0) * self.engine_queue_cost_ms
+            # Prefer workers the engine already caches well
+            eng_pref = float(eng.get("prefix_hit_rate") or 0.0) * self.engine_prefix_hit_bonus_ms
+
+        # --- Session / prefix affinity (B) ---
         cache_bonus = 0.0
+        affinity_hit = False
         if not abl.disable_cache:
             h = self._prefix_hash(prompt)
             if self.prefix_cache.get(h) == worker_id:
                 cache_bonus = self.cache_bonus_ms
+                affinity_hit = True
 
-        total = wait + exec_ms + tier_cost + vram_cost - cache_bonus
+        total = (
+            wait
+            + exec_ms
+            + tier_cost
+            + vram_cost
+            + eng_kv
+            + eng_q
+            - cache_bonus
+            - eng_pref
+        )
         dec = RoutingDecision(
             worker_id=worker_id,
             exec_ms=exec_ms,
             wait_ms=wait,
             tier_cost_ms=tier_cost,
             vram_cost_ms=vram_cost,
-            cache_bonus_ms=cache_bonus,
+            cache_bonus_ms=cache_bonus + eng_pref,
             total_ms=total,
             tokens=tokens,
             strategy=self.strategy,
+            engine_kv_cost_ms=eng_kv,
+            engine_queue_cost_ms=eng_q,
+            engine_prefix_bonus_ms=eng_pref,
+            affinity_hit=affinity_hit,
         )
         return total, dec, False
 
@@ -573,6 +647,10 @@ class Scheduler:
             self.predictors[best_id].pending += 1
             self.prefix_cache[self._prefix_hash(prompt)] = best_id
             self.admission.admitted += 1
+            # Affinity stats (session/prefix stickiness)
+            self.affinity_decisions += 1
+            if best_dec.affinity_hit:
+                self.affinity_hits += 1
             self._log_decision(best_dec)
             self.last_decision = best_dec
             return best_id, best_dec
@@ -628,11 +706,19 @@ class Scheduler:
                 if self.recent_e2e
                 else None
             )
+            aff_n = max(1, self.affinity_decisions)
             return {
                 "strategy": self.strategy,
                 "nlms_mode": "dual" if self.dual else "single",
                 "ablation": self.ablation.name,
                 "workers": workers,
+                "engine_metrics": dict(self.engine_snap),
+                "use_engine_metrics": self.use_engine_metrics,
+                "affinity": {
+                    "decisions": self.affinity_decisions,
+                    "hits": self.affinity_hits,
+                    "hit_rate": self.affinity_hits / aff_n if self.affinity_decisions else 0.0,
+                },
                 "admission": self.admission.snapshot(
                     self.slo_ms,
                     not self.admission_off,
@@ -655,3 +741,5 @@ class Scheduler:
             self.admission = AdmissionStats()
             self.pred_history.clear()
             self.decision_log.clear()
+            self.affinity_decisions = 0
+            self.affinity_hits = 0
