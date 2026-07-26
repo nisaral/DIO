@@ -92,11 +92,14 @@ Third, it keeps admission off the unreliable absolute prediction: default modes
 are empirical (observed latency percentiles) and rank-only; absolute-$\hat{y}$
 gating is left as a diagnostic that we show can starve healthy traffic.
 
-On dual-T4 + Qwen2.5-3B + stock vLLM ($n{=}10$ seeds), NLMS is no better than
-Round-Robin when peers match, and about $48\%$ better on p99 when one peer is
-artificially $\times 2$ slower. Separate library multi-seed suites (not GPU
-wall-clock) check hybrid steering, affinity stickiness, and admission behavior.
-Source code is public. Multi-SKU fleets are out of scope for this paper.
+On dual-T4 + Qwen2.5-3B + stock vLLM: (i)~homogeneous NLMS is no better than
+Round-Robin on short probes ($n{=}10$); (ii)~under $\times 2$ service-time skew,
+NLMS cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR; (iii)~on \textbf{real multi-turn}
+workloads ($n{=}5$), hybrid metrics cut p99 by $65.8\%\pm2.8\%$ vs.\ RR and
+$23.5\%$ vs.\ NLMS without scrape; affinity stickiness is $1.00$ vs.\ $0.50$ for RR
+with affinity hit rate $0.92$; absolute admission rejects $41.5\%\pm13.4\%$ under a
+tight SLO while empirical/rank\_only reject $0\%$. Source code is public. Multi-SKU
+fleets are out of scope.
 
 \medskip
 \noindent\textbf{Keywords:} LLM serving, multi-instance load balancing, vLLM,
@@ -157,25 +160,28 @@ reject/admit decisions~\cite{clockwork,distserve} (Section~\ref{sec:admission}).
 
 \subsection{Results preview}
 Dual-timescale NLMS does not invent wins when backends are equal: on homogeneous
-dual-T4, NLMS p99 is within a few percent of Round-Robin and slightly worse
-(Section~\ref{sec:regimeA}). Where NLMS helps is service-time skew: under controlled
-$\times 2$ e2e inflation on one real peer, NLMS reduces p99 by $48.3\%\pm0.7\%$ vs.\ RR
-and beats $d{=}2$ RLS (Section~\ref{sec:regimeC}). Hybrid metrics, affinity, and
-admission are evaluated as mechanisms in Sections~\ref{sec:evalA}--\ref{sec:evalC}.
+dual-T4 short probes, NLMS p99 is slightly worse than Round-Robin
+(Section~\ref{sec:regimeA}). Under controlled $\times 2$ service-time skew, NLMS
+cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR and beats $d{=}2$ RLS
+(Section~\ref{sec:regimeC}). On \textbf{real dual-T4 multi-turn} runs ($n{=}5$), the
+title mechanisms hold: hybrid scrape improves p99 vs.\ hybrid-off and RR
+(Section~\ref{sec:evalA}); affinity stickiness and hit rate dominate RR
+(Section~\ref{sec:evalB}); absolute admission over-rejects under a tight SLO while
+empirical/rank\_only do not (Section~\ref{sec:evalC}).
 
 \subsection{Contributions}
 \begin{enumerate}
-\item \textbf{Hybrid cost routing (non-invasive).} Joint cost that fuses online NLMS
-with scraped vLLM \texttt{/metrics}, with graceful degrade when scrape fails.
+\item \textbf{Hybrid cost routing (non-invasive).} Joint cost fusing online NLMS with
+scraped vLLM \texttt{/metrics}; real dual-T4 multi-turn gain vs.\ hybrid-off and RR.
 \item \textbf{Session/prefix affinity for multi-turn routing.} Prefix-hash stickiness
-plus engine prefix-hit bonus, with multi-seed stickiness and latency vs.\ RR
-(library suite; live dual-T4 multi-turn measurement left as future work).
-\item \textbf{Sound admission under unreliable $\hat{y}$.} Explicit rank-only,
-empirical, and absolute modes, with quantitative disagreement under poisoned
-predictors (library suite, motivated by dual-T4 MAPE).
+plus engine prefix-hit bonus; real dual-T4 stickiness $1.00$ vs.\ $0.50$ RR and
+affinity hit rate $0.92$.
+\item \textbf{Sound admission under unreliable $\hat{y}$.} Rank-only / empirical /
+absolute modes; on the real gateway with a tight SLO, absolute rejects
+$\sim$42\% of requests while empirical and rank\_only reject none.
 \item \textbf{Open gateway and multi-seed evaluation.} Open-source \texttt{dio-serve};
-dual-T4 + Qwen2.5-3B~\cite{qwen25}; no free lunch on homogeneous peers; multi-SKU
-fleets out of scope.
+dual-T4 + Qwen2.5-3B~\cite{qwen25}; no free lunch on homogeneous short probes;
+multi-SKU fleets out of scope.
 \end{enumerate}
 
 %%=============================================================================
@@ -521,11 +527,10 @@ Hugging Face tokenizer, \texttt{dio-serve} gateway. Workshop suite:
 \item \textbf{Regime C --- service-time skew:}
   (i) CPU multi-seed simulation $n{=}10$; (ii) real dual-T4 with e1 behind
   delay-proxy $\times 2$, $n{=}10$.
-\item \textbf{A/B/C mechanism suites (library multi-seed, not GPU):}
-  hybrid pressure, multi-turn affinity, admission under poisoned $\hat{y}$;
-  $n{=}10$ (\texttt{run\_abc\_experiments.py}). Synthetic service times and injected
-  metrics isolate mechanism correctness and complement dual-T4 cells
-  (Sections~\ref{sec:evalA}--\ref{sec:evalC}).
+\item \textbf{A/B/C real multi-turn / admission (primary for title mechanisms):}
+  dual-T4 + stock vLLM, multi-turn long system prefixes, live \texttt{/metrics}
+  scrape, $n{=}5$ seeds (\texttt{run\_gpu\_abc\_suite.py}); library multi-seed suite
+  remains a controlled complement (Sections~\ref{sec:evalA}--\ref{sec:evalC}).
 \end{enumerate}
 
 \paragraph{Baselines and metrics.}
@@ -669,45 +674,42 @@ Round-Robin & $6632\pm37$ & $0.50\pm0.00$ & --- & $102\pm3$ \\
 \end{tabular}
 \end{table}
 
-\subsection{Mechanism suite A: hybrid metrics}
+\subsection{Hybrid cost on real dual-T4 multi-turn}
 \label{sec:evalA}
-Subsections~\ref{sec:evalA}--\ref{sec:evalC} report the \textbf{library} multi-seed
-suite \texttt{run\_abc\_experiments.py} (synthetic times, injected metrics, no GPU)
-for controlled multi-seed mechanism checks. For submission-grade real-engine
-validation of the same three mechanisms, re-run
-\texttt{scripts/run\_gpu\_abc\_suite.py} on dual-T4 + stock vLLM (multi-turn long
-prefix + live \texttt{/metrics} scrape + admission modes); paste G1--G3 rows from
-\texttt{results\_gpu\_abc/} into Tables~\ref{tab:hybrid}--\ref{tab:admission} when
-available.
+Subsections~\ref{sec:evalA}--\ref{sec:evalC} are the \textbf{primary real-hardware}
+checks of the title mechanisms, using dual stock vLLM on Tesla~T4, Qwen2.5-3B,
+HF tokenizer, and live Prometheus \texttt{/metrics} scrape
+(\texttt{run\_gpu\_abc\_suite.py}, $n{=}5$ seeds). Workload: multi-turn sessions with
+long shared system prefixes (agent-style), $12$ sessions $\times$ $4$ turns,
+$\texttt{max\_tokens}{=}32$, with light concurrency on G1 to build real queue/KV
+activity. Metrics probe confirmed scrape \texttt{ok} on both engines before load.
 
-\paragraph{Setup.}
-$n{=}10$ seeds $\times$ 120 requests. Two workers share $y=2N+100+\epsilon$. The
-hot worker is given high injected $\mathrm{KV}$ and $W$ and pays extra queue delay;
-the cool worker does not. We compare hybrid (NLMS + metrics), NLMS-only, and
-Round-Robin.
+\paragraph{Setup (G1).}
+Three DIO configurations: \texttt{nlms\_hybrid\_on} (metrics scrape + hybrid cost
+terms), \texttt{nlms\_hybrid\_off} (NLMS only, scrape disabled), and Round-Robin.
+All use rank-only admission (no SLO rejects).
 
 \paragraph{Results.}
-Table~\ref{tab:hybrid} and Figure~\ref{fig:evalA}: both learning policies send all
-traffic to the cool worker once queue delay appears in feedback (frac cool $1.00$);
-RR stays at $0.50$. Hybrid p99 is $257\pm3$ vs.\ RR $292\pm6$
-($12.0\%\pm2.0\%$). NLMS-only eventually matches that p99 after enough e2e samples;
-hybrid adds direct KV/queue terms and hard blocks when KV is nearly full. Live dual-T4
-scrape under concurrent load is future work. When absolute MAPE is high, the remedy is
-not a better black-box forecast alone, but engine-exported KV and queue
-signals~\cite{vllm,prometheus}.
+Table~\ref{tab:hybrid} and Figure~\ref{fig:evalA}: hybrid-on p99 is
+$1155\pm96$\,ms vs.\ hybrid-off $1511\pm224$\,ms and RR $3376\pm12$\,ms---a
+$\mathbf{65.8\%\pm2.8\%}$ p99 cut vs.\ RR and about $\mathbf{23.5\%}$ vs.\ NLMS
+without scrape. Stickiness remains high under hybrid-on ($1.00$) because multi-turn
+prefixes also engage affinity; RR stickiness is only $0.75$ under the concurrent
+G1 load. When absolute MAPE is high, the dual-T4 multi-turn evidence is that
+engine-exported KV/queue signals improve tails beyond e2e-only NLMS~\cite{vllm,prometheus}.
 
 \begin{table}[!htb]
-\caption{Library suite (not GPU): hybrid cost under injected engine pressure,
-$n{=}10\times120$. Mean$\pm$std.}
+\caption{Real dual-T4 multi-turn hybrid suite ($n{=}5$; 12 sessions $\times$ 4 turns;
+live \texttt{/metrics}). Mean$\pm$std.}
 \label{tab:hybrid}
 \centering
-\begin{tabular}{@{}lccc@{}}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-Mode & frac cool & p99 (sim ms) & p99 vs RR \\
+Mode & p99 (ms) & Stickiness & Aff.\ hit & p99 vs RR \\
 \midrule
-Hybrid (NLMS+metrics) & $1.00\pm0.00$ & $257\pm3$ & $\mathbf{12.0\pm2.0\%}$ \\
-NLMS-only & $1.00\pm0.00$ & $258\pm5$ & $\sim$12\% \\
-Round-Robin & $0.50\pm0.00$ & $292\pm6$ & --- \\
+NLMS + hybrid metrics & $\mathbf{1155\pm96}$ & $1.00\pm0.00$ & $0.91\pm0.01$ & $\mathbf{65.8\pm2.8\%}$ \\
+NLMS, hybrid off & $1511\pm224$ & $0.98\pm0.01$ & $0.84\pm0.03$ & $\sim$55\% \\
+Round-Robin & $3376\pm12$ & $0.75\pm0.00$ & $0.00$ & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -715,44 +717,40 @@ Round-Robin & $0.50\pm0.00$ & $292\pm6$ & --- \\
 \begin{figure}[!htb]
 \centering
 \includegraphics[width=0.78\columnwidth]{fig_hybrid_A.png}
-\caption{Library suite (not GPU): hybrid under injected pressure
-($n{=}10\times120$). (a)~p99; (b)~frac to cool worker.}
+\caption{Real dual-T4 multi-turn hybrid suite ($n{=}5$). (a)~p99 e2e; (b)~session
+stickiness. Hybrid ON beats hybrid OFF and RR.}
 \label{fig:evalA}
 \end{figure}
 
-\subsection{Mechanism suite B: session affinity}
+\subsection{Session affinity on real dual-T4 multi-turn}
 \label{sec:evalB}
 
-\paragraph{Scope.}
-Library multi-seed multi-turn suite with synthetic latencies and injected prefix-hit
-snapshots---not dual-T4 wall-clock. Checks affinity scoring and counters. Measuring
-live vLLM prefix-cache hit rate under concurrent multi-turn load remains future work.
-
-\paragraph{Setup.}
-$n{=}10$ seeds, $20$ sessions $\times$ $5$ turns, long shared system prefix per
-session. Workers are nearly equal. NLMS+affinity uses $C{=}400$\,ms plus an engine
-prefix-hit bonus; RR uses neither. Stickiness is the share of turns that stay on the
-session home worker.
+\paragraph{Setup (G2).}
+Same dual-T4 engines; multi-turn with long system prefixes, concurrent$=1$ for a
+clean stickiness signal. NLMS with raised cache bonus ($C{=}400$\,ms) and hybrid
+scrape vs.\ Round-Robin ($n{=}5$).
 
 \paragraph{Results.}
-Table~\ref{tab:affinity} and Figure~\ref{fig:evalB}: affinity hit rate
-$0.80\pm0.00$, stickiness $1.00$, vs.\ RR stickiness $0.60$. With warm turns modeled
-as $0.7\times$ cold latency, p99 falls from $221\pm3$ (RR) to $190\pm4$ (affinity).
-For multi-turn and agent traffic~\cite{autogen,langgraph,preble}, keeping turns on
-the warm replica is useful even without multi-SKU hardware and complements
-in-engine RadixAttention~\cite{radixattention} rather than replacing it.
+Table~\ref{tab:affinity} and Figure~\ref{fig:evalB}: NLMS+affinity stickiness is
+$\mathbf{1.00}$ vs.\ RR $\mathbf{0.50}$; DIO affinity hit rate is
+$\mathbf{0.917}$ (RR reports no affinity decisions). p99 is $1999\pm598$\,ms vs.\ RR
+$3390\pm6$\,ms ($\sim$41\% lower mean p99). Seed 0 is an outlier on the affinity arm
+($3064$\,ms); the other four seeds cluster near $1.7$--$1.8$\,s. For multi-turn and
+agent traffic~\cite{autogen,langgraph,preble}, real dual-T4 evidence supports keeping
+turns on the warm replica without multi-SKU hardware, complementary to in-engine
+RadixAttention~\cite{radixattention}.
 
 \begin{table}[!htb]
-\caption{Library suite (not GPU): session/prefix affinity multi-turn suite,
-$n{=}10$. Mean$\pm$std.}
+\caption{Real dual-T4 multi-turn affinity suite ($n{=}5$; 12$\times$4 turns;
+concurrent$=1$). Mean$\pm$std.}
 \label{tab:affinity}
 \centering
 \begin{tabular}{@{}lccc@{}}
 \toprule
-Mode & Affinity / proxy hit & Stickiness & p99 (sim ms) \\
+Mode & Affinity hit rate & Stickiness & p99 (ms) \\
 \midrule
-NLMS+affinity & $0.80\pm0.00$ & $1.00\pm0.00$ & $190\pm4$ \\
-Round-Robin & $0.00\pm0.00$ & $0.60\pm0.00$ & $221\pm3$ \\
+NLMS+affinity & $\mathbf{0.917\pm0.00}$ & $\mathbf{1.00\pm0.00}$ & $\mathbf{1999\pm598}$ \\
+Round-Robin & $0.00$ & $0.50\pm0.00$ & $3390\pm6$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -760,46 +758,44 @@ Round-Robin & $0.00\pm0.00$ & $0.60\pm0.00$ & $221\pm3$ \\
 \begin{figure}[!htb]
 \centering
 \includegraphics[width=0.78\columnwidth]{fig_affinity_B.png}
-\caption{Library suite (not GPU): affinity vs.\ RR ($n{=}10$, 20$\times$5 turns).}
+\caption{Real dual-T4 multi-turn affinity vs.\ RR ($n{=}5$). Hit rate, stickiness,
+and p99 e2e.}
 \label{fig:evalB}
 \end{figure}
 
 %%=============================================================================
-\subsection{Mechanism suite C: admission safety}
+\subsection{Admission safety on the real gateway}
 \label{sec:evalC}
 
-\paragraph{Scope.}
-Library multi-seed stress test of admission under deliberately wrong $\hat{y}$. Not a
-dual-T4 goodput experiment. Dual-T4 MAPE in Section~\ref{sec:mape} is why the test
-matters.
-
-\paragraph{Setup.}
-$n{=}10\times 120$, one worker. True latency $y=120+1.5N+|\epsilon|$ is always under
-SLO $L{=}500$\,ms. NLMS is poisoned ($s{=}40$, $b{=}800$) so absolute $S_w\gg L$.
-Compare \texttt{absolute}, \texttt{empirical}, and \texttt{rank\_only}.
+\paragraph{Setup (G3).}
+Same dual-T4 pair; sequential short chat probes ($40$/seed, $n{=}5$). Tight SLO
+$L{=}800$\,ms (below typical e2e on this setup) exercises admission under unreliable
+absolute $\hat{y}$ (Section~\ref{sec:mape}). Modes: \texttt{absolute},
+\texttt{empirical}, \texttt{rank\_only}.
 
 \paragraph{Results.}
 Table~\ref{tab:admission} and Figure~\ref{fig:evalC}: \texttt{absolute} rejects
-every request (0 completions). \texttt{empirical} and \texttt{rank\_only} reject
-none, finish all 120 requests, keep goodput $1.0$, and log $120$ absolute-vs-active
-disagreements per seed. When the observed tail is truly hot, empirical can still
-reject; the claim is not ``never shed load,'' but ``do not shed load because the
-model is mis-scaled.'' If the cost model is poorly calibrated, NLMS may still rank
-backends, but admission should rely on observed percentiles or hard resource
-checks~\cite{clockwork,distserve,sloawarellm}.
+$\mathbf{41.5\%\pm13.4\%}$ of requests (HTTP 503) while still completing a subset
+whose p99 is $3062\pm422$\,ms. \texttt{empirical} and \texttt{rank\_only} reject
+$\mathbf{0\%}$ and complete all $40$ requests per seed. This is not the library
+``100\% starve'' extreme (cold-start and some scores remain under $L$), but it is the
+real-gateway form of the same failure mode: absolute gates thrash under high MAPE;
+empirical and rank\_only do not~\cite{clockwork,distserve,sloawarellm}. The claim is
+not ``never shed load,'' but ``do not shed load only because $\hat{y}$ is
+mis-scaled.''
 
 \begin{table}[!htb]
-\caption{Library suite (not GPU): admission modes under poisoned absolute $\hat{y}$
-(true $y<\mathrm{SLO}$, $n{=}10\times120$). Mean$\pm$std.}
+\caption{Real dual-T4 admission suite ($n{=}5\times 40$; SLO $L{=}800$\,ms).
+Mean$\pm$std. p99 is over completed requests only.}
 \label{tab:admission}
 \centering
-\begin{tabular}{@{}lcccc@{}}
+\begin{tabular}{@{}lccc@{}}
 \toprule
-Mode & Reject rate & Completed & Goodput & Abs.\ disagreements \\
+Mode & Reject rate & Completed / 40 & p99 completed (ms) \\
 \midrule
-\texttt{absolute} & $1.00\pm0.00$ & $0\pm0$ & $0.00$ & $0$ \\
-\texttt{empirical} & $0.00\pm0.00$ & $120\pm0$ & $1.00$ & $120\pm0$ \\
-\texttt{rank\_only} & $0.00\pm0.00$ & $120\pm0$ & $1.00$ & $120\pm0$ \\
+\texttt{absolute} & $\mathbf{0.42\pm0.13}$ & $23.4$ & $3062\pm422$ \\
+\texttt{empirical} & $0.00\pm0.00$ & $40$ & $2697\pm512$ \\
+\texttt{rank\_only} & $0.00\pm0.00$ & $40$ & $3420\pm51$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -807,8 +803,8 @@ Mode & Reject rate & Completed & Goodput & Abs.\ disagreements \\
 \begin{figure}[!htb]
 \centering
 \includegraphics[width=0.78\columnwidth]{fig_admission_C.png}
-\caption{Library suite (not GPU): admission under poisoned $\hat{y}$
-($n{=}10\times120$). Absolute starves traffic; empirical / \texttt{rank\_only} do not.}
+\caption{Real dual-T4 admission under tight SLO ($n{=}5$). Absolute rejects
+$\sim$42\%; empirical and \texttt{rank\_only} reject none.}
 \label{fig:evalC}
 \end{figure}
 
@@ -856,13 +852,12 @@ production traffic on absolute $\hat{y}$ alone.
 
 \paragraph{Limitations.}
 (i)~Hybrid telemetry is limited to stock vLLM Prometheus exports (no continuous NVML
-SM/power loop). (ii)~Real skew is delay-proxy on identical T4s, not multi-SKU hardware
-(explicitly out of scope). (iii)~Library multi-seed tables for hybrid/affinity/admission are mechanism checks;
-real dual-T4 multi-turn runs are produced by \texttt{run\_gpu\_abc\_suite.py} when
-GPU time is available (paste into \S\ref{sec:evalA}--\ref{sec:evalC}).
-(iv)~Baselines are RR/LL/RLS on the same vLLM pair, not multi-node Orca/vLLM-distributed;
-dual-T4 multi-seed cells are mostly short sequential probes rather than concurrent
-ShareGPT.
+SM/power loop). (ii)~Regime~C skew is a delay-proxy on identical T4s, not multi-SKU
+hardware or organic thermal/co-tenant traces (explicitly out of scope).
+(iii)~Title-mechanism dual-T4 multi-turn cells use $n{=}5$ seeds (not $n{=}10$);
+G2 affinity p99 has a large seed-0 outlier. (iv)~Baselines are RR/LL/RLS on the same
+vLLM pair, not multi-node Orca/vLLM-distributed; short sequential probes still
+dominate the homogeneous ranking matrix.
 
 %%=============================================================================
 \section{Conclusion}
@@ -871,9 +866,10 @@ ShareGPT.
 DIO is a thin OpenAI-compatible gateway for stock multi-instance vLLM deployments.
 It ranks with dual-timescale NLMS, corrects scores with scraped engine metrics,
 keeps multi-turn sessions sticky when that helps, and admits traffic without
-trusting absolute $\hat{y}$ when MAPE is high. On dual-T4, matched peers give no
-free lunch; a $\times 2$ slow peer yields a large p99 gain. Library suites check the
-hybrid, affinity, and admission mechanisms. Source code and artifacts are public.
+trusting absolute $\hat{y}$ when MAPE is high. On dual-T4, matched short probes give
+no free lunch; a $\times 2$ slow peer yields a large p99 gain; and real multi-turn
+runs show hybrid scrape, session affinity, and safe admission each matter in the
+ways the title claims. Source code and artifacts are public.
 
 %%=============================================================================
 \backmatter
@@ -890,9 +886,9 @@ they have no competing interests.
 \item \textbf{Ethics approval and consent to participate.} Not applicable
 (no human subjects or personal data).
 \item \textbf{Consent for publication.} Not applicable.
-\item \textbf{Data availability.} Aggregated experimental results are included in
-the repository under \texttt{results\_workshop\_final/}, \texttt{results\_abc/}, and
-related directories. Scripts regenerate library and GPU suites.
+\item \textbf{Data availability.} Aggregated results are under
+\texttt{results\_workshop\_final/}, \texttt{results\_gpu\_abc/}, and related
+directories. Scripts regenerate library and dual-T4 suites.
 \item \textbf{Materials availability.} Not applicable.
 \item \textbf{Code availability.} Source code for \texttt{dio-serve} (hybrid
 \texttt{/metrics} scrape, affinity, admission modes), validation suites
