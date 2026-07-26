@@ -95,9 +95,10 @@ gating is left as a diagnostic that we show can starve healthy traffic.
 On dual-T4 + Qwen2.5-3B + stock vLLM: (i)~homogeneous NLMS is no better than
 Round-Robin on short probes ($n{=}10$); (ii)~under $\times 2$ service-time skew,
 NLMS cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR; (iii)~on \textbf{real multi-turn}
-workloads ($n{=}5$), hybrid metrics cut p99 by $65.8\%\pm2.8\%$ vs.\ RR and
-$23.5\%$ vs.\ NLMS without scrape; affinity stickiness is $1.00$ vs.\ $0.50$ for RR
-with affinity hit rate $0.92$; absolute admission rejects $41.5\%\pm13.4\%$ under a
+workloads ($n{=}10$), hybrid metrics cut mean p99 by $40.9\%\pm30.5\%$ vs.\ RR
+(win on $8/10$ seeds; median p99 $\sim$51\% lower) and beat hybrid-off; affinity
+stickiness is $1.00$ vs.\ $0.50$ for RR ($0.998$ vs.\ $0.75$ under concurrent load)
+with hit rate $\sim$0.91--0.93; absolute admission rejects $39.5\%\pm21.0\%$ under a
 tight SLO while empirical/rank\_only reject $0\%$. Source code is public. Multi-SKU
 fleets are out of scope.
 
@@ -163,22 +164,23 @@ Dual-timescale NLMS does not invent wins when backends are equal: on homogeneous
 dual-T4 short probes, NLMS p99 is slightly worse than Round-Robin
 (Section~\ref{sec:regimeA}). Under controlled $\times 2$ service-time skew, NLMS
 cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR and beats $d{=}2$ RLS
-(Section~\ref{sec:regimeC}). On \textbf{real dual-T4 multi-turn} runs ($n{=}5$), the
-title mechanisms hold: hybrid scrape improves p99 vs.\ hybrid-off and RR
-(Section~\ref{sec:evalA}); affinity stickiness and hit rate dominate RR
-(Section~\ref{sec:evalB}); absolute admission over-rejects under a tight SLO while
-empirical/rank\_only do not (Section~\ref{sec:evalC}).
+(Section~\ref{sec:regimeC}). On \textbf{real dual-T4 multi-turn} runs ($n{=}10$),
+title mechanisms hold: hybrid scrape improves p99 vs.\ hybrid-off and RR on most
+seeds (Section~\ref{sec:evalA}); affinity stickiness dominates RR even under
+concurrent load (Section~\ref{sec:evalB}); absolute admission over-rejects under a
+tight SLO while empirical/rank\_only do not (Section~\ref{sec:evalC}).
 
 \subsection{Contributions}
 \begin{enumerate}
 \item \textbf{Hybrid cost routing (non-invasive).} Joint cost fusing online NLMS with
-scraped vLLM \texttt{/metrics}; real dual-T4 multi-turn gain vs.\ hybrid-off and RR.
+scraped vLLM \texttt{/metrics}; real dual-T4 multi-turn gain vs.\ hybrid-off and RR
+($n{=}10$).
 \item \textbf{Session/prefix affinity for multi-turn routing.} Prefix-hash stickiness
-plus engine prefix-hit bonus; real dual-T4 stickiness $1.00$ vs.\ $0.50$ RR and
-affinity hit rate $0.92$.
+plus engine prefix-hit bonus; dual-T4 stickiness $1.00$ vs.\ $0.50$ RR
+(concurrent$=1$) and $0.998$ vs.\ $0.75$ under concurrent load ($n{=}10$).
 \item \textbf{Sound admission under unreliable $\hat{y}$.} Rank-only / empirical /
 absolute modes; on the real gateway with a tight SLO, absolute rejects
-$\sim$42\% of requests while empirical and rank\_only reject none.
+$\sim$40\% of requests while empirical and rank\_only reject none ($n{=}10$).
 \item \textbf{Open gateway and multi-seed evaluation.} Open-source \texttt{dio-serve};
 dual-T4 + Qwen2.5-3B~\cite{qwen25}; no free lunch on homogeneous short probes;
 multi-SKU fleets out of scope.
@@ -542,8 +544,9 @@ Hugging Face tokenizer, \texttt{dio-serve} gateway. Workshop suite:
   delay-proxy $\times 2$, $n{=}10$.
 \item \textbf{A/B/C real multi-turn / admission (primary for title mechanisms):}
   dual-T4 + stock vLLM, multi-turn long system prefixes, live \texttt{/metrics}
-  scrape, $n{=}5$ seeds (\texttt{run\_gpu\_abc\_suite.py}); library multi-seed suite
-  remains a controlled complement (Sections~\ref{sec:evalA}--\ref{sec:evalC}).
+  scrape, $n{=}10$ seeds (\texttt{run\_gpu\_abc\_suite.py}), including affinity under
+  concurrent load; library multi-seed suite remains a controlled complement
+  (Sections~\ref{sec:evalA}--\ref{sec:evalC}).
 \end{enumerate}
 
 \paragraph{Baselines and metrics.}
@@ -858,10 +861,9 @@ overload admission (HTTP 503).}
 \paragraph{When each mechanism matters.}
 NLMS ranking alone helps under observed service skew (Section~\ref{sec:regimeC}), not
 when peers match (Section~\ref{sec:regimeA}). Hybrid scrape terms matter under real
-multi-turn pressure with live \texttt{/metrics} (Section~\ref{sec:evalA}). Affinity
-matters for multi-turn locality on multi-replica single-SKU fleets
-(Section~\ref{sec:evalB}); G2 isolates stickiness at concurrent$=1$, while G1 shows
-high stickiness also under light concurrency with hybrid on. Prefer
+multi-turn pressure with live \texttt{/metrics} (Section~\ref{sec:evalA}); without
+scrape, multi-turn concurrent p99 collapses toward RR. Affinity stickiness holds at
+concurrent$=1$ and under concurrent load (Section~\ref{sec:evalB}). Prefer
 \texttt{empirical} or \texttt{rank\_only} admission when MAPE is high
 (Section~\ref{sec:evalC}). In practice: enable hybrid scrape when \texttt{/metrics}
 exists, keep affinity on for chat/agent traffic, and do not gate production traffic
@@ -885,15 +887,13 @@ question and ship config overrides plus a GPU sweep mode
 SM/power loop). (ii)~Regime~C skew is a delay-proxy on identical T4s, not multi-SKU
 hardware or organic thermal/co-tenant traces---the intro's motivating organic
 divergence is measured only via that reproducible proxy. (iii)~Title-mechanism dual-T4
-multi-turn cells use $n{=}5$ seeds (ranking matrices use $n{=}10$); G2 affinity p99 has
-a large seed-0 outlier. Raising G1--G3 to $n{\ge}8$--$10$ is the cheapest confidence
-upgrade and is supported by the same harness. (iv)~G2 reports affinity under
-concurrent$=1$ for a clean stickiness signal; G1's concurrent multi-turn load already
-shows stickiness $1.00$ with hybrid on, but a dedicated affinity-under-load cell
-(same as G2 with concurrent${>}1$) is the right follow-up. (v)~Hybrid coefficients are
-heuristic-default plus library $\pm$50\% check, not dual-T4 grid-searched.
-(vi)~Baselines are RR/LL/RLS on the same vLLM pair, not multi-node Orca/vLLM-distributed;
-we do not bake off every metrics-weighted Envoy/Ray Serve plugin.
+multi-turn cells now use $n{=}10$, but hybrid-on and affinity p99 remain high-variance
+(some seeds near RR); stickiness and admission reject rates are the more stable
+signals. (iv)~Hybrid coefficients are heuristic-default plus library $\pm$50\%
+invariance check, not dual-T4 grid-searched
+(\texttt{--run-coeff} is available). (v)~Baselines are RR/LL/RLS on the same vLLM
+pair, not multi-node Orca/vLLM-distributed; we do not bake off every metrics-weighted
+Envoy/Ray Serve plugin.
 
 %%=============================================================================
 \section{Conclusion}
