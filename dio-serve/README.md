@@ -251,19 +251,23 @@ Mocks are **only** for demos/CI. Production never needs them. See [docs/PRODUCTI
 
 **Why OpenAI-shaped API?** Self-hosted engines (vLLM, SGLang, Ollama, TGI OpenAI mode) all speak OpenAI HTTP — that covers **Llama, Mistral, Qwen, …**, not “only GPT”. TGI native `/generate` is also supported via `api_style="tgi_generate"`.
 
-## Paper experiments (one script, library methods)
+## Paper experiments
 
 ```bash
 pip install -e .
-# algorithmic suite (anywhere, no GPU)
-python scripts/run_paper_experiments.py --quick
-python scripts/run_paper_experiments.py
 
-# optional: real engines after vLLM is up
-python scripts/run_paper_experiments.py --real-backends http://127.0.0.1:8000,http://127.0.0.1:8001
+# CPU algorithmic suite (no GPU)
+python scripts/run_paper_experiments.py --quick
+
+# ★ GPU cluster grand script (multi-seed, real engines) — run this on a GPU node
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm --gpus 0,1 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --seeds 3 --requests-per-seed 40
 ```
 
-Results → `results_paper/` (or `--out`). Also: `scripts/run_publishable_suite.py`.
+See **[scripts/GPU_CLUSTER_RUNBOOK.md](scripts/GPU_CLUSTER_RUNBOOK.md)** for all recipes (vLLM / HF / external backends).  
+Results → `results_gpu_cluster/` (`summary.json`, `tables.csv`, `paper_snippets.md`).
 ## Documentation index
 
 | Doc | Contents |

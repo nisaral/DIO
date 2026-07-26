@@ -12,8 +12,10 @@ const (
 	VRAMHardLimitMB  = 2400
 	BatchSize        = 8.0
 	SLOTTFTMs        = 2000.0
-	InitialSlope     = 0.1
-	InitialIntercept = 50.0
+	// Mildly higher cold-start priors for real engines (online NLMS still adapts).
+	// Absolute MAPE can remain large; routing depends on relative worker costs.
+	InitialSlope     = 2.0
+	InitialIntercept = 150.0
 	// StaticProfile defaults used when SCHEDULER_STRATEGY=STATIC (offline calib baseline).
 	StaticDefaultSlope     = 1.0
 	StaticDefaultIntercept = 50.0

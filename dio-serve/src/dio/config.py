@@ -18,26 +18,46 @@ class DIOConfig(BaseSettings):
         "full", "no_queue", "no_vram", "no_vram_hard", "no_tier", "no_cache", "no_dual"
     ] = "full"
 
-    # Admission: reject if min_w score > slo_ms
+    # Admission: see admission_mode. slo_ms is the absolute/empirical budget.
     slo_ms: float = 5000.0
     admission_off: bool = False
+    # absolute = reject if min ŷ-cost > slo (legacy; ŷ MAPE-sensitive)
+    # empirical = reject using rolling observed latency percentile (preferred)
+    # rank_only = VRAM/tier hard blocks only; NLMS used purely for ranking
+    admission_mode: Literal["absolute", "empirical", "rank_only"] = "empirical"
+    admission_percentile: float = 95.0  # for empirical mode
+    recent_latency_window: int = 64
 
     # Cost coefficients (paper defaults)
     tier_mismatch_ms: float = 500.0
-    cache_bonus_ms: float = 200.0
+    cache_bonus_ms: float = 200.0  # session/prefix affinity bonus (headline for multi-turn)
     vram_soft_limit_mb: float = 4096.0
     vram_hard_limit_mb: float = 2400.0
     batch_size: float = 8.0
+
+    # Hybrid engine metrics (vLLM /metrics scrape — still non-invasive)
+    engine_metrics: bool = True
+    metrics_interval_s: float = 1.0
+    # Extra cost terms when metrics available (ms-scale, same units as other costs)
+    kv_cache_cost_ms: float = 800.0  # * kv_cache_usage (0..1)
+    engine_queue_cost_ms: float = 50.0  # * num_requests_waiting
+    # Affinity: bonus scaled up when engine reports high prefix hit rate
+    engine_prefix_hit_bonus_ms: float = 150.0
 
     # NLMS
     mu_fast: float = 0.1
     mu_slow: float = 0.01
     mu_bias: float = 0.005
     fast_slow_blend: float = 0.8
-    initial_slope: float = 0.1
-    initial_intercept: float = 50.0
+    # Mildly pessimistic cold-start for real engines (still online-adapted).
+    initial_slope: float = 2.0
+    initial_intercept: float = 150.0
     static_slope: float = 1.0
     static_intercept: float = 50.0
+
+    # Token feature for NLMS (prefer HF tokenizer when available)
+    tokenizer_name: Optional[str] = None  # e.g. Qwen/Qwen2.5-3B-Instruct
+    use_tokenizer: bool = True
 
     # Proxy
     host: str = "0.0.0.0"

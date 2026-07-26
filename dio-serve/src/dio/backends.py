@@ -77,10 +77,14 @@ class Backend:
     generate_path: str = "/generate"
     health_path: str = "/health"
     models_path: str = "/v1/models"
+    metrics_path: str = "/metrics"  # vLLM Prometheus (non-invasive)
     timeout_s: Optional[float] = None  # override global timeout
 
     def _url(self, path: str) -> str:
         return self.base_url.rstrip("/") + (path if path.startswith("/") else "/" + path)
+
+    def metrics_url(self) -> str:
+        return self._url(self.metrics_path)
 
     def chat_url(self) -> str:
         if self.api_style == "tgi_generate":

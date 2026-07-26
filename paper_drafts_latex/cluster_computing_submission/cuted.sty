@@ -1,0 +1,7 @@
+% Minimal stub for local builds when sttools/cuted is unavailable.
+% Install the real package from CTAN for production (sttools bundle).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cuted}[2024/01/01 stub]
+\newcommand{\stripsep}{0pt}
+\newenvironment{strip}{\par\noindent\ignorespaces}{\par}
+\endinput

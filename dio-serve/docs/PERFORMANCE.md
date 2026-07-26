@@ -221,7 +221,24 @@ Backend(
 
 ---
 
-## 5. Measured performance (this repo)
+## 5. GPU cluster grand validation
+
+On any multi-GPU node (after `pip install -e .`):
+
+```bash
+python scripts/run_gpu_cluster_validation.py \
+  --engine-mode vllm \
+  --gpus 0,1 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --seeds 3 \
+  --requests-per-seed 40
+```
+
+Full recipes: [../scripts/GPU_CLUSTER_RUNBOOK.md](../scripts/GPU_CLUSTER_RUNBOOK.md).
+
+Outputs `results_gpu_cluster/summary.json` + `paper_snippets.md` (mean±std for the paper).
+
+## 6. Measured performance (this repo)
 
 ### 5.1 Control-plane microbench (library only)
 
@@ -292,7 +309,7 @@ Includes dual vs single NLMS, admission, tiers, ablations, scale, gateway HTTP (
 
 ---
 
-## 6. Algorithm summary (what “performance” means)
+## 7. Algorithm summary (what “performance” means)
 
 ### Dual-timescale NLMS
 
@@ -317,7 +334,7 @@ Reject with **503** if \(\min_w S_w > \mathrm{SLO}\) (or hard VRAM/tier block).
 
 ---
 
-## 7. Configuration reference
+## 8. Configuration reference
 
 | Env / flag | Default | Meaning |
 |------------|---------|---------|
@@ -330,7 +347,7 @@ Reject with **503** if \(\min_w S_w > \mathrm{SLO}\) (or hard VRAM/tier block).
 
 ---
 
-## 8. Limits & best practices
+## 9. Limits & best practices
 
 1. **One learning state per gateway process** — multi-replica DIO = independent learners (OK for most deploys).  
 2. **Protect `/debug/*`** — admin-only on private networks.  
@@ -341,7 +358,7 @@ Reject with **503** if \(\min_w S_w > \mathrm{SLO}\) (or hard VRAM/tier block).
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Check |
 |---------|--------|
@@ -353,7 +370,7 @@ Reject with **503** if \(\min_w S_w > \mathrm{SLO}\) (or hard VRAM/tier block).
 
 ---
 
-## 10. Related docs
+## 11. Related docs
 
 | Doc | Content |
 |-----|---------|
@@ -365,7 +382,7 @@ Reject with **503** if \(\min_w S_w > \mathrm{SLO}\) (or hard VRAM/tier block).
 
 ---
 
-## 11. Validation checklist (green on this machine)
+## 12. Validation checklist (green on this machine)
 
 - [x] Library import `dio`  
 - [x] Unit tests (`pytest tests/`)  

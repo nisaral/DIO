@@ -63,6 +63,26 @@ def serve(
     nlms_mode: str = typer.Option("dual", "--nlms-mode", help="dual|single"),
     slo_ms: float = typer.Option(5000.0, "--slo-ms", help="Admission threshold (ms)"),
     admission_off: bool = typer.Option(False, "--admission-off", help="Disable SLO admission rejects"),
+    admission_mode: str = typer.Option(
+        "empirical",
+        "--admission-mode",
+        help="absolute|empirical|rank_only (ŷ ranking vs observed-percentile gate)",
+    ),
+    tokenizer: str = typer.Option(
+        "",
+        "--tokenizer",
+        help="HF tokenizer name for token feature (default: heuristic ⌊len/4⌋)",
+    ),
+    engine_metrics: bool = typer.Option(
+        True,
+        "--engine-metrics/--no-engine-metrics",
+        help="Scrape backend /metrics (vLLM Prometheus) into hybrid cost",
+    ),
+    cache_bonus_ms: float = typer.Option(
+        200.0,
+        "--cache-bonus-ms",
+        help="Session/prefix affinity bonus (ms) in joint cost",
+    ),
     ablation: str = typer.Option("full", "--ablation"),
     tier: List[str] = typer.Option([], "--tier", help="Tier per backend (same order as --backend)"),
     vram: List[float] = typer.Option([], "--vram", help="Total VRAM MB per backend"),
@@ -93,6 +113,11 @@ def serve(
         nlms_mode=nlms_mode,  # type: ignore
         slo_ms=slo_ms,
         admission_off=admission_off,
+        admission_mode=admission_mode,  # type: ignore
+        tokenizer_name=tokenizer or None,
+        use_tokenizer=bool(tokenizer),
+        engine_metrics=engine_metrics,
+        cache_bonus_ms=cache_bonus_ms,
         ablation=ablation,  # type: ignore
     )
     table = Table(title="DIO backends")

@@ -37,6 +37,10 @@ class RoutingDecision:
     total_ms: float
     tokens: int
     strategy: str = "nlms"
+    engine_kv_cost_ms: float = 0.0
+    engine_queue_cost_ms: float = 0.0
+    engine_prefix_bonus_ms: float = 0.0
+    affinity_hit: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -49,6 +53,10 @@ class RoutingDecision:
             "total_ms": self.total_ms,
             "tokens": self.tokens,
             "strategy": self.strategy,
+            "engine_kv_cost_ms": self.engine_kv_cost_ms,
+            "engine_queue_cost_ms": self.engine_queue_cost_ms,
+            "engine_prefix_bonus_ms": self.engine_prefix_bonus_ms,
+            "affinity_hit": self.affinity_hit,
         }
 
 
@@ -62,11 +70,16 @@ class AdmissionStats:
     completed_over_slo: int = 0
     completed_total: int = 0
     sum_e2e_ms: float = 0.0
+    # Diagnostics: how often absolute-ŷ admission would disagree with active mode
+    would_reject_absolute: int = 0
+    would_admit_absolute: int = 0
+    absolute_vs_active_disagree: int = 0
 
-    def snapshot(self, slo_ms: float, admission_enabled: bool) -> Dict[str, Any]:
+    def snapshot(self, slo_ms: float, admission_enabled: bool, **extra: Any) -> Dict[str, Any]:
         total = self.completed_total
         goodput_frac = (self.completed_under_slo / total) if total else 0.0
         avg = (self.sum_e2e_ms / total) if total else 0.0
+        cmp_n = self.would_reject_absolute + self.would_admit_absolute
         return {
             "admitted": self.admitted,
             "rejected_slo": self.rejected_slo,
@@ -79,6 +92,13 @@ class AdmissionStats:
             "avg_e2e_ms": avg,
             "slo_ms": slo_ms,
             "admission_enabled": admission_enabled,
+            "would_reject_absolute": self.would_reject_absolute,
+            "would_admit_absolute": self.would_admit_absolute,
+            "absolute_vs_active_disagree": self.absolute_vs_active_disagree,
+            "absolute_disagree_frac": (
+                (self.absolute_vs_active_disagree / cmp_n) if cmp_n else 0.0
+            ),
+            **extra,
         }
 
 
@@ -92,8 +112,11 @@ class DualTimescaleNLMS:
         mu_slow: float = 0.01,
         mu_bias: float = 0.005,
         blend: float = 0.8,
-        initial_slope: float = 0.1,
-        initial_intercept: float = 50.0,
+        # Cold-start priors: slightly higher than legacy 0.1/50 so early
+        # estimates are less wildly low on real vLLM e2e (~hundreds of ms).
+        # Absolute MAPE can still be large; routing uses *relative* costs.
+        initial_slope: float = 2.0,
+        initial_intercept: float = 150.0,
         dual: bool = True,
         frozen: bool = False,
         tier: str = "small",
@@ -196,7 +219,7 @@ class DualTimescaleNLMS:
 class SimpleRLS:
     """2×2 RLS baseline (paper comparison)."""
 
-    def __init__(self, lam: float = 0.99, slope: float = 0.1, intercept: float = 50.0) -> None:
+    def __init__(self, lam: float = 0.99, slope: float = 2.0, intercept: float = 150.0) -> None:
         self.lam = lam
         self.slope = slope
         self.intercept = intercept
@@ -246,8 +269,16 @@ class Scheduler:
     """
     Joint cost router.
 
-    score = wait + predicted_exec + tier_penalty + vram_penalty - cache_bonus
-    Admit only if min score ≤ SLO (unless admission_off).
+    score = wait + predicted_exec + tier + vram + engine_kv + engine_queue
+            - cache_affinity - engine_prefix_bonus
+
+    Hybrid mode (optional): scrapes vLLM /metrics for KV usage, waiting queue,
+    prefix hit rate — still non-invasive (HTTP only).
+
+    NLMS/RLS scores are used for *ranking*. Admission is separate:
+      - absolute: reject if min score > SLO (legacy; depends on ŷ magnitude)
+      - empirical: reject if rolling observed latency percentile > SLO
+      - rank_only: hard VRAM/tier blocks only (no absolute ŷ gate)
     """
 
     def __init__(
@@ -258,17 +289,24 @@ class Scheduler:
         ablation: Optional[AblationFlags] = None,
         slo_ms: float = 5000.0,
         admission_off: bool = False,
+        admission_mode: str = "empirical",
+        admission_percentile: float = 95.0,
+        recent_latency_window: int = 64,
         batch_size: float = 8.0,
         tier_mismatch_ms: float = 500.0,
         cache_bonus_ms: float = 200.0,
         vram_soft_mb: float = 4096.0,
         vram_hard_mb: float = 2400.0,
+        kv_cache_cost_ms: float = 800.0,
+        engine_queue_cost_ms: float = 50.0,
+        engine_prefix_hit_bonus_ms: float = 150.0,
+        use_engine_metrics: bool = True,
         mu_fast: float = 0.1,
         mu_slow: float = 0.01,
         mu_bias: float = 0.005,
         blend: float = 0.8,
-        initial_slope: float = 0.1,
-        initial_intercept: float = 50.0,
+        initial_slope: float = 2.0,
+        initial_intercept: float = 150.0,
         static_slope: float = 1.0,
         static_intercept: float = 50.0,
         decision_log_size: int = 200,
@@ -281,11 +319,17 @@ class Scheduler:
             self.dual = False
         self.slo_ms = slo_ms
         self.admission_off = admission_off
+        self.admission_mode = (admission_mode or "empirical").lower().replace("-", "_")
+        self.admission_percentile = float(admission_percentile)
         self.batch_size = batch_size
         self.tier_mismatch_ms = tier_mismatch_ms
         self.cache_bonus_ms = cache_bonus_ms
         self.vram_soft_mb = vram_soft_mb
         self.vram_hard_mb = vram_hard_mb
+        self.kv_cache_cost_ms = kv_cache_cost_ms
+        self.engine_queue_cost_ms = engine_queue_cost_ms
+        self.engine_prefix_hit_bonus_ms = engine_prefix_hit_bonus_ms
+        self.use_engine_metrics = use_engine_metrics
         self._mu = (mu_fast, mu_slow, mu_bias, blend, initial_slope, initial_intercept)
         self.static_slope = static_slope
         self.static_intercept = static_intercept
@@ -294,14 +338,61 @@ class Scheduler:
         self.predictors: Dict[str, DualTimescaleNLMS] = {}
         self.rls: Dict[str, SimpleRLS] = {}
         self.prefix_cache: Dict[int, str] = {}
+        self.engine_snap: Dict[str, Any] = {}  # worker_id -> EngineSnapshot-like dict
         self.rr_index = 0
+        # affinity stats (for paper B)
+        self.affinity_decisions = 0
+        self.affinity_hits = 0
         # deques: O(1) append + auto-drop for tight control-plane loops
         self.decision_log: Deque[Dict[str, Any]] = deque(maxlen=decision_log_size)
         self.decision_log_size = decision_log_size
         self.pred_history: Deque[Dict[str, Any]] = deque(maxlen=pred_history_size)
         self.pred_history_size = pred_history_size
+        self.recent_e2e: Deque[float] = deque(maxlen=max(8, recent_latency_window))
         self.admission = AdmissionStats()
         self.last_decision: Optional[RoutingDecision] = None
+
+    def _percentile(self, xs: List[float], p: float) -> float:
+        if not xs:
+            return 0.0
+        ys = sorted(xs)
+        if len(ys) == 1:
+            return ys[0]
+        k = (max(0.0, min(100.0, p)) / 100.0) * (len(ys) - 1)
+        lo = int(math.floor(k))
+        hi = int(math.ceil(k))
+        if lo == hi:
+            return ys[lo]
+        t = k - lo
+        return ys[lo] * (1.0 - t) + ys[hi] * t
+
+    def _should_reject_slo(self, best_score: float, scores: List[float]) -> Tuple[bool, str]:
+        """
+        Return (reject, reason). Decouples ranking (always min score) from absolute ŷ.
+        """
+        if self.admission_off or self.admission_mode in ("rank_only", "ranking", "none"):
+            return False, "rank_only"
+
+        if self.admission_mode in ("empirical", "observed", "percentile"):
+            # Prefer observed latency distribution; cold-start: do not reject on ŷ alone.
+            if len(self.recent_e2e) < 8:
+                return False, "empirical_warmup"
+            p = self._percentile(list(self.recent_e2e), self.admission_percentile)
+            # Also relative: if best worker cost sits in the worst quartile of
+            # *currently available* scores AND empirical tail exceeds SLO.
+            if len(scores) >= 2:
+                thr = self._percentile(scores, 75.0)
+                worst_quartile = best_score >= thr - 1e-9
+            else:
+                worst_quartile = True
+            if p > self.slo_ms and worst_quartile:
+                return True, f"empirical_p{self.admission_percentile:.0f}={p:.0f}>SLO"
+            return False, "empirical_ok"
+
+        # absolute (legacy): min ŷ-cost vs SLO
+        if best_score > self.slo_ms:
+            return True, f"absolute_score={best_score:.0f}>SLO"
+        return False, "absolute_ok"
 
     def register(
         self,
@@ -342,13 +433,32 @@ class Scheduler:
             if worker_id in self.predictors:
                 self.predictors[worker_id].free_vram_mb = free_mb
 
+    def set_engine_metrics(self, worker_id: str, snap: Any) -> None:
+        """Update scraped engine snapshot (EngineSnapshot or dict)."""
+        with self._lock:
+            if hasattr(snap, "as_dict"):
+                d = snap.as_dict()
+            elif isinstance(snap, dict):
+                d = snap
+            else:
+                return
+            self.engine_snap[worker_id] = d
+            # Map KV usage to free VRAM estimate when total is known
+            if worker_id in self.predictors and d.get("ok"):
+                kv = float(d.get("kv_cache_usage") or 0.0)
+                tot = self.predictors[worker_id].total_vram_mb
+                if tot > 0 and kv >= 0:
+                    # rough: used fraction of KV → free headroom signal
+                    self.predictors[worker_id].free_vram_mb = max(0.0, tot * (1.0 - kv))
+
     def set_healthy(self, worker_id: str, healthy: bool) -> None:
         with self._lock:
             if worker_id in self.predictors:
                 self.predictors[worker_id].healthy = healthy
 
     def _prefix_hash(self, text: str) -> int:
-        return hash(text[:100]) & 0xFFFFFFFF
+        # Longer prefix for multi-turn session affinity (session-ish)
+        return hash(text[:256]) & 0xFFFFFFFF
 
     def _score(
         self,
@@ -362,10 +472,15 @@ class Scheduler:
         """Returns (score, breakdown, blocked)."""
         abl = self.ablation
         free = pred.free_vram_mb
+        eng = self.engine_snap.get(worker_id) or {}
 
         if not abl.disable_vram_hard:
             if free > 0 and free < self.vram_hard_mb and tokens > 1000:
                 return None, None, True
+            # Engine-reported KV nearly full → hard block for long requests
+            if self.use_engine_metrics and eng.get("ok") and float(eng.get("kv_cache_usage") or 0) > 0.95:
+                if tokens > 500:
+                    return None, None, True
 
         if not abl.disable_tier:
             if tier == "large" and pred.tier != "large":
@@ -391,23 +506,49 @@ class Scheduler:
         if not abl.disable_vram_soft and pred.total_vram_mb > 0 and free < self.vram_soft_mb:
             vram_cost = (1.0 - free / pred.total_vram_mb) * 1000.0
 
+        # --- Hybrid engine metrics (A) ---
+        eng_kv = 0.0
+        eng_q = 0.0
+        eng_pref = 0.0
+        if self.use_engine_metrics and eng.get("ok"):
+            eng_kv = float(eng.get("kv_cache_usage") or 0.0) * self.kv_cache_cost_ms
+            eng_q = float(eng.get("num_waiting") or 0.0) * self.engine_queue_cost_ms
+            # Prefer workers the engine already caches well
+            eng_pref = float(eng.get("prefix_hit_rate") or 0.0) * self.engine_prefix_hit_bonus_ms
+
+        # --- Session / prefix affinity (B) ---
         cache_bonus = 0.0
+        affinity_hit = False
         if not abl.disable_cache:
             h = self._prefix_hash(prompt)
             if self.prefix_cache.get(h) == worker_id:
                 cache_bonus = self.cache_bonus_ms
+                affinity_hit = True
 
-        total = wait + exec_ms + tier_cost + vram_cost - cache_bonus
+        total = (
+            wait
+            + exec_ms
+            + tier_cost
+            + vram_cost
+            + eng_kv
+            + eng_q
+            - cache_bonus
+            - eng_pref
+        )
         dec = RoutingDecision(
             worker_id=worker_id,
             exec_ms=exec_ms,
             wait_ms=wait,
             tier_cost_ms=tier_cost,
             vram_cost_ms=vram_cost,
-            cache_bonus_ms=cache_bonus,
+            cache_bonus_ms=cache_bonus + eng_pref,
             total_ms=total,
             tokens=tokens,
             strategy=self.strategy,
+            engine_kv_cost_ms=eng_kv,
+            engine_queue_cost_ms=eng_q,
+            engine_prefix_bonus_ms=eng_pref,
+            affinity_hit=affinity_hit,
         )
         return total, dec, False
 
@@ -475,17 +616,41 @@ class Scheduler:
                 self.admission.rejected_no_worker += 1
                 raise AdmissionError("no feasible backend")
 
-            if not self.admission_off and best_score > self.slo_ms:
+            # Collect all non-blocked scores for relative admission checks
+            all_scores: List[float] = []
+            for wid in ids:
+                sc, _, blocked = self._score(
+                    wid, self.predictors[wid], tokens, tier, prompt, use_rls
+                )
+                if not blocked and sc is not None:
+                    all_scores.append(float(sc))
+
+            # Diagnostic: absolute-ŷ gate vs active mode (paper honesty)
+            absolute_would_reject = best_score > self.slo_ms
+            if absolute_would_reject:
+                self.admission.would_reject_absolute += 1
+            else:
+                self.admission.would_admit_absolute += 1
+
+            reject, reason = self._should_reject_slo(best_score, all_scores)
+            if absolute_would_reject != reject:
+                self.admission.absolute_vs_active_disagree += 1
+
+            if reject:
                 self.admission.rejected_slo += 1
                 retry = max(1, int(best_score / 1000.0))
                 raise AdmissionError(
-                    f"predicted latency {best_score:.0f}ms exceeds SLO {self.slo_ms:.0f}ms",
+                    f"admission rejected ({self.admission_mode}: {reason})",
                     retry_after_sec=retry,
                 )
 
             self.predictors[best_id].pending += 1
             self.prefix_cache[self._prefix_hash(prompt)] = best_id
             self.admission.admitted += 1
+            # Affinity stats (session/prefix stickiness)
+            self.affinity_decisions += 1
+            if best_dec.affinity_hit:
+                self.affinity_hits += 1
             self._log_decision(best_dec)
             self.last_decision = best_dec
             return best_id, best_dec
@@ -521,6 +686,7 @@ class Scheduler:
                 self.pred_history.append(sample)
             self.admission.completed_total += 1
             self.admission.sum_e2e_ms += e2e_ms
+            self.recent_e2e.append(float(e2e_ms))
             if e2e_ms <= self.slo_ms:
                 self.admission.completed_under_slo += 1
             else:
@@ -535,12 +701,31 @@ class Scheduler:
             mae = sum(s["abs_err"] for s in self.pred_history) / n if n else 0.0
             mape = (sum(s["rel_err"] for s in self.pred_history) / n * 100.0) if n else 0.0
             tail = list(self.pred_history)[-200:] if n else []
+            emp_p = (
+                self._percentile(list(self.recent_e2e), self.admission_percentile)
+                if self.recent_e2e
+                else None
+            )
+            aff_n = max(1, self.affinity_decisions)
             return {
                 "strategy": self.strategy,
                 "nlms_mode": "dual" if self.dual else "single",
                 "ablation": self.ablation.name,
                 "workers": workers,
-                "admission": self.admission.snapshot(self.slo_ms, not self.admission_off),
+                "engine_metrics": dict(self.engine_snap),
+                "use_engine_metrics": self.use_engine_metrics,
+                "affinity": {
+                    "decisions": self.affinity_decisions,
+                    "hits": self.affinity_hits,
+                    "hit_rate": self.affinity_hits / aff_n if self.affinity_decisions else 0.0,
+                },
+                "admission": self.admission.snapshot(
+                    self.slo_ms,
+                    not self.admission_off,
+                    admission_mode=self.admission_mode,
+                    empirical_p_ms=emp_p,
+                    recent_e2e_n=len(self.recent_e2e),
+                ),
                 "last_decision": self.last_decision.as_dict() if self.last_decision else None,
                 "decisions": list(self.decision_log),
                 "prediction": {
@@ -556,3 +741,5 @@ class Scheduler:
             self.admission = AdmissionStats()
             self.pred_history.clear()
             self.decision_log.clear()
+            self.affinity_decisions = 0
+            self.affinity_hits = 0

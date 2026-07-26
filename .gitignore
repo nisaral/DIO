@@ -39,6 +39,9 @@ DIO/benchmarks/results_final/
 DIO/benchmarks/results_cloud/
 DIO/benchmarks/results_camera_ready/
 dio-serve/results_publishable/
+dio-serve/results_gpu_cluster/
+dio-serve/results_paper/
+dio-serve/results_validation/
 terminals/
 mcps/
 .env
