@@ -10,9 +10,10 @@ the library multi-seed harness.
   G1  Hybrid cost ON vs OFF vs RR under multi-turn long-prefix pressure
       (real /metrics scrape when engines export Prometheus)
   G2  Multi-turn session affinity: NLMS+affinity vs RR; DIO affinity hit rate
-      + scraped engine prefix hit if available
+      (concurrent=1 clean stickiness)
+  G2b Affinity under concurrent load (same as G2, concurrent>1) — reviewer ask
   G3  Admission modes absolute vs empirical vs rank_only on the real gateway
-      (tight SLO; measure rejects + absolute_vs_active_disagree)
+  G4  Hybrid coefficient ±50% on dual-T4 multi-turn (optional, --run-coeff)
 
 Does NOT replace Regime A/C NLMS ranking tables — complements them.
 
@@ -502,18 +503,35 @@ def main() -> int:
     p.add_argument("--max-model-len", type=int, default=2048)
     p.add_argument("--gpu-mem-util", type=float, default=0.88)
     p.add_argument("--out", default=str(ROOT / "results_gpu_abc"))
-    p.add_argument("--seeds", type=int, default=5, help="multi-seed; use 3 for quick, 5–10 for paper")
+    p.add_argument(
+        "--seeds",
+        type=int,
+        default=10,
+        help="multi-seed (default 10 for journal-facing claims; use 5 if GPU-limited)",
+    )
     p.add_argument("--sessions", type=int, default=12)
     p.add_argument("--turns", type=int, default=4)
     p.add_argument("--max-tokens", type=int, default=32)
-    p.add_argument("--concurrent", type=int, default=2, help="extra concurrent posts for KV/queue pressure")
+    p.add_argument("--concurrent", type=int, default=2, help="extra concurrent posts for G1 KV/queue pressure")
+    p.add_argument(
+        "--affinity-concurrent",
+        type=int,
+        default=2,
+        help="concurrent posts for G2b affinity-under-load cell",
+    )
     p.add_argument("--adm-n", type=int, default=40)
     p.add_argument("--adm-slo-ms", type=float, default=800.0, help="tight SLO to exercise admission")
     p.add_argument("--dio-base-port", type=int, default=9100)
     p.add_argument("--quick", action="store_true")
     p.add_argument("--skip-g1", action="store_true")
     p.add_argument("--skip-g2", action="store_true")
+    p.add_argument("--skip-g2b", action="store_true", help="skip affinity-under-load cell")
     p.add_argument("--skip-g3", action="store_true")
+    p.add_argument(
+        "--run-coeff",
+        action="store_true",
+        help="G4: dual-T4 hybrid coeff ±50% (expensive: several full multi-seed matrices)",
+    )
     args = p.parse_args()
 
     if args.quick:
@@ -522,6 +540,7 @@ def main() -> int:
         args.turns = 3
         args.adm_n = 20
         args.concurrent = 1
+        args.affinity_concurrent = 1
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -671,6 +690,43 @@ def main() -> int:
                 label="G2",
             )
 
+        # ---- G2b Affinity under concurrent load ----
+        if not args.skip_g2b:
+            g2b_cfgs = [
+                {
+                    "name": "nlms_affinity_load",
+                    "strategy": "nlms",
+                    "engine_metrics": True,
+                    "cache_bonus_ms": 400.0,
+                    "admission_off": True,
+                    "admission_mode": "rank_only",
+                },
+                {
+                    "name": "rr_load",
+                    "strategy": "round_robin",
+                    "engine_metrics": True,
+                    "cache_bonus_ms": 0.0,
+                    "admission_off": True,
+                    "admission_mode": "rank_only",
+                },
+            ]
+            summary["G2b_affinity_under_load"] = multi_seed_block(
+                session,
+                backends,
+                configs=g2b_cfgs,
+                seeds=args.seeds,
+                dio_base=args.dio_base_port + 300,
+                model=args.model,
+                tokenizer=args.tokenizer,
+                runner="multiturn",
+                n_sessions=args.sessions,
+                turns=args.turns,
+                max_tokens=args.max_tokens,
+                concurrent=args.affinity_concurrent,
+                n_adm=args.adm_n,
+                label="G2b",
+            )
+
         # ---- G3 Admission ----
         if not args.skip_g3:
             g3_cfgs = [
@@ -717,6 +773,56 @@ def main() -> int:
                 concurrent=1,
                 n_adm=args.adm_n,
                 label="G3",
+            )
+
+        # ---- G4 Hybrid coeff ±50% on real multi-turn (optional) ----
+        if args.run_coeff:
+            base = {"kv": 800.0, "q": 50.0, "p": 150.0}
+            g4_cfgs = [
+                {
+                    "name": "default",
+                    "strategy": "nlms",
+                    "engine_metrics": True,
+                    "cache_bonus_ms": 200.0,
+                    "admission_off": True,
+                    "admission_mode": "rank_only",
+                    "kv_cache_cost_ms": base["kv"],
+                    "engine_queue_cost_ms": base["q"],
+                },
+            ]
+            for key, field, envk in (
+                ("kv", "kv_cache_cost_ms", "kv"),
+                ("q", "engine_queue_cost_ms", "q"),
+            ):
+                for scale, tag in ((0.5, "m50"), (1.5, "p50")):
+                    cfg = {
+                        "name": f"{key}_{tag}",
+                        "strategy": "nlms",
+                        "engine_metrics": True,
+                        "cache_bonus_ms": 200.0,
+                        "admission_off": True,
+                        "admission_mode": "rank_only",
+                        "kv_cache_cost_ms": base["kv"],
+                        "engine_queue_cost_ms": base["q"],
+                    }
+                    cfg[field] = base[envk] * scale
+                    g4_cfgs.append(cfg)
+            # prefix hit bonus via env only in start_dio_ext — add if needed later
+            summary["G4_hybrid_coeff"] = multi_seed_block(
+                session,
+                backends,
+                configs=g4_cfgs,
+                seeds=min(args.seeds, 5),  # cap cost
+                dio_base=args.dio_base_port + 600,
+                model=args.model,
+                tokenizer=args.tokenizer,
+                runner="multiturn",
+                n_sessions=max(6, args.sessions // 2),
+                turns=args.turns,
+                max_tokens=args.max_tokens,
+                concurrent=args.concurrent,
+                n_adm=args.adm_n,
+                label="G4",
             )
 
         (out_dir / "summary.json").write_text(

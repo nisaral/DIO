@@ -67,11 +67,29 @@ python scripts/run_gpu_abc_suite.py \
 
 Label clearly: **real dual-T4 multi-turn** vs library suite.
 
+## Journal strengthen pass (reviewer asks)
+
+```bash
+# n=10 primary + affinity under load (G2b). Same harness, more seeds.
+python scripts/run_gpu_abc_suite.py \
+  --engine-mode vllm --gpus 0,1 \
+  --model Qwen/Qwen2.5-3B-Instruct \
+  --tokenizer Qwen/Qwen2.5-3B-Instruct \
+  --seeds 10 \
+  --affinity-concurrent 2 \
+  --out /kaggle/working/results_gpu_abc_n10
+
+# Optional dual-T4 hybrid coeff ±50% (expensive)
+python scripts/run_gpu_abc_suite.py --backends ... --seeds 5 --run-coeff --skip-g2 --skip-g2b --skip-g3 \
+  --out results_gpu_abc_coeff
+```
+
 ## Priority if GPU time is short
 
-1. **G2 affinity** first (cheapest narrative win for title)
-2. **G1 hybrid** (needs `/metrics` exporting — vLLM default usually does)
-3. **G3 admission** (tight `--adm-slo-ms`; may need tuning per model latency)
+1. **Bump seeds to 10** on G1–G3 (same scripts; biggest confidence gain)
+2. **G2b affinity under concurrent load** (now default unless `--skip-g2b`)
+3. **G3 admission** (tight `--adm-slo-ms`)
+4. **G4 `--run-coeff`** only if time remains
 
 ## Notes
 
