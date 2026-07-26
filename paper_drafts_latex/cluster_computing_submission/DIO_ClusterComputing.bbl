@@ -170,6 +170,46 @@ Communications of the ACM
 \endbibitem
 
 %%% 13
+\bibitem[\protect\citeauthoryear{Zhang et~al.}{2025}]{nexussched}
+\begin{botherref}
+\oauthor{\bsnm{Zhang}, \binits{Y.}},
+\oauthor{\bsnm{Chen}, \binits{Y.}},
+\oauthor{\bsnm{Mo}, \binits{X.}},
+\oauthor{\bsnm{Xi}, \binits{A.}},
+\oauthor{\bsnm{Li}, \binits{J.}},
+\oauthor{\bsnm{Wu}, \binits{W.}}:
+A Predictive and Synergistic Two-Layer Scheduling Framework for {LLM} Serving
+  ({NexusSched})
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 14
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2024a}]{llumnix}
+\begin{botherref}
+\oauthor{\bsnm{Wu}, \binits{B.}}, et al.:
+{Llumnix}: Dynamic Scheduling for Large Language Model Serving
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 15
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2024b}]{loongserve}
+\begin{bchapter}
+\bauthor{\bsnm{Wu}, \binits{B.}},
+\bauthor{\bsnm{Liu}, \binits{S.}},
+\bauthor{\bsnm{Zhong}, \binits{Y.}},
+\bauthor{\bsnm{Sun}, \binits{P.}},
+\bauthor{\bsnm{Liu}, \binits{X.}},
+\bauthor{\bsnm{Jin}, \binits{X.}}:
+\bctitle{{LoongServe}: Efficiently serving long-context large language models
+  with elastic sequence parallelism}.
+In: \bbtitle{SOSP}
+(\byear{2024})
+\end{bchapter}
+\endbibitem
+
+%%% 16
 \bibitem[\protect\citeauthoryear{{OpenAI}}{2024}]{openaiapi}
 \begin{botherref}
 \oauthor{\bsnm{{OpenAI}}}:
@@ -179,17 +219,7 @@ Communications of the ACM
 \end{botherref}
 \endbibitem
 
-%%% 14
-\bibitem[\protect\citeauthoryear{{Prometheus Authors}}{2024}]{prometheus}
-\begin{botherref}
-\oauthor{\bsnm{{Prometheus Authors}}}:
-Prometheus: Monitoring System and Time Series Database.
-\url{https://prometheus.io/}
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 15
+%%% 17
 \bibitem[\protect\citeauthoryear{Haykin}{2002}]{haykin2002adaptive}
 \begin{bbook}
 \bauthor{\bsnm{Haykin}, \binits{S.}}:
@@ -200,45 +230,17 @@ Prometheus: Monitoring System and Time Series Database.
 \end{bbook}
 \endbibitem
 
-%%% 16
-\bibitem[\protect\citeauthoryear{Sayed}{2008}]{sayed2008adaptive}
-\begin{bbook}
-\bauthor{\bsnm{Sayed}, \binits{A.H.}}:
-\bbtitle{Adaptive Filters}.
-\bpublisher{Wiley-IEEE Press}, \blocation{???}
-(\byear{2008})
-\end{bbook}
-\endbibitem
-
-%%% 17
-\bibitem[\protect\citeauthoryear{Gim et~al.}{2023}]{promptcache}
-\begin{botherref}
-\oauthor{\bsnm{Gim}, \binits{I.}}, et al.:
-{Prompt Cache}: Modular Attention Reuse for Low-Latency Inference
-(2023)
-\end{botherref}
-\endbibitem
-
 %%% 18
-\bibitem[\protect\citeauthoryear{Juravsky et~al.}{2024}]{hydragen}
+\bibitem[\protect\citeauthoryear{{Prometheus Authors}}{2024}]{prometheus}
 \begin{botherref}
-\oauthor{\bsnm{Juravsky}, \binits{J.}}, et al.:
-{Hydragen}: High-Throughput {LLM} Inference with Shared Prefixes
+\oauthor{\bsnm{{Prometheus Authors}}}:
+Prometheus: Monitoring System and Time Series Database.
+\url{https://prometheus.io/}
 (2024)
 \end{botherref}
 \endbibitem
 
 %%% 19
-\bibitem[\protect\citeauthoryear{Yao et~al.}{2024}]{cacheblend}
-\begin{botherref}
-\oauthor{\bsnm{Yao}, \binits{J.}}, et al.:
-{CacheBlend}: Fast Large Language Model Serving for {RAG} with Cached Knowledge
-  Fusion
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 20
 \bibitem[\protect\citeauthoryear{Wu et~al.}{2023}]{autogen}
 \begin{botherref}
 \oauthor{\bsnm{Wu}, \binits{Q.}}, et al.:
@@ -247,7 +249,7 @@ Prometheus: Monitoring System and Time Series Database.
 \end{botherref}
 \endbibitem
 
-%%% 21
+%%% 20
 \bibitem[\protect\citeauthoryear{{LangChain}}{2024}]{langgraph}
 \begin{botherref}
 \oauthor{\bsnm{{LangChain}}}:
@@ -257,7 +259,25 @@ Prometheus: Monitoring System and Time Series Database.
 \end{botherref}
 \endbibitem
 
+%%% 21
+\bibitem[\protect\citeauthoryear{Gim et~al.}{2023}]{promptcache}
+\begin{botherref}
+\oauthor{\bsnm{Gim}, \binits{I.}}, et al.:
+{Prompt Cache}: Modular Attention Reuse for Low-Latency Inference
+(2023)
+\end{botherref}
+\endbibitem
+
 %%% 22
+\bibitem[\protect\citeauthoryear{Juravsky et~al.}{2024}]{hydragen}
+\begin{botherref}
+\oauthor{\bsnm{Juravsky}, \binits{J.}}, et al.:
+{Hydragen}: High-Throughput {LLM} Inference with Shared Prefixes
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 23
 \bibitem[\protect\citeauthoryear{Srivatsa et~al.}{2024}]{preble}
 \begin{botherref}
 \oauthor{\bsnm{Srivatsa}, \binits{V.}}, et al.:
@@ -266,28 +286,7 @@ Prometheus: Monitoring System and Time Series Database.
 \end{botherref}
 \endbibitem
 
-%%% 23
-\bibitem[\protect\citeauthoryear{Zhong et~al.}{2024}]{distserve}
-\begin{bchapter}
-\bauthor{\bsnm{Zhong}, \binits{Y.}}, \betal:
-\bctitle{{DistServe}: Disaggregating prefill and decoding for goodput-optimized
-  large language model serving}.
-In: \bbtitle{OSDI}
-(\byear{2024})
-\end{bchapter}
-\endbibitem
-
 %%% 24
-\bibitem[\protect\citeauthoryear{Qiu et~al.}{2024}]{sloawarellm}
-\begin{botherref}
-\oauthor{\bsnm{Qiu}, \binits{H.}}, et al.:
-Towards Efficient and Reliable {LLM} Serving: A Real-World Workload Study.
-arXiv preprint; SLO-oriented serving
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 25
 \bibitem[\protect\citeauthoryear{Gujarati et~al.}{2020}]{clockwork}
 \begin{bchapter}
 \bauthor{\bsnm{Gujarati}, \binits{A.}}, \betal:
@@ -295,6 +294,17 @@ arXiv preprint; SLO-oriented serving
   bottom up}.
 In: \bbtitle{OSDI}
 (\byear{2020})
+\end{bchapter}
+\endbibitem
+
+%%% 25
+\bibitem[\protect\citeauthoryear{Zhong et~al.}{2024}]{distserve}
+\begin{bchapter}
+\bauthor{\bsnm{Zhong}, \binits{Y.}}, \betal:
+\bctitle{{DistServe}: Disaggregating prefill and decoding for goodput-optimized
+  large language model serving}.
+In: \bbtitle{OSDI}
+(\byear{2024})
 \end{bchapter}
 \endbibitem
 
@@ -364,6 +374,16 @@ arXiv preprint
 \endbibitem
 
 %%% 32
+\bibitem[\protect\citeauthoryear{Yao et~al.}{2024}]{cacheblend}
+\begin{botherref}
+\oauthor{\bsnm{Yao}, \binits{J.}}, et al.:
+{CacheBlend}: Fast Large Language Model Serving for {RAG} with Cached Knowledge
+  Fusion
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 33
 \bibitem[\protect\citeauthoryear{Cheng et~al.}{2024}]{lmcache}
 \begin{botherref}
 \oauthor{\bsnm{Cheng}, \binits{Y.}}, et al.:
@@ -373,7 +393,7 @@ arXiv / open-source cache layer
 \end{botherref}
 \endbibitem
 
-%%% 33
+%%% 34
 \bibitem[\protect\citeauthoryear{{NVIDIA Corporation}}{2024}]{triton}
 \begin{botherref}
 \oauthor{\bsnm{{NVIDIA Corporation}}}:
@@ -382,7 +402,7 @@ Triton Inference Server
 \end{botherref}
 \endbibitem
 
-%%% 34
+%%% 35
 \bibitem[\protect\citeauthoryear{Crankshaw et~al.}{2017}]{clipper}
 \begin{bchapter}
 \bauthor{\bsnm{Crankshaw}, \binits{D.}}, \betal:
@@ -392,7 +412,7 @@ In: \bbtitle{NSDI}
 \end{bchapter}
 \endbibitem
 
-%%% 35
+%%% 36
 \bibitem[\protect\citeauthoryear{Romero et~al.}{2021}]{infaas}
 \begin{bchapter}
 \bauthor{\bsnm{Romero}, \binits{F.}}, \betal:
@@ -402,7 +422,7 @@ In: \bbtitle{USENIX ATC}
 \end{bchapter}
 \endbibitem
 
-%%% 36
+%%% 37
 \bibitem[\protect\citeauthoryear{Li et~al.}{2023}]{alpaserve}
 \begin{bchapter}
 \bauthor{\bsnm{Li}, \binits{Z.}}, \betal:
@@ -413,7 +433,7 @@ In: \bbtitle{OSDI}
 \end{bchapter}
 \endbibitem
 
-%%% 37
+%%% 38
 \bibitem[\protect\citeauthoryear{Wu et~al.}{2025}]{CocoServe}
 \begin{botherref}
 \oauthor{\bsnm{Wu}, \binits{J.}}, et al.:
@@ -423,7 +443,7 @@ Unlock the Potential of Fine-grained {LLM} Serving via Module-wise Autoscaling
 \end{botherref}
 \endbibitem
 
-%%% 38
+%%% 39
 \bibitem[\protect\citeauthoryear{others}{2024}]{melange}
 \begin{botherref}
 et al.:
@@ -433,47 +453,7 @@ arXiv preprint
 \end{botherref}
 \endbibitem
 
-%%% 39
-\bibitem[\protect\citeauthoryear{Zhang et~al.}{2025}]{nexussched}
-\begin{botherref}
-\oauthor{\bsnm{Zhang}, \binits{Y.}},
-\oauthor{\bsnm{Chen}, \binits{Y.}},
-\oauthor{\bsnm{Mo}, \binits{X.}},
-\oauthor{\bsnm{Xi}, \binits{A.}},
-\oauthor{\bsnm{Li}, \binits{J.}},
-\oauthor{\bsnm{Wu}, \binits{W.}}:
-A Predictive and Synergistic Two-Layer Scheduling Framework for {LLM} Serving
-  ({NexusSched})
-(2025)
-\end{botherref}
-\endbibitem
-
 %%% 40
-\bibitem[\protect\citeauthoryear{Wu et~al.}{2024a}]{llumnix}
-\begin{botherref}
-\oauthor{\bsnm{Wu}, \binits{B.}}, et al.:
-{Llumnix}: Dynamic Scheduling for Large Language Model Serving
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 41
-\bibitem[\protect\citeauthoryear{Wu et~al.}{2024b}]{loongserve}
-\begin{bchapter}
-\bauthor{\bsnm{Wu}, \binits{B.}},
-\bauthor{\bsnm{Liu}, \binits{S.}},
-\bauthor{\bsnm{Zhong}, \binits{Y.}},
-\bauthor{\bsnm{Sun}, \binits{P.}},
-\bauthor{\bsnm{Liu}, \binits{X.}},
-\bauthor{\bsnm{Jin}, \binits{X.}}:
-\bctitle{{LoongServe}: Efficiently serving long-context large language models
-  with elastic sequence parallelism}.
-In: \bbtitle{SOSP}
-(\byear{2024})
-\end{bchapter}
-\endbibitem
-
-%%% 42
 \bibitem[\protect\citeauthoryear{Fu et~al.}{2024}]{serverlessllm}
 \begin{botherref}
 \oauthor{\bsnm{Fu}, \binits{Y.}}, et al.:
@@ -482,7 +462,17 @@ In: \bbtitle{SOSP}
 \end{botherref}
 \endbibitem
 
-%%% 43
+%%% 41
+\bibitem[\protect\citeauthoryear{Sayed}{2008}]{sayed2008adaptive}
+\begin{bbook}
+\bauthor{\bsnm{Sayed}, \binits{A.H.}}:
+\bbtitle{Adaptive Filters}.
+\bpublisher{Wiley-IEEE Press}, \blocation{???}
+(\byear{2008})
+\end{bbook}
+\endbibitem
+
+%%% 42
 \bibitem[\protect\citeauthoryear{Little}{1961}]{littleslaw}
 \begin{botherref}
 \oauthor{\bsnm{Little}, \binits{J.D.C.}}:
@@ -492,7 +482,7 @@ Operations Research
 \end{botherref}
 \endbibitem
 
-%%% 44
+%%% 43
 \bibitem[\protect\citeauthoryear{Kleinrock}{1975}]{kleinrock1975queueing}
 \begin{bbook}
 \bauthor{\bsnm{Kleinrock}, \binits{L.}}:
@@ -502,7 +492,7 @@ Operations Research
 \end{bbook}
 \endbibitem
 
-%%% 45
+%%% 44
 \bibitem[\protect\citeauthoryear{Coffman and Denning}{1973}]{sjf}
 \begin{bbook}
 \bauthor{\bsnm{Coffman}, \binits{E.G.}},
@@ -513,7 +503,7 @@ Operations Research
 \end{bbook}
 \endbibitem
 
-%%% 46
+%%% 45
 \bibitem[\protect\citeauthoryear{Williams et~al.}{2009}]{williams2009roofline}
 \begin{botherref}
 \oauthor{\bsnm{Williams}, \binits{S.}},
@@ -523,6 +513,16 @@ Roofline: An insightful visual performance model for multicore architectures.
 Communications of the ACM
 \textbf{52}(4)
 (2009)
+\end{botherref}
+\endbibitem
+
+%%% 46
+\bibitem[\protect\citeauthoryear{Qiu et~al.}{2024}]{sloawarellm}
+\begin{botherref}
+\oauthor{\bsnm{Qiu}, \binits{H.}}, et al.:
+Towards Efficient and Reliable {LLM} Serving: A Real-World Workload Study.
+arXiv preprint; SLO-oriented serving
+(2024)
 \end{botherref}
 \endbibitem
 
