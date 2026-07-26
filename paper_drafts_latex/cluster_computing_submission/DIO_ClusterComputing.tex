@@ -134,7 +134,7 @@ inherit that error and can starve healthy traffic.
 
 \subsection{Approach}
 We design \textbf{DIO} (\texttt{dio-serve}) as a thin control plane for the
-multi-instance pattern (Fig.~\ref{fig:architecture}). The closed loop uses coarse
+multi-instance pattern (Figure~\ref{fig:architecture}). The closed loop uses coarse
 request telemetry (e2e latency, tokens, gateway pending) \emph{and}, when available,
 stock engine metrics already exported on each vLLM Prometheus~\cite{prometheus}
 endpoint---still HTTP-only, still zero source modification. Three mechanisms work
@@ -540,7 +540,7 @@ We do not claim a matched multi-node Orca~\cite{orca} or vLLM-distributed bake-o
 On a scalability microbench with many concurrent mock workers, instrumented
 scheduling completes in approximately $\mathbf{14\,\mu s}$ per request (worker scan,
 cost evaluation, prefix hash). Per-worker state is $\sim$256\,B. The control plane is
-not the bottleneck relative to LLM decode (Fig.~\ref{fig:scalability}).
+not the bottleneck relative to LLM decode (Figure~\ref{fig:scalability}).
 
 \begin{figure}[!htb]
 \centering
