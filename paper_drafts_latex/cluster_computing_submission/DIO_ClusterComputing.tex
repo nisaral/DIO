@@ -12,17 +12,30 @@
 \usepackage{algpseudocode}
 \usepackage{xcolor}
 \usepackage{url}
-\usepackage{placeins}
 \usepackage{tabularx}
 \usepackage{enumitem}
-% sn-jnl already loads float.sty via algorithm; use [htbp] for in-place figures
+\usepackage{flafter} % never place a float before its first reference
+% sn-jnl loads float.sty via algorithm
 
 \graphicspath{{./}{../figs/}{../../figs/}}
-\setlist[itemize]{leftmargin=1.2em,itemsep=0.25em,topsep=0.3em}
-\setlist[enumerate]{leftmargin=1.4em,itemsep=0.25em,topsep=0.3em}
+\setlist[itemize]{leftmargin=1.2em,itemsep=0.2em,topsep=0.25em}
+\setlist[enumerate]{leftmargin=1.4em,itemsep=0.2em,topsep=0.25em}
 \raggedbottom
-\floatplacement{figure}{htbp}
-\floatplacement{table}{htbp}
+
+% Pack floats with surrounding text; avoid near-empty float-only pages.
+\setcounter{topnumber}{6}
+\setcounter{bottomnumber}{6}
+\setcounter{totalnumber}{12}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.92}
+\renewcommand{\textfraction}{0.08}
+\renewcommand{\floatpagefraction}{0.85}
+\setlength{\floatsep}{6pt plus 2pt minus 1pt}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 1pt}
+\floatplacement{figure}{htb}
+\floatplacement{table}{htb}
+\floatplacement{algorithm}{htb}
 
 % Fix sn-jnl single-column blank page 1: class issues \newpage in \maketitle
 % and again inside \@maketitle. Neutralize both; keep content on page 1.
@@ -210,7 +223,6 @@ first-class policy. Simulation frameworks such as Vidur~\cite{vidur} characteriz
 offline capacity; DIO targets online multi-instance ranking under weak absolute
 models.
 
-\FloatBarrier
 %%=============================================================================
 \section{System design}
 \label{sec:design}
@@ -224,14 +236,13 @@ admission, then proxies to a stock engine. On completion it updates per-worker m
 from e2e latency and token counts. A Go/gRPC research path exists in the repo but is
 not required for the results below.
 
-\begin{figure}[htbp]
+\begin{figure}[!t]
 \centering
-\includegraphics[width=0.98\columnwidth]{fig_architecture_dio.png}
-\caption{DIO multi-instance gateway (current design). Clients use the OpenAI HTTP
-API. The control plane combines dual-timescale NLMS ranking, Prometheus
-\texttt{/metrics} scrape (hybrid cost), session/prefix affinity, and decoupled
-admission. Data-plane engines are stock OpenAI-compatible servers (typically several
-vLLM replicas); no engine source patches and no multi-SKU assumption.}
+\includegraphics[width=0.92\columnwidth]{fig_architecture_dio.png}
+\caption{DIO multi-instance gateway. OpenAI clients hit dio-serve; the control plane
+combines NLMS ranking, Prometheus \texttt{/metrics} scrape, session affinity, and
+decoupled admission over stock vLLM replicas (no engine patches, no multi-SKU
+assumption).}
 \label{fig:architecture}
 \end{figure}
 
@@ -269,9 +280,9 @@ Figure~\ref{fig:nlms_conv} illustrates dual-timescale response to an injected sl
 jump in simulation. Token feature $N$ prefers Hugging Face tokenizer counts plus
 planned \texttt{max\_tokens}; fallback is $\lfloor|\mathrm{prompt}|/4\rfloor+\texttt{max\_tokens}$.
 
-\begin{figure}[htbp]
+\begin{figure}[!htb]
 \centering
-\includegraphics[width=0.92\columnwidth]{fig_nlms_convergence_throttle.png}
+\includegraphics[width=0.78\columnwidth]{fig_nlms_convergence_throttle.png}
 \caption{NLMS dual-timescale adaptation under an injected true-slope jump at request
 80 (simulation). $s^{\mathrm{fast}}$ reacts first; $s^{\mathrm{slow}}$ lags. Synthetic
 illustration, not dual-T4 wall-clock traces.}
@@ -303,7 +314,6 @@ Launch with \texttt{dio serve -b e0=URL0 -b e1=URL1}. Background tasks scrape
 \texttt{/debug/admission}. Pick overhead is about $10$--$15\,\mu$s
 (Section~\ref{sec:overhead}).
 
-\FloatBarrier
 %%=============================================================================
 \section{Hybrid cost routing with engine metrics}
 \label{sec:hybrid}
@@ -368,29 +378,13 @@ learned service slope and metrics look similar, NLMS ranking still dominates. Th
 novelty is the combination---lightweight online ranker + non-invasive engine
 ground truth---still deployable as a stock gateway.
 
-\begin{algorithm}[htbp]
-\caption{Hybrid engine scrape (background)}
-\label{alg:scrape}
-\begin{algorithmic}[1]
-\Require backends $B$, interval $\Delta$
-\Loop
-  \ForAll{backend $b\in B$}
-    \State $T \leftarrow$ HTTP GET $b.\mathrm{metrics\_url}$ with timeout
-    \If{$T$ ok}
-      \State $\mathcal{E}_b \leftarrow$ ParsePrometheus$(T)$
-      \State Scheduler.SetEngineMetrics$(b,\mathcal{E}_b)$
-    \EndIf
-  \EndFor
-  \State sleep $\Delta$
-\EndLoop
-\end{algorithmic}
-\end{algorithm}
-
-\begin{algorithm}[htbp]
-\caption{DIO worker selection (hybrid + affinity + admission)}
+\begin{algorithm}[!htb]
+\caption{Hybrid scrape (left conceptual) and worker selection (core loop)}
 \label{alg:dio}
 \begin{algorithmic}[1]
-\Require request $r$, workers $W$, admission mode $m$, snapshots $\{\mathcal{E}_w\}$
+\Require request $r$, workers $W$, mode $m$, optional snapshots $\{\mathcal{E}_w\}$
+\State \emph{Background (async):} periodically scrape each backend \texttt{/metrics}
+      into $\mathcal{E}_w$ (KV, $W$, Hit); on failure leave hybrid terms at 0
 \State $N \leftarrow$ TokenFeature$(r)$; $w^\star\leftarrow\bot$; $S_{\min}\leftarrow\infty$
 \ForAll{$w\in W$ healthy and tier-feasible}
   \State $\hat{t}_w \leftarrow$ Predict$(w,N)$
@@ -408,7 +402,6 @@ ground truth---still deployable as a stock gateway.
 \end{algorithmic}
 \end{algorithm}
 
-\FloatBarrier
 %%=============================================================================
 \section{Session and prefix-cache affinity}
 \label{sec:affinity}
@@ -448,7 +441,6 @@ DIO increases the chance that the engine's own cache is warm; it does not implem
 a second cache. Ablating \texttt{no\_cache} disables the bonus for sensitivity
 studies.
 
-\FloatBarrier
 %%=============================================================================
 \section{Sound admission under unreliable latency prediction}
 \label{sec:admission}
@@ -483,7 +475,7 @@ Retained so operators can quantify how often absolute would disagree with the
 active mode.
 \end{description}
 
-\begin{algorithm}[htbp]
+\begin{algorithm}[!htb]
 \caption{AdmissionReject$(S_{\min}, m)$}
 \label{alg:admission}
 \begin{algorithmic}[1]
@@ -508,7 +500,6 @@ would have made a different decision. These are the primary paper metrics for
 admission safety (Section~\ref{sec:evalC}). Rejected requests return HTTP
 503 with \texttt{Retry-After}.
 
-\FloatBarrier
 %%=============================================================================
 \section{Experimental evaluation}
 \label{sec:evaluation}
@@ -552,9 +543,9 @@ scheduling completes in approximately $\mathbf{14\,\mu s}$ per request (worker s
 cost evaluation, prefix hash). Per-worker state is $\sim$256\,B. The control plane is
 not the bottleneck relative to LLM decode (Fig.~\ref{fig:scalability}).
 
-\begin{figure}[htbp]
+\begin{figure}[!htb]
 \centering
-\includegraphics[width=0.88\columnwidth]{fig6_scalability.png}
+\includegraphics[width=0.72\columnwidth]{fig6_scalability.png}
 \caption{Control-plane scalability microbench. Scheduling overhead remains
 $\sim$14\,$\mu$s; plotted e2e latency is synthetic worker delay.}
 \label{fig:scalability}
@@ -569,7 +560,7 @@ by learned service cost and workers truly look alike. Secondary signals: NLMS ke
 tight p99 std ($31$\,ms) while Least-Loaded is sticky ($100\%$ to e0, p99 std
 $430$\,ms); RLS mis-routes (frac e0 $0.12$).
 
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Regime A (real, primary). Dual-T4 + vLLM + Qwen2.5-3B, HF tokenizer,
 $n{=}10\times 30$, $\texttt{max\_tokens}{=}32$. Mean$\pm$std.}
 \label{tab:regimeA}
@@ -601,7 +592,7 @@ Table~\ref{tab:regimeB} retains a single-seed Locust pilot (longer decode, four
 logical workers). Absolute seconds are \textbf{not} comparable to Regime A
 milliseconds; we report it only for continuity with earlier pilots.
 
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Regime B (legacy single-seed Locust pilot). Not multi-seed; different setup
 from Table~\ref{tab:regimeA}.}
 \label{tab:regimeB}
@@ -629,7 +620,7 @@ and cuts p99 by $38.3\%\pm2.0\%$ vs.\ RR (Table~\ref{tab:sim}). RLS fails to reb
 (frac fast $0.40\pm0.18$). Local \texttt{pick()} overhead: NLMS $\approx 9.6\,\mu$s,
 RLS $\approx 9.4\,\mu$s at $d{=}2$.
 
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Regime C (simulation). Slope-skew dual workers, $n{=}10\times 200$.}
 \label{tab:sim}
 \centering
@@ -649,21 +640,16 @@ We inflate e1 wall-clock e2e by $\times 2$ via \texttt{latency\_delay\_proxy} wh
 still serving real tokens on a real T4---a controlled \emph{slow peer}, not a second
 GPU SKU. Table~\ref{tab:realC}: NLMS p99 $3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms
 ($48.3\%\pm0.7\%$ improvement). RLS is weaker and noisier ($23.2\%\pm22.9\%$). Mean
-frac to e0 under NLMS is modest ($0.47\pm0.08$): the supported claim is \textbf{better
-p99 under skew than RR/RLS}, not sim-style $97.5\%$ sticky splits.
+frac to e0 under NLMS is modest ($0.47\pm0.08$). NLMS p99 is close to Regime~A
+($3413\pm31$\,ms) because the router largely avoids the delayed peer on the same
+hardware and probe workload; RR is much worse ($6632$\,ms) because half the traffic
+hits the $\times 2$ peer. Homogeneous longer decode ($\texttt{max\_tokens}{=}128$,
+$n{=}3\times 20$) stays tied with RR ($13835\pm73$ vs.\ $13821\pm88$\,ms).
 
-\paragraph{Note on NLMS p99 near Regime~A.}
-NLMS p99 under Regime~C ($3427\pm38$\,ms) is numerically close to Regime~A
-($3413\pm31$\,ms). This is expected, not a table copy error: both cells use the same
-dual-T4 + Qwen2.5-3B + HF-tokenizer probe workload and seed count; under NLMS the
-router largely avoids the delayed peer, so the admitted path's wall-clock tail
-resembles the homogeneous unthrottled case. RR under Regime~C is much worse
-($6632$\,ms) because half the traffic hits the $\times 2$ peer.
-
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Regime C (real GPU, primary). Dual-T4 + delay-proxy $\times 2$,
-$n{=}10\times 30$, HF tokenizer. NLMS p99 is intentionally near Table~\ref{tab:regimeA}
-because NLMS avoids the slow peer (see note above).}
+$n{=}10\times 30$, HF tokenizer. NLMS p99 near Table~\ref{tab:regimeA} is expected
+(avoids slow peer), not a copy artifact.}
 \label{tab:realC}
 \centering
 \begin{tabular}{@{}lcccc@{}}
@@ -676,10 +662,6 @@ Round-Robin & $6632\pm37$ & $0.50\pm0.00$ & --- & $102\pm3$ \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\paragraph{Longer decode.}
-Homogeneous dual-T4, $\texttt{max\_tokens}{=}128$, $n{=}3\times 20$: NLMS
-$13835\pm73$\,ms vs.\ RR $13821\pm88$\,ms (tied), matching Regime A.
 
 \subsection{Mechanism suite A: hybrid metrics}
 \label{sec:evalA}
@@ -695,22 +677,15 @@ the cool worker does not. We compare hybrid (NLMS + metrics), NLMS-only, and
 Round-Robin.
 
 \paragraph{Results.}
-Figure~\ref{fig:evalA} and Table~\ref{tab:hybrid}: both learning policies send all
+Table~\ref{tab:hybrid} and Fig.~\ref{fig:evalA}: both learning policies send all
 traffic to the cool worker once queue delay shows up in feedback (frac cool $1.00$);
 RR stays at $0.50$. Hybrid p99 is $257\pm3$ vs.\ RR $292\pm6$
 ($12.0\%\pm2.0\%$). NLMS-only eventually matches that p99 after enough e2e samples;
 hybrid adds direct KV/queue terms and hard blocks when KV is nearly full. Live dual-T4
-scrape under concurrent load is future work.
+scrape under concurrent load is future work. When absolute MAPE is high, fold in the
+KV and queue numbers vLLM already exports~\cite{vllm,prometheus}.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.95\columnwidth]{fig_hybrid_A.png}
-\caption{Library suite (not GPU): hybrid cost under injected engine pressure,
-$n{=}10\times120$. (a)~p99 (sim ms); (b)~fraction to the cool worker.}
-\label{fig:evalA}
-\end{figure}
-
-\begin{table}[t]
+\begin{table}[!htb]
 \caption{Library suite (not GPU): hybrid cost under injected engine pressure,
 $n{=}10\times120$. Mean$\pm$std.}
 \label{tab:hybrid}
@@ -726,8 +701,13 @@ Round-Robin & $0.50\pm0.00$ & $292\pm6$ & --- \\
 \end{tabular}
 \end{table}
 
-When absolute MAPE is high, do not invent better milliseconds from e2e alone; fold in
-the KV and queue numbers vLLM already exports~\cite{vllm,prometheus}.
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=0.78\columnwidth]{fig_hybrid_A.png}
+\caption{Library suite (not GPU): hybrid under injected pressure
+($n{=}10\times120$). (a)~p99; (b)~frac to cool worker.}
+\label{fig:evalA}
+\end{figure}
 
 \subsection{Mechanism suite B: session affinity}
 \label{sec:evalB}
@@ -744,19 +724,14 @@ prefix-hit bonus; RR uses neither. Stickiness is the share of turns that stay on
 session home worker.
 
 \paragraph{Results.}
-Figure~\ref{fig:evalB} and Table~\ref{tab:affinity}: affinity hit rate $0.80\pm0.00$,
+Table~\ref{tab:affinity} and Fig.~\ref{fig:evalB}: affinity hit rate $0.80\pm0.00$,
 stickiness $1.00$, vs.\ RR stickiness $0.60$. With warm turns modeled as
 $0.7\times$ cold latency, p99 falls from $221\pm3$ (RR) to $190\pm4$ (affinity).
+For multi-turn and agent traffic~\cite{autogen,langgraph,preble}, keeping turns on
+the warm replica is useful even without multi-SKU hardware, and sits next to
+in-engine RadixAttention~\cite{radixattention} rather than replacing it.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.95\columnwidth]{fig_affinity_B.png}
-\caption{Library suite (not GPU): affinity vs.\ RR, $n{=}10$, 20 sessions
-$\times$ 5 turns. Hit rate, stickiness, and p99 (sim ms).}
-\label{fig:evalB}
-\end{figure}
-
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Library suite (not GPU): session/prefix affinity multi-turn suite,
 $n{=}10$. Mean$\pm$std.}
 \label{tab:affinity}
@@ -771,12 +746,13 @@ Round-Robin & $0.00\pm0.00$ & $0.60\pm0.00$ & $221\pm3$ \\
 \end{tabular}
 \end{table}
 
-\paragraph{Takeaway.}
-For multi-turn and agent traffic~\cite{autogen,langgraph,preble}, keeping turns on
-the warm replica is useful even without multi-SKU hardware, and sits next to
-in-engine RadixAttention~\cite{radixattention} rather than replacing it.
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=0.78\columnwidth]{fig_affinity_B.png}
+\caption{Library suite (not GPU): affinity vs.\ RR ($n{=}10$, 20$\times$5 turns).}
+\label{fig:evalB}
+\end{figure}
 
-\FloatBarrier
 %%=============================================================================
 \subsection{Mechanism suite C: admission safety}
 \label{sec:evalC}
@@ -792,23 +768,16 @@ SLO $L{=}500$\,ms. NLMS is poisoned ($s{=}40$, $b{=}800$) so absolute $S_w\gg L$
 Compare \texttt{absolute}, \texttt{empirical}, and \texttt{rank\_only}.
 
 \paragraph{Results.}
-Figure~\ref{fig:evalC} and Table~\ref{tab:admission}: \texttt{absolute} rejects every
+Table~\ref{tab:admission} and Fig.~\ref{fig:evalC}: \texttt{absolute} rejects every
 request (0 completions). \texttt{empirical} and \texttt{rank\_only} reject none,
 finish all 120 requests, keep goodput $1.0$, and log $120$ absolute-vs-active
 disagreements per seed. When the observed tail is truly hot, empirical can still
 reject; the point is not to refuse load always, but to refuse load for the right
-reason.
+reason. If the cost model is poorly calibrated, rank with NLMS if useful, but admit
+with observed percentiles or hard resource checks
+only~\cite{clockwork,distserve,sloawarellm}.
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.95\columnwidth]{fig_admission_C.png}
-\caption{Library suite (not GPU): admission under poisoned $\hat{y}$ with true
-$y<\mathrm{SLO}$, $n{=}10\times120$. Absolute starves traffic; empirical and
-\texttt{rank\_only} do not.}
-\label{fig:evalC}
-\end{figure}
-
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Library suite (not GPU): admission modes under poisoned absolute $\hat{y}$
 (true $y<\mathrm{SLO}$, $n{=}10\times120$). Mean$\pm$std.}
 \label{tab:admission}
@@ -824,12 +793,14 @@ Mode & Reject rate & Completed & Goodput & Abs.\ disagreements \\
 \end{tabular}
 \end{table}
 
-\paragraph{Takeaway.}
-If the cost model is poorly calibrated, do not gate on its absolute scale. Rank with
-NLMS if you want; admit with observed percentiles or hard resource checks only
-\cite{clockwork,distserve,sloawarellm}.
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=0.78\columnwidth]{fig_admission_C.png}
+\caption{Library suite (not GPU): admission under poisoned $\hat{y}$
+($n{=}10\times120$). Absolute starves traffic; empirical / \texttt{rank\_only} do not.}
+\label{fig:evalC}
+\end{figure}
 
-\FloatBarrier
 %%=============================================================================
 \subsection{Ablations and resilience}
 \label{sec:ablation}
@@ -840,16 +811,23 @@ are summarized in the same figure (bottom): under intentional overload, DIO retu
 HTTP 503 rather than unbounded queueing, which matches empirical/rank-only safety
 rather than absolute-$\hat{y}$ thrashing.
 
-\begin{figure}[t]
+\begin{figure}[!htb]
 \centering
-\includegraphics[width=0.88\columnwidth]{fig_ablation.png}\\[0.6em]
-\includegraphics[width=0.88\columnwidth]{fig5_resilience_FINAL.png}
-\caption{Top: cost-term ablation (L4 microbench). Bottom: resilience microbenchmarks
-including overload admission (HTTP 503).}
+\begin{minipage}[t]{0.48\columnwidth}
+\centering
+\includegraphics[width=\linewidth]{fig_ablation.png}\\[-0.2em]
+{\footnotesize (a) Cost-term ablation}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\columnwidth}
+\centering
+\includegraphics[width=\linewidth]{fig5_resilience_FINAL.png}\\[-0.2em]
+{\footnotesize (b) Resilience / overload}
+\end{minipage}
+\caption{L4 microbench ablations. (a)~Cost-term ablation. (b)~Resilience including
+overload admission (HTTP 503).}
 \label{fig:ablres}
 \end{figure}
 
-\FloatBarrier
 %%=============================================================================
 \section{Discussion and limitations}
 \label{sec:limitations}
@@ -917,7 +895,7 @@ analysis, and manuscript revision. All authors approved the final manuscript.
 \begin{appendices}
 \section{Notation summary}
 \label{app:notation}
-\begin{table}[htbp]
+\begin{table}[!htb]
 \caption{Main symbols.}
 \label{tab:notation}
 \centering
