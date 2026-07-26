@@ -533,7 +533,11 @@ Round-Robin (RR), Least-Loaded (LL), RLS~\cite{haykin2002adaptive} ($d{=}2$,
 $\lambda{=}0.99$) under the same engines where applicable. Primary metrics:
 p50/p99 e2e mean$\pm$std; MAPE; fraction to backend e0; affinity hit rate /
 stickiness; admission reject rate, completions, absolute-vs-active disagreement.
-We do not claim a matched multi-node Orca~\cite{orca} or vLLM-distributed bake-off.
+\textbf{MAPE under RR/LL:} DIO still runs a \emph{shadow} dual-timescale NLMS
+predictor on every completion for diagnostics even when the routing strategy is
+RR or LL; the MAPE column is that shadow model, not evidence that RR routes by
+$\hat{y}$. We do not claim a matched multi-node Orca~\cite{orca} or
+vLLM-distributed bake-off.
 
 \subsection{Control-plane overhead}
 \label{sec:overhead}
@@ -637,13 +641,16 @@ p99 vs RR & \multicolumn{2}{c}{$38.3\%\pm2.0\%$} & \\
 \paragraph{Real dual-T4 service-time skew ($n{=}10$).}
 We inflate e1 wall-clock e2e by $\times 2$ via \texttt{latency\_delay\_proxy} while
 still serving real tokens on a real T4---a controlled \emph{slow peer}, not a second
-GPU SKU. Table~\ref{tab:realC}: NLMS p99 $3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms
-($48.3\%\pm0.7\%$ improvement). RLS is weaker and noisier ($23.2\%\pm22.9\%$). Mean
-frac to e0 under NLMS is modest ($0.47\pm0.08$). NLMS p99 is close to Regime~A
-($3413\pm31$\,ms) because the router largely avoids the delayed peer on the same
-hardware and probe workload; RR is much worse ($6632$\,ms) because half the traffic
-hits the $\times 2$ peer. Homogeneous longer decode ($\texttt{max\_tokens}{=}128$,
-$n{=}3\times 20$) stays tied with RR ($13835\pm73$ vs.\ $13821\pm88$\,ms).
+GPU SKU. This is an \textbf{artificial proxy} for the intro's organic divergence
+(thermal throttling, co-tenant noise, uneven queues); we measure the proxy
+reproducibly, not a natural interference trace. Table~\ref{tab:realC}: NLMS p99
+$3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms ($48.3\%\pm0.7\%$ improvement). RLS is weaker
+and noisier ($23.2\%\pm22.9\%$). Mean frac to e0 under NLMS is modest
+($0.47\pm0.08$). NLMS p99 is close to Regime~A ($3413\pm31$\,ms) because the router
+largely avoids the delayed peer on the same hardware and probe workload; RR is much
+worse ($6632$\,ms) because half the traffic hits the $\times 2$ peer. Homogeneous
+longer decode ($\texttt{max\_tokens}{=}128$, $n{=}3\times 20$) stays tied with RR
+($13835\pm73$ vs.\ $13821\pm88$\,ms).
 
 \begin{table}[!htb]
 \caption{Regime C (real GPU, primary). Dual-T4 + delay-proxy $\times 2$,
@@ -664,9 +671,14 @@ Round-Robin & $6632\pm37$ & $0.50\pm0.00$ & --- & $102\pm3$ \\
 
 \subsection{Mechanism suite A: hybrid metrics}
 \label{sec:evalA}
-The next three subsections use the library multi-seed suite
-\texttt{run\_abc\_experiments.py} (synthetic times, injected metrics, no GPU).
-They check mechanism behavior and sit beside the dual-T4 tables, not instead of them.
+Subsections~\ref{sec:evalA}--\ref{sec:evalC} report the \textbf{library} multi-seed
+suite \texttt{run\_abc\_experiments.py} (synthetic times, injected metrics, no GPU)
+for controlled multi-seed mechanism checks. For submission-grade real-engine
+validation of the same three mechanisms, re-run
+\texttt{scripts/run\_gpu\_abc\_suite.py} on dual-T4 + stock vLLM (multi-turn long
+prefix + live \texttt{/metrics} scrape + admission modes); paste G1--G3 rows from
+\texttt{results\_gpu\_abc/} into Tables~\ref{tab:hybrid}--\ref{tab:admission} when
+available.
 
 \paragraph{Setup.}
 $n{=}10$ seeds $\times$ 120 requests. Two workers share $y=2N+100+\epsilon$. The
@@ -845,11 +857,12 @@ production traffic on absolute $\hat{y}$ alone.
 \paragraph{Limitations.}
 (i)~Hybrid telemetry is limited to stock vLLM Prometheus exports (no continuous NVML
 SM/power loop). (ii)~Real skew is delay-proxy on identical T4s, not multi-SKU hardware
-(explicitly out of scope). (iii)~Hybrid, affinity, and admission multi-seed tables
-above are library mechanism suites; concurrent multi-turn dual-T4 re-measurement of
-live prefix-cache hit rate remains future work. (iv)~Baselines are RR/LL/RLS on the
-same vLLM pair, not multi-node Orca/vLLM-distributed; dual-T4 multi-seed cells are
-mostly short sequential probes rather than concurrent ShareGPT.
+(explicitly out of scope). (iii)~Library multi-seed tables for hybrid/affinity/admission are mechanism checks;
+real dual-T4 multi-turn runs are produced by \texttt{run\_gpu\_abc\_suite.py} when
+GPU time is available (paste into \S\ref{sec:evalA}--\ref{sec:evalC}).
+(iv)~Baselines are RR/LL/RLS on the same vLLM pair, not multi-node Orca/vLLM-distributed;
+dual-T4 multi-seed cells are mostly short sequential probes rather than concurrent
+ShareGPT.
 
 %%=============================================================================
 \section{Conclusion}
