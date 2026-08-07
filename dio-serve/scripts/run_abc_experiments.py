@@ -337,6 +337,87 @@ def run_C_admission(seeds: int, n_req: int) -> Dict[str, Any]:
     return out
 
 
+def run_hybrid_coeff_sensitivity(seeds: int, n_req: int) -> Dict[str, Any]:
+    """
+    ±50% on each hybrid coefficient under injected engine pressure.
+    Reports p99 and frac_cool vs default; library-only (not dual-T4 multi-turn).
+    """
+    base = {"kv": 800.0, "q": 50.0, "p": 150.0}
+    variants = [("default", 1.0, 1.0, 1.0)]
+    for key in ("kv", "q", "p"):
+        for scale, tag in ((0.5, "m50"), (1.5, "p50")):
+            scales = {"kv": 1.0, "q": 1.0, "p": 1.0}
+            scales[key] = scale
+            variants.append((f"{key}_{tag}", scales["kv"], scales["q"], scales["p"]))
+
+    out: Dict[str, Any] = {}
+    for name, sk, sq, sp in variants:
+        p99s: List[float] = []
+        fracs: List[float] = []
+        for seed in range(seeds):
+            rng = random.Random(seed + 41)
+
+            def true_lat(tokens: int) -> float:
+                return 2.0 * tokens + 100.0 + rng.gauss(0, 15)
+
+            s = Scheduler(
+                strategy="nlms",
+                admission_off=True,
+                use_engine_metrics=True,
+                kv_cache_cost_ms=base["kv"] * sk,
+                engine_queue_cost_ms=base["q"] * sq,
+                engine_prefix_hit_bonus_ms=base["p"] * sp,
+                cache_bonus_ms=0.0,
+            )
+            s.register("cool")
+            s.register("hot")
+            cool_n = 0
+            lats: List[float] = []
+            for i in range(n_req):
+                tokens = 40 + (i % 30)
+                prompt = f"sens-{seed}-{i} " + ("x" * 20)
+                if i % 5 == 0:
+                    s.set_engine_metrics(
+                        "cool",
+                        {"ok": True, "kv_cache_usage": 0.15, "num_waiting": 0, "prefix_hit_rate": 0.0},
+                    )
+                    s.set_engine_metrics(
+                        "hot",
+                        {
+                            "ok": True,
+                            "kv_cache_usage": 0.8 + 0.05 * rng.random(),
+                            "num_waiting": float(6 + s.predictors["hot"].pending // 2),
+                            "prefix_hit_rate": 0.0,
+                        },
+                    )
+                wid, _ = s.pick(prompt, tokens=tokens)
+                if wid == "cool":
+                    cool_n += 1
+                extra = 40.0 * s.predictors[wid].pending if wid == "hot" else 0.0
+                y = true_lat(tokens) + extra
+                lats.append(y)
+                s.feedback(wid, y, tokens)
+            p99s.append(pct(lats, 99))
+            fracs.append(cool_n / max(1, n_req))
+        out[name] = {
+            "p99": mean_std(p99s),
+            "frac_cool": mean_std(fracs),
+            "scales": {"kv": sk, "q": sq, "p": sp},
+        }
+    # relative p99 swing vs default
+    d0 = out["default"]["p99"]["mean"]
+    swings = []
+    for name, block in out.items():
+        if name == "default":
+            continue
+        m = block["p99"]["mean"]
+        if d0 > 0:
+            swings.append(100.0 * abs(m - d0) / d0)
+    out["max_rel_p99_swing_pct"] = max(swings) if swings else 0.0
+    out["mean_rel_p99_swing_pct"] = statistics.mean(swings) if swings else 0.0
+    return out
+
+
 def write_snippets(summary: Dict[str, Any], path: Path) -> None:
     A = summary["A_hybrid"]
     B = summary["B_affinity"]
@@ -398,6 +479,10 @@ def main() -> int:
     C = run_C_admission(args.seeds, args.n_req)
     log(f"  abs reject={C['absolute']['reject_rate']} emp={C['empirical']['reject_rate']}")
 
+    log(f"Hybrid coeff ±50% sensitivity seeds={args.seeds}")
+    S = run_hybrid_coeff_sensitivity(args.seeds, args.n_req)
+    log(f"  max rel p99 swing vs default: {S.get('max_rel_p99_swing_pct'):.2f}%")
+
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "config": {
@@ -409,6 +494,7 @@ def main() -> int:
         "A_hybrid": A,
         "B_affinity": B,
         "C_admission": C,
+        "hybrid_coeff_sensitivity": S,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     write_snippets(summary, out_dir / "paper_snippets.md")
