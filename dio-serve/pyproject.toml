@@ -41,10 +41,10 @@ bench = ["matplotlib>=3.7", "numpy>=1.24"]
 nvml = ["pynvml>=11.5"]
 
 [project.urls]
-Homepage = "https://github.com/nisaral/dio"
-Documentation = "https://github.com/nisaral/dio#readme"
-Repository = "https://github.com/nisaral/dio"
-Issues = "https://github.com/nisaral/dio/issues"
+Homepage = "https://github.com/nisaral/DIO"
+Documentation = "https://github.com/nisaral/DIO#readme"
+Repository = "https://github.com/nisaral/DIO"
+Issues = "https://github.com/nisaral/DIO/issues"
 
 [project.scripts]
 dio = "dio.cli:app"
