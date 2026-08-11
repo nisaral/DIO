@@ -364,7 +364,11 @@ def multi_seed_matrix(
                 admission_off=True,
             )
             if not wait_url(url + "/healthz", timeout=90):
-                rows.append({"seed": seed, "error": "dio_start_failed"})
+                rows.append({"seed": seed, "error": "dio_start_failed", "strategy": strat})
+                log(
+                    f"  {strat} seed={seed}: ERROR dio_start_failed "
+                    f"(healthz timeout — check logs/{label}_{strat}_s{seed}.log)"
+                )
                 if session.handles:
                     kill_proc(session.handles.pop())
                 continue
