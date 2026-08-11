@@ -1,6 +1,6 @@
 % Cluster Computing (Springer Nature) submission
 % Template: sn-jnl (sn-mathphys-num). Single-column authoring layout;
-% production may reflow to journal two-column style.
+% production may reflow to journal style. No fixed page limit for research articles.
 \documentclass[pdflatex,sn-mathphys-num]{sn-jnl}
 
 %%%% Packages (hyperref is already loaded by sn-jnl --- do not reload)
@@ -15,27 +15,68 @@
 \usepackage{tabularx}
 \usepackage{enumitem}
 \usepackage{flafter} % never place a float before its first reference
-% sn-jnl loads float.sty via algorithm
+% Deliberately NOT using placeins/\FloatBarrier here: with this float density
+% (three tables + two figures competing for the p13--p16 window) a barrier
+% cannot drain the queue, so it silently swallows the section heading that
+% follows it. Section 7.9 and Section 8 disappeared from the PDF that way,
+% with pdflatex still exiting 0. Placement is controlled by the float
+% parameters below instead.
+% sn-jnl loads geometry + float.sty (provides [H]).
+% Springer Nature: use default template margins (content-first authoring;
+% production reflows to journal columns). Do NOT shrink margins for submission.
 
 \graphicspath{{./}{../figs/}{../../figs/}}
-\setlist[itemize]{leftmargin=1.2em,itemsep=0.2em,topsep=0.25em}
-\setlist[enumerate]{leftmargin=1.4em,itemsep=0.2em,topsep=0.25em}
+% Tight, consistent lists (avoid large indent / uneven gaps).
+\setlist{nosep,leftmargin=1.5em,itemsep=1pt,topsep=2pt,parsep=0pt,partopsep=0pt}
+% Description labels: bold roman (not typewriter) for visual consistency with body.
+\setlist[description]{style=nextline,leftmargin=1.5em,font=\normalfont\bfseries}
 \raggedbottom
+\setlength{\parskip}{0pt plus 0.3pt}
+\setlength{\abovedisplayskip}{6pt plus 2pt minus 2pt}
+\setlength{\belowdisplayskip}{6pt plus 2pt minus 2pt}
+\setlength{\abovedisplayshortskip}{4pt plus 1pt}
+\setlength{\belowdisplayshortskip}{4pt plus 1pt}
 
-% Pack floats with surrounding text; avoid near-empty float-only pages.
-\setcounter{topnumber}{6}
-\setcounter{bottomnumber}{6}
-\setcounter{totalnumber}{12}
-\renewcommand{\topfraction}{0.92}
-\renewcommand{\bottomfraction}{0.92}
-\renewcommand{\textfraction}{0.08}
-\renewcommand{\floatpagefraction}{0.85}
-\setlength{\floatsep}{6pt plus 2pt minus 1pt}
-\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
-\setlength{\intextsep}{6pt plus 2pt minus 1pt}
-\floatplacement{figure}{htb}
-\floatplacement{table}{htb}
-\floatplacement{algorithm}{htb}
+% Float placement policy. Goal: every table/figure lands on the page that
+% discusses it, or the very next one --- never deferred to the back matter.
+% Key lever: floatpagefraction must be LOW, otherwise a tall float (e.g. the
+% systems-comparison table) can never legally form a float page and LaTeX
+% postpones it indefinitely until \clearpage at \end{document}.
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.7}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.6}
+\renewcommand{\dbltopfraction}{0.9}
+\renewcommand{\dblfloatpagefraction}{0.6}
+\setcounter{dbltopnumber}{3}
+\setlength{\floatsep}{8pt plus 1pt minus 2pt}
+\setlength{\textfloatsep}{10pt plus 1pt minus 2pt}
+\setlength{\intextsep}{8pt plus 1pt minus 2pt}
+\floatplacement{figure}{htbp}
+\floatplacement{table}{htbp}
+\floatplacement{algorithm}{htbp}
+\setcounter{secnumdepth}{2}
+\renewcommand{\paragraph}[1]{\par\smallskip\noindent\textbf{#1.}\ }
+
+% Keep heading with following text (no orphan section titles). Penalties only:
+% \needspace inside the \@startsection style argument runs in horizontal mode
+% and is not safe here. Verified: no page ends on a heading.
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+\makeatletter
+\renewcommand{\section}{\@startsection{section}{1}{\z@}%
+  {-1.8ex \@plus -0.5ex \@minus -.2ex}%
+  {1.0ex \@plus 0.2ex}%
+  {\normalfont\large\bfseries}}%
+\renewcommand{\subsection}{\@startsection{subsection}{2}{\z@}%
+  {-1.4ex \@plus -0.4ex \@minus -.2ex}%
+  {0.6ex \@plus 0.15ex}%
+  {\normalfont\normalsize\bfseries}}%
+\makeatother
 
 % Fix sn-jnl single-column blank page 1: class issues \newpage in \maketitle
 % and again inside \@maketitle. Neutralize both; keep content on page 1.
@@ -52,7 +93,7 @@
 }
 \def\Titlefont{\reset@font\fontsize{14bp}{17bp}\selectfont\titraggedcenter}%
 \def\abstractfont{\reset@font\fontsize{9bp}{11bp}\selectfont
-  \leftskip=12pt\rightskip=12pt\parfillskip=0pt plus 1fil}%
+  \leftskip=0pt\rightskip=0pt\parfillskip=0pt plus 1fil}%
 % sn-jnl's keyword leftskip can clip the first letters and park a stray line above
 % the title. Print keywords cleanly inside the abstract block instead.
 \renewcommand{\keywords}[1]{}%
@@ -61,50 +102,46 @@
 
 \begin{document}
 
-\title[DIO: Hybrid Routing, Affinity, and Safe Admission]{%
-DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission
-for Multi-Instance LLM Serving over Stock vLLM}
+\title[DIO: Black-Box Online Routing for Heterogeneous vLLM]{%
+DIO: Black-Box Online Routing for Heterogeneous vLLM Replicas}
 
-\author*[1]{\fnm{Keyush} \sur{Nisar}}\email{Nisarkeyush3@gmail.com}
-\author[1]{\fnm{Krishil} \sur{Parikh}}\email{Krishilparikh75@gmail.com}
-\author[1]{\fnm{Krisha} \sur{Maisheri}}\email{KrishaMaisheri16@gmail.com}
+% All authors are equal main authors (no corresponding-author hierarchy on the paper).
+\author[1]{\fnm{Keyush} \sur{Nisar}}\email{nisarkeyush3@gmail.com}
+\author[1]{\fnm{Krishil} \sur{Parikh}}\email{krishilparikh75@gmail.com}
+\author[1]{\fnm{Krisha} \sur{Maisheri}}\email{krishamaisheri16@gmail.com}
+\author[1]{\fnm{Aruna} \sur{Gawade}}\email{aruna.gawade@djsce.ac.in}
+\author[1]{\fnm{Nilesh~T.} \sur{Rathod}}\email{nilesh.rathod@djsce.ac.in}
+\author[1]{\fnm{Angelin~Florence} \sur{A}}\email{angelin.florence@djsce.ac.in}
 
-\affil*[1]{\orgdiv{Department of Computer Engineering}, \orgname{Dwarkadas J.\ Sanghvi College of Engineering}, \orgaddress{\city{Mumbai}, \country{India}}}
+\affil[1]{\orgdiv{Department of Artificial Intelligence and Machine Learning}, \orgname{Dwarkadas J.\ Sanghvi College of Engineering}, \orgaddress{\city{Mumbai}, \country{India}}}
 
 %%-----------------------------------------------------------------------------
 \abstract{%
-If you run two or three stock vLLM servers and put a Round-Robin balancer in front,
-the balancer still treats every peer as equal. In practice they are not: one can sit
-on a deeper queue, hold a fuller KV cache, or simply run slower for a while---even
-when the GPUs are the same model. A learned latency model does not fully fix that.
-On dual Tesla~T4 hardware our dual-timescale NLMS predictor has MAPE around
-90--130\%, which is usable for ranking but unsafe if you reject traffic because
-$\hat{y}$ alone exceeds an SLO.
+Multi-instance vLLM deployments commonly place an L7 balancer such as
+Round-Robin or least-connections in front of independent inference replicas.
+Those balancers treat peers as equal capacity units, yet queues, KV-cache pressure,
+and temporary slowdowns still diverge across replicas. We present \textbf{DIO}
+(\texttt{dio-serve}), a thin OpenAI-compatible gateway that ranks backends from
+black-box end-to-end telemetry using dual-timescale NLMS, without engine
+modifications and without requiring an offline latency/throughput
+performance-capacity model before deployment. Optional Prometheus scrape,
+session affinity, and admission modes are supported as operational extensions.
 
-We built \textbf{DIO} (\texttt{dio-serve}) as a thin OpenAI-compatible gateway that
-sits in front of stock engines and does three concrete things.
-First, it ranks backends with online NLMS, then nudges those scores with real
-engine state read from each vLLM Prometheus \texttt{/metrics} endpoint (KV usage,
-waiting requests, prefix-cache hits)---HTTP only, no engine patches.
-Second, it keeps multi-turn and agent sessions sticky to the replica that already
-holds the shared prefix, and records affinity hit rate.
-Third, it keeps admission off the unreliable absolute prediction: default modes
-are empirical (observed latency percentiles) and rank-only; absolute-$\hat{y}$
-gating is left as a diagnostic that we show can starve healthy traffic.
-
-On dual-T4 + Qwen2.5-3B + stock vLLM: (i)~homogeneous NLMS is no better than
-Round-Robin on short probes ($n{=}10$); (ii)~under $\times 2$ service-time skew,
-NLMS cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR; (iii)~on \textbf{real multi-turn}
-workloads ($n{=}10$), hybrid metrics cut mean p99 by $40.9\%\pm30.5\%$ vs.\ RR
-(win on $8/10$ seeds; median p99 $\sim$51\% lower) and beat hybrid-off; affinity
-stickiness is $1.00$ vs.\ $0.50$ for RR ($0.998$ vs.\ $0.75$ under concurrent load)
-with hit rate $\sim$0.91--0.93; absolute admission rejects $39.5\%\pm21.0\%$ under a
-tight SLO while empirical/rank\_only reject $0\%$. Source code is public. Multi-SKU
-fleets are out of scope.
+On matched dual Tesla~T4 replicas, DIO remains near Round-Robin parity. Under a
+controlled $\times2$ service-time gap, mean p99 improves by $48.3\%$ (SD~$0.7\%$)
+over Round-Robin ($n{=}10$). On a physically heterogeneous T4$+$A30 pair with
+identical model weights and no injected delay, DIO routes $89.5\%$ of mixed-length
+traffic to the lower-latency A30 and improves mean p99 by $33.3\%$ (SD~$17.4\%$)
+relative to Round-Robin across five paired seeds, winning on p99 in all five; an
+offset five-seed robustness cell reproduces the A30-directed routing. Offline
+regression confirms the learned ordering. Finally, the same online model is useful
+for ranking but too poorly calibrated for a direct absolute latency gate, which
+rejects $\sim$40\% of otherwise completed dual-T4 requests. Source code and
+experimental artifacts are publicly available.
 
 \medskip
-\noindent\textbf{Keywords:} LLM serving, multi-instance load balancing, vLLM,
-hybrid routing, prefix-cache affinity, admission control, NLMS, Prometheus metrics.
+\noindent\textbf{Keywords:} LLM serving, heterogeneous GPU clusters, online
+routing, load balancing, vLLM, latency ranking, NLMS.
 }
 
 \maketitle
@@ -113,78 +150,61 @@ hybrid routing, prefix-cache affinity, admission control, NLMS, Prometheus metri
 \section{Introduction}
 \label{sec:intro}
 
-\subsection{Motivation}
-Practitioners commonly run \emph{multiple} stock vLLM~\cite{vllm} (or
-SGLang/TGI~\cite{sglang,tgi,radixattention}) instances and put Nginx~\cite{nginx},
-Kubernetes Services~\cite{kubernetes}, Envoy~\cite{envoy}, or Ray
-Serve~\cite{rayserve} in front with Round-Robin or least-connections. Single-node
-engines optimize continuous batching~\cite{orca,bullet}; they do not solve
-\emph{which backend} should take the next request. Classic L7
+Multi-instance vLLM~\cite{vllm} (or SGLang/TGI~\cite{sglang,tgi,radixattention})
+deployments commonly place an L7 gateway such as Nginx~\cite{nginx}, Kubernetes
+Services~\cite{kubernetes}, Envoy~\cite{envoy}, or Ray Serve~\cite{rayserve} in
+front of independent inference replicas with Round-Robin or least-connections.
+Single-node engines optimize continuous batching~\cite{orca,bullet}; they do not
+solve \emph{which backend} should take the next request. Classic L7
 balancers~\cite{maglev,nginx} treat backends as equal capacity units.
 
-In production, effective cost still diverges even on identical GPU SKUs: pending
+In production, effective cost still diverges even on identical GPU types: pending
 queues grow unevenly, KV-cache utilization spikes on one replica, prefix caches
 favor sessions pinned to a peer, and host interference can temporarily slow one
 process. The result is avoidable tail latency~\cite{dean2013tail}. Co-designed
 cluster schedulers~\cite{nexussched,llumnix,loongserve} can react with deep engine
 hooks or live KV migration, but many operators need a non-invasive front door that
-wraps stock OpenAI-compatible~\cite{openaiapi} engines without patches.
+wraps unmodified OpenAI-compatible~\cite{openaiapi} inference APIs without patches.
 
-A second problem is quieter but equally important: online latency models learned
-from black-box e2e telemetry are often accurate only as \emph{relative rankers}.
-On dual Tesla~T4 we measure dual-timescale NLMS~\cite{haykin2002adaptive} MAPE of
-$\sim$90--130\%. Systems that still gate admission on ``reject if $\min\hat{y}>\mathrm{SLO}$''
-inherit that error and can starve healthy traffic.
+A second problem arises when the same online latency model is used for admission
+control. Models learned from black-box end-to-end telemetry are often accurate only
+as \emph{relative rankers}. On dual Tesla~T4 we measure dual-timescale
+NLMS~\cite{haykin2002adaptive} MAPE of $\sim$90--130\%. Gating admission on
+``reject if $\min\hat{y}>\mathrm{SLO}$'' inherits that error and can starve healthy
+traffic.
 
-\subsection{Approach}
-We design \textbf{DIO} (\texttt{dio-serve}) as a thin control plane for the
-multi-instance pattern (Figure~\ref{fig:architecture}). The closed loop uses coarse
-request telemetry (e2e latency, tokens, gateway pending) \emph{and}, when available,
-stock engine metrics already exported on each vLLM Prometheus~\cite{prometheus}
-endpoint---still HTTP-only, still zero source modification. Three mechanisms work
-together:
+We design \textbf{DIO} (\texttt{dio-serve}) as a thin control plane for this
+multi-instance pattern (Figure~\ref{fig:architecture}). Its core loop uses request
+telemetry (e2e latency, tokens, and gateway pending) to rank backends online. When
+available, DIO can additionally consume engine metrics from each vLLM Prometheus
+endpoint~\cite{prometheus}. The gateway is HTTP-only and leaves the engine source
+and runtime unmodified. Optional session affinity and admission modes are reported
+as operational capabilities rather than as the central performance claim.
 
-\begin{enumerate}[label=(\Alph*)]
-\item \textbf{Hybrid cost routing.} NLMS provides an online ranking signal from
-completions; scraped KV usage, waiting requests, and prefix hit rate supply
-ground-truth corrections that close part of the MAPE/telemetry gap without
-requiring engine-specific hooks (Section~\ref{sec:hybrid}).
-\item \textbf{Session/prefix affinity.} Multi-turn and agent
-clients~\cite{autogen,langgraph} benefit when follow-ups land where the shared
-prefix is already cached~\cite{promptcache,hydragen,preble}. DIO scores that
-stickiness explicitly and reports affinity hit rate (Section~\ref{sec:affinity}).
-\item \textbf{Sound admission.} Ranking always uses $\arg\min S_w$; admission is a
-separate policy (\texttt{rank\_only}, \texttt{empirical}, or diagnostic
-\texttt{absolute}) so a poorly scaled absolute $\hat{y}$ cannot thrash
-reject/admit decisions~\cite{clockwork,distserve} (Section~\ref{sec:admission}).
-\end{enumerate}
+Empirically, DIO remains near Round-Robin parity on homogeneous dual-T4 peers,
+responds to a controlled service-time gap, and routes mixed-length traffic to the
+lower-latency GPU in a T4$+$A30 pair without requiring an offline
+latency/throughput performance-capacity model before deployment
+(Section~\ref{sec:regimeD}). We separately report the admission failure mode caused
+by treating a relative ranker as an absolute SLO predictor.
 
-\subsection{Results preview}
-Dual-timescale NLMS does not invent wins when backends are equal: on homogeneous
-dual-T4 short probes, NLMS p99 is slightly worse than Round-Robin
-(Section~\ref{sec:regimeA}). Under controlled $\times 2$ service-time skew, NLMS
-cuts p99 by $48.3\%\pm0.7\%$ vs.\ RR and beats $d{=}2$ RLS
-(Section~\ref{sec:regimeC}). On \textbf{real dual-T4 multi-turn} runs ($n{=}10$),
-title mechanisms hold: hybrid scrape improves p99 vs.\ hybrid-off and RR on most
-seeds (Section~\ref{sec:evalA}); affinity stickiness dominates RR even under
-concurrent load (Section~\ref{sec:evalB}); absolute admission over-rejects under a
-tight SLO while empirical/rank\_only do not (Section~\ref{sec:evalC}).
-
-\subsection{Contributions}
+\paragraph{Contributions}
 \begin{enumerate}
-\item \textbf{Hybrid cost routing (non-invasive).} Joint cost fusing online NLMS with
-scraped vLLM \texttt{/metrics}; real dual-T4 multi-turn gain vs.\ hybrid-off and RR
-($n{=}10$).
-\item \textbf{Session/prefix affinity for multi-turn routing.} Prefix-hash stickiness
-plus engine prefix-hit bonus; dual-T4 stickiness $1.00$ vs.\ $0.50$ RR
-(concurrent$=1$) and $0.998$ vs.\ $0.75$ under concurrent load ($n{=}10$).
-\item \textbf{Sound admission under unreliable $\hat{y}$.} Rank-only / empirical /
-absolute modes; on the real gateway with a tight SLO, absolute rejects
-$\sim$40\% of requests while empirical and rank\_only reject none ($n{=}10$).
-\item \textbf{Open gateway and multi-seed evaluation.} Open-source \texttt{dio-serve};
-dual-T4 + Qwen2.5-3B~\cite{qwen25}; no free lunch on homogeneous short probes;
-multi-SKU fleets out of scope.
+\item \textbf{Online routing from black-box telemetry.} DIO uses dual-timescale
+NLMS ($O(1)$ updates) to rank unmodified vLLM workers from end-to-end latency and
+token counts under an OpenAI-compatible HTTP boundary, without requiring an offline
+latency/throughput model before deployment.
+\item \textbf{Evaluation on physically heterogeneous GPUs.} On real T4$+$A30
+unmodified vLLM (no injected delay), dual-timescale NLMS matches $d{=}2$ RLS on
+central p99 while routing more cleanly to the A30 ($89.5\%$ mean frac) and
+improving mean p99 by $33.3\%$ (SD~$17.4\%$) over Round-Robin in five paired seeds.
+An offline OLS fit is a post-hoc ordering check, not a control input.
+\item \textbf{Admission calibration analysis.} Homogeneous parity and a controlled
+slow-peer experiment frame the ranking claim; we show that a ranker with high
+absolute error must not be used directly as an SLO threshold.
 \end{enumerate}
+\noindent Implementation, scripts, and multi-seed artifacts for the dual-T4 and
+T4$+$A30 experiments are released with the paper (Declarations).
 
 %%=============================================================================
 \section{Background and related work}
@@ -199,7 +219,7 @@ include Sarathi-Serve~\cite{bullet} and FastServe~\cite{fastserve}. Disaggregate
 prefill/decode systems~\cite{distserve,splitwise,mooncake,memserve} optimize pipeline
 stages and KV placement. Prefix/KV reuse~\cite{promptcache,hydragen,cacheblend,lmcache,preble}
 raises the value of \emph{where} a request lands. These systems excel on one node or a
-co-designed cluster; multi-worker routing in front of \emph{stock} engines remains
+co-designed cluster; multi-worker routing in front of \emph{unmodified} engines remains
 external.
 
 \subsection{Cluster orchestrators and classical serving}
@@ -208,36 +228,58 @@ repositories with coarse metrics. Earlier DNN serving stacks
 (Clipper~\cite{clipper}, INFaaS~\cite{infaas}, Clockwork~\cite{clockwork})
 established predictability and model-selection themes that LLM gateways inherit.
 Orca~\cite{orca} advances iteration-level batching. AlpaServe~\cite{alpaserve} and
-CoCoServe~\cite{CocoServe} focus on placement and multiplexing. M\'elange~\cite{melange}
+CoCoServe~\cite{CocoServe} focus on placement and multiplexing. M\'{e}lange~\cite{melange}
 targets heterogeneous capacity tables. NexusSched~\cite{nexussched} combines
 predictive routing with engine co-design and multi-feature predictors ($O(d^2)$
 updates). Llumnix~\cite{llumnix} migrates live KV state. LoongServe~\cite{loongserve}
 targets long-context elastic parallelism. ServerlessLLM~\cite{serverlessllm}
 optimizes cold-start loading.
 
-\paragraph{Metrics-aware gateways vs.\ DIO's hybrid scrape.}
-Production L7 balancers (Envoy~\cite{envoy}, Nginx~\cite{nginx}, Maglev~\cite{maglev})
-and orchestrators such as Ray Serve can weight backends by \emph{operator-defined}
-health or load metrics, and many stacks can scrape Prometheus in principle.
-What they typically do \emph{not} do is fuse those engine-internal gauges with an
-online per-request latency ranker under an explicit admission policy that refuses
-to trust absolute $\hat{y}$. Co-designed LLM schedulers that use rich engine state
-usually require patches, shared memory, or KV migration~\cite{nexussched,llumnix}.
-DIO's hybrid path is deliberately narrower and non-invasive: HTTP GET of each stock
-vLLM \texttt{/metrics} endpoint~\cite{prometheus,vllm}, scalar cost terms in the
-same units as NLMS ranking, and graceful zero when scrape fails. We do not claim a
-bake-off against every Ray Serve metrics plugin; we claim a request-level gateway
-that combines dual-timescale NLMS, Prometheus engine state, multi-turn affinity, and
-decoupled admission without modifying engines.
+\textbf{Inference-aware gateways.}
+Metrics-, prefix-, and KV-aware routing over unmodified vLLM is already deployed
+infrastructure. The Kubernetes Gateway API Inference
+Extension~\cite{gaie} and its Endpoint Picker select replicas using scraped vLLM
+queue depth, KV utilization, and LoRA state; \mbox{llm-d}~\cite{llmd} and Google's
+GKE Inference Gateway~\cite{gkeinference} build on it. NVIDIA
+Dynamo~\cite{dynamo} scores endpoints by cached-prefix overlap. The vLLM
+production-stack router~\cite{productionstack} ships round-robin, session,
+prefix-aware, and KV-aware policies (including static backends without Kubernetes).
+Alibaba's ACK/ACS gateway~\cite{alibabagw}, the SGLang router~\cite{sglangrouter},
+and Envoy AI Gateway~\cite{envoyai} similarly offer cache- or LLM-aware balancing.
+These systems establish that engine-metric and locality-aware routing are practical.
+
+\textbf{Focus of this work.}
+DIO is not intended to replace cluster-native or engine-co-designed schedulers.
+Our contribution is narrower: we study whether a lightweight gateway can learn
+relative per-replica service rates online from black-box end-to-end telemetry,
+without engine modification and without requiring an offline latency/throughput
+performance-capacity model before deployment, and we evaluate when such a model is
+unsuitable for absolute admission. The routing signal is dual-timescale
+NLMS~\cite{haykin2002adaptive} (Section~\ref{sec:nlms}) with $O(1)$ updates; closest
+learned comparators either need engine co-design or $O(d^2)$
+updates~\cite{nexussched}. On the physical cell, NLMS is not claimed to beat RLS on
+mean p99; the systems argument is comparable ranking effectiveness with
+constant-time updates and more stable routing (Section~\ref{sec:regimeD}). The same
+online model that ranks well is badly miscalibrated in absolute terms (MAPE
+$\sim$90--130\%, Section~\ref{sec:regimeA}), so a textbook absolute SLO gate rejects
+$\sim$40\% of a load that empirical and rank-only gating complete in full
+(Section~\ref{sec:evalC}). That negative calibration result is a caution for any
+predictive admission controller built on black-box telemetry.
+Section~\ref{sec:sys-compare} summarizes deployment trade-offs.
 
 \subsection{Adaptive prediction, queues, and admission}
 NLMS stability and step-size practice follow adaptive filter
 theory~\cite{haykin2002adaptive,sayed2008adaptive}; recursive least squares is the
-natural $O(d^2)$ comparator. Queue wait uses a batch-amortized Little-style
+natural $O(d^2)$ comparator under the same linear feature model. A still simpler
+baseline---ranking by per-worker exponentially weighted moving average (EWMA) of
+recent e2e latency without a token feature---is a natural alternative that this
+paper does not evaluate; establishing that dual-timescale NLMS is necessary rather
+than merely sufficient relative to EWMA remains future work
+(Section~\ref{sec:limitations}). Queue wait uses a batch-amortized Little-style
 heuristic~\cite{littleslaw,kleinrock1975queueing}. SJF-style ranking motivates
 predicted service routing~\cite{sjf}. Roofline~\cite{williams2009roofline} inspires
 soft memory ceilings recast as routing penalties. Goodput- and SLO-aware LLM
-serving~\cite{distserve,sloawarellm,sloaware2026} motivates treating admission as a
+serving~\cite{distserve,sloawarellm} motivates treating admission as a
 separate policy from ranking. Simulation frameworks such as Vidur~\cite{vidur}
 characterize offline capacity; DIO targets online multi-instance ranking under weak
 absolute models.
@@ -246,65 +288,70 @@ absolute models.
 \section{System design}
 \label{sec:design}
 
-\subsection{Architecture}
+\subsection{Architecture and software artifact}
 \label{sec:architecture}
-Figure~\ref{fig:architecture} is the system we ship and evaluate as
-\texttt{dio-serve}. Clients call the OpenAI HTTP API. The control plane (FastAPI +
-Python scheduler) ranks backends with NLMS, applies hybrid metrics, affinity, and
-admission, then proxies to a stock engine. On completion it updates per-worker models
-from e2e latency and token counts. A Go/gRPC research path exists in the repository
-but is not required for the results below.
+Figure~\ref{fig:architecture} shows \texttt{dio-serve}, the gateway used in all
+experiments below. Clients issue OpenAI-compatible HTTP requests. A FastAPI control
+plane ranks backends with dual-timescale NLMS, optionally folds in scraped engine
+metrics, applies session affinity and admission, then proxies to an unmodified vLLM
+worker. Completions update per-worker models from observed e2e latency and token
+counts. A Go/gRPC research path exists in the repository but is not used for the
+results in this paper.
 
-\begin{figure}[!t]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.95\columnwidth]{fig_architecture_dio.png}
-\caption{DIO multi-instance gateway. OpenAI clients call \texttt{dio-serve}; the
-control plane combines NLMS ranking, Prometheus \texttt{/metrics} scrape, session
-affinity, and decoupled admission over stock vLLM replicas (no engine patches; no
-multi-SKU assumption).}
+\includegraphics[width=0.58\columnwidth]{fig_architecture_dio.png}
+\caption{DIO multi-instance gateway. Clients call \texttt{dio-serve}; the control
+plane ranks unmodified vLLM replicas with NLMS, optional Prometheus scrape, session
+affinity, and admission (no engine patches).}
 \label{fig:architecture}
 \end{figure}
 
-\paragraph{Telemetry contract.}
-Four channels close the loop: (i)~wall-clock e2e latency at the gateway;
-(ii)~token counts from response \texttt{usage} or a tokenizer estimate;
-(iii)~per-backend pending depth inside DIO; (iv)~optional hybrid scrape of each
-backend \texttt{/metrics}. Soft/hard VRAM can come from config or from KV usage.
-We do not claim continuous NVML SM/power/temperature, and we do not patch engine
-source~\cite{nexussched,llumnix}.
+Telemetry uses four signals: gateway e2e latency; token counts from response
+\texttt{usage} or a tokenizer estimate; per-backend pending depth; and optional
+HTTP scrape of each engine \texttt{/metrics}. Soft and hard VRAM limits come from
+configuration or KV usage. Unlike NexusSched and Llumnix, which require engine hooks
+or live migration~\cite{nexussched,llumnix}, DIO does not sample NVML
+SM/power/temperature and does not modify engine source.
+
+A typical launch is \texttt{dio serve -b e0=URL0 -b e1=URL1}. Background tasks
+scrape \texttt{/metrics} every $1$\,s by default and probe health. Debug endpoints
+report metrics, engine state, affinity, and admission counters. Scheduling overhead
+is on the order of $10$--$15\,\mu$s per request in a local microbench
+(Section~\ref{sec:overhead}). Source code, library multi-seed harnesses, and dual-T4
+scripts are public (Declarations).
 
 \subsection{Dual-timescale NLMS latency model}
 \label{sec:nlms}
-For worker $w$ and approximate token count $N$, we model
+For worker $w$ and token count $N$ we use the linear model
 \begin{equation}
 \hat{y}_w = s_w N + b_w,
 \label{eq:model}
 \end{equation}
-where $s_w$ is ms/token and $b_w$ is fixed overhead. On completion with residual
+with slope $s_w$ (ms/token) and intercept $b_w$ (ms). After a completion with residual
 $e = y - \hat{y}$, NLMS updates
 \begin{equation}
 s \leftarrow s + \mu \frac{e}{N}, \qquad
 b \leftarrow b + \mu_b e,
 \end{equation}
-with dual rates $\mu_{\mathrm{fast}}{=}0.1$, $\mu_{\mathrm{slow}}{=}0.01$,
+using dual rates $\mu_{\mathrm{fast}}{=}0.1$, $\mu_{\mathrm{slow}}{=}0.01$,
 $\mu_b{=}0.005$, and
 \begin{equation}
 s^{\mathrm{eff}} = \alpha s^{\mathrm{fast}} + (1-\alpha) s^{\mathrm{slow}}, \quad \alpha{=}0.8.
 \label{eq:dual}
 \end{equation}
-Cold-start priors are $s_0{=}2.0$\,ms/token, $b_0{=}150$\,ms. We distinguish
-(i)~$O(1)$ arithmetic per update from (ii)~time-to-usable ranking: typically
-\textbf{15--20 completions per worker} before slopes leave priors.
-Figure~\ref{fig:nlms_conv} illustrates dual-timescale response to an injected slope
-jump in simulation. Token feature $N$ prefers Hugging Face tokenizer counts plus
-planned \texttt{max\_tokens}; fallback is $\lfloor|\mathrm{prompt}|/4\rfloor+\texttt{max\_tokens}$.
+Priors are $s_0{=}2.0$\,ms/token and $b_0{=}150$\,ms. Arithmetic per update is
+$O(1)$; slopes typically leave the prior after about $15$--$20$ completions per
+worker. Figure~\ref{fig:nlms_conv} shows a simulated slope jump. The token feature
+$N$ prefers Hugging Face tokenizer counts plus planned \texttt{max\_tokens}, with
+fallback $\lfloor|\mathrm{prompt}|/4\rfloor+\texttt{max\_tokens}$.
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.78\columnwidth]{fig_nlms_convergence_throttle.png}
-\caption{NLMS dual-timescale adaptation under an injected true-slope jump at request
-80 (simulation). $s^{\mathrm{fast}}$ reacts first; $s^{\mathrm{slow}}$ lags. Synthetic
-illustration, not dual-T4 wall-clock traces.}
+\includegraphics[width=0.68\columnwidth]{fig_nlms_convergence_throttle.png}
+\caption{Simulated dual-timescale NLMS under an injected slope jump at request 80.
+$s^{\mathrm{fast}}$ adapts first; $s^{\mathrm{slow}}$ lags. Not dual-T4 wall-clock
+traces.}
 \label{fig:nlms_conv}
 \end{figure}
 
@@ -319,33 +366,31 @@ S_w^{\mathrm{base}} =
 \end{equation}
 with $\hat{t}_w = s^{\mathrm{eff}}_w N + b_w$,
 $\mathrm{wait}_w = (Q_w/B)\bar{t}_w$ ($B{=}8$), soft VRAM penalty when free VRAM
-${<}4$\,GB, hard exclusion when free VRAM ${<}2.4$\,GB and $N{>}1000$, and tier
-mismatch soft cost $500$\,ms (hard block for large-on-small). Route to
-$\arg\min_w S_w$ in $O(|W|)$ time. Strategies also include Round-Robin,
-Least-Loaded, static slopes, and $d{=}2$ RLS as head-to-head baselines under the
-\emph{same} cost shell when applicable.
-
-\subsection{Implementation notes}
-\label{sec:impl}
-Launch with \texttt{dio serve -b e0=URL0 -b e1=URL1}. Background tasks scrape
-\texttt{/metrics} (default $1$\,s) and probe health. Debug endpoints:
-\texttt{/debug/metrics}, \texttt{/debug/engine}, \texttt{/debug/affinity},
-\texttt{/debug/admission}. Pick overhead is about $10$--$15\,\mu$s
-(Section~\ref{sec:overhead}).
+${<}4$\,GB, and hard exclusion when free VRAM ${<}2.4$\,GB and $N{>}1000$.
+Operators may label each worker with an optional \emph{tier} index (an integer
+capability class, e.g., small vs.\ large GPU or model size). Then
+$\mathrm{tierCost}_{r,w}$ is a soft $500$\,ms penalty when the request's declared
+size class exceeds the worker's tier, and a hard block applies when a large request
+would land on a small-tier worker (``large-on-small''). In all dual-T4 and T4$+$A30
+experiments in this paper, every worker shares the same tier, so
+$\mathrm{tierCost}{=}0$ and hard tier blocks never fire; the term is retained for
+mixed-capability fleets. Route to $\arg\min_w S_w$ in $O(|W|)$ time. Strategies also
+include Round-Robin, Least-Loaded, static slopes, and $d{=}2$ RLS as head-to-head
+baselines under the \emph{same} cost shell when applicable.
 
 %%=============================================================================
 \section{Hybrid cost routing with engine metrics}
 \label{sec:hybrid}
 
-\subsection{Problem: black-box ranking misses engine ground truth}
+\subsection{Why engine metrics}
 NLMS observes only gateway e2e latency and tokens. That signal is delayed, noisy,
-and confounded by batching. Meanwhile stock vLLM already exports internal state
-via Prometheus~\cite{prometheus}: GPU KV-cache utilization, number of waiting and
-running requests, and prefix-cache hit counters. Prior multi-instance balancers
-either ignore these signals or require invasive co-design~\cite{nexussched,llumnix}.
-DIO's hybrid design is deliberately coarse: \textbf{scrape what the engine already
-publishes}, fold it into the same millisecond-scale cost used for ranking, and
-keep zero source modification.
+and confounded by batching. Unmodified vLLM already exports internal state via
+Prometheus~\cite{prometheus}: GPU KV-cache utilization, waiting/running request
+counts, and prefix-cache hit counters. DIO optionally scrapes those gauges and
+folds them into the same millisecond-scale cost used for ranking, without source
+modification. The metric path is an operational extension; the primary ranking
+evidence in this paper is NLMS from black-box e2e telemetry
+(Sections~\ref{sec:regimeC}--\ref{sec:regimeD}).
 
 \subsection{Metric scrape and snapshot}
 For each backend $i$ with base URL $U_i$ and metrics path (default
@@ -379,26 +424,17 @@ near-full KV cache ($\mathrm{KV}{\approx}1$) contributes on the order of one
 long-request decode budget, a moderate waiting queue ($W{\approx}10$) is
 comparable to a soft VRAM penalty, and a high engine prefix hit rate is of similar
 scale to the session affinity bonus $C{=}200$\,ms---heuristic parity with existing
-base cost terms. Base tier/cache/VRAM coefficients in prior L4 pilots showed
-$\pm$50\% relative insensitivity; for the hybrid triple we report a controlled
-library $\pm$50\% sensitivity check (Section~\ref{sec:coeff-sens}) and note that a
-full dual-T4 grid search of $(c_{\mathrm{kv}},c_q,c_p)$ remains open. Operators may
-override all three via \texttt{DIO\_*} configuration. The dual-T4 multi-turn
-headline (Section~\ref{sec:evalA}) uses the defaults above.
+base cost terms. They are configuration defaults, not parameters optimized by the
+physical-heterogeneity experiment; operators may override all three through
+\texttt{DIO\_*} configuration.
 
-Additionally, if $\mathrm{KV}_w{>}0.95$ and $N{>}500$, worker $w$ is hard-blocked
-for that request (engine-reported near-full KV). Free-VRAM estimates may be
-updated as $\mathrm{free}_w \approx \mathrm{total}_w(1-\mathrm{KV}_w)$ when totals
-are known.
+If $\mathrm{KV}_w{>}0.95$ and $N{>}500$, worker $w$ is hard-blocked for that request
+(engine-reported near-full KV). Free-VRAM estimates may be updated as
+$\mathrm{free}_w \approx \mathrm{total}_w(1-\mathrm{KV}_w)$ when totals are known.
+When backends differ only in learned service slope and metrics look similar, NLMS
+ranking still dominates.
 
-\paragraph{Scope of hybrid terms.}
-Hybrid cost is not a claim of SM utilization, power, or temperature awareness. It is
-also not a substitute for NLMS: when backends differ only in learned service slope
-and metrics look similar, NLMS ranking still dominates. The contribution is the
-combination of a lightweight online ranker with non-invasive engine ground truth,
-deployable as a stock gateway.
-
-\begin{algorithm}[!htb]
+\begin{algorithm}[ht]
 \caption{Worker selection with hybrid scrape, affinity, and admission}
 \label{alg:dio}
 \begin{algorithmic}[1]
@@ -426,14 +462,14 @@ deployable as a stock gateway.
 \section{Session and prefix-cache affinity}
 \label{sec:affinity}
 
-\subsection{Problem: multi-turn locality is underserved by RR}
+\subsection{Why multi-turn affinity}
 Round-Robin and least-connections scatter multi-turn sessions across replicas.
 Each turn that lands on a cold replica re-prefills shared system prompts and agent
 context, missing in-engine prefix caches~\cite{radixattention,promptcache,hydragen}.
 Cache-aware and prompt-scheduling systems~\cite{preble,cacheblend} show large gains
 when locality is preserved, but they often assume co-designed clusters. DIO targets
-the common case: several stock replicas behind one OpenAI gateway, multi-turn or
-agentic clients~\cite{autogen,langgraph}, no engine patches.
+several unmodified replicas behind one OpenAI-compatible gateway for multi-turn or
+agentic clients~\cite{autogen,langgraph}, without engine patches.
 
 \subsection{Affinity mechanism}
 On each admitted request with prompt text $p$, DIO computes a stable prefix hash
@@ -448,24 +484,21 @@ is subtracted from $S_w$. Independently, the hybrid term $c_p\mathrm{Hit}_w$ pre
 workers the \emph{engine} reports as currently caching well. After admission, DIO
 sets $M[h(p)]\leftarrow w^\star$.
 
-\paragraph{Metrics.}
 DIO maintains $\mathrm{affinity\_decisions}$ and $\mathrm{affinity\_hits}$ (true when
 the chosen worker already owned the prefix). Exposed hit rate
 $\mathrm{affinity\_hits}/\mathrm{affinity\_decisions}$ is the primary stickiness
-metric for multi-turn evaluation. When live vLLM metrics are available, operators
-can also compare engine-reported prefix hit rates under DIO vs.\ RR.
-
-\paragraph{Relationship to in-engine caching.}
-Affinity is request-level stickiness complementary to
-RadixAttention~\cite{radixattention}: DIO increases the chance that the engine's own
-cache is warm; it does not implement a second cache. The \texttt{no\_cache} ablation
-disables the bonus for sensitivity studies.
+metric for multi-turn evaluation; operators can also compare engine-reported prefix
+hit rates under DIO vs.\ RR when live metrics are available. Affinity is
+request-level stickiness complementary to RadixAttention~\cite{radixattention}: DIO
+increases the chance that the engine's own cache is warm; it does not implement a
+second cache. The \texttt{no\_cache} ablation disables the bonus for sensitivity
+studies.
 
 %%=============================================================================
 \section{Sound admission under unreliable latency prediction}
 \label{sec:admission}
 
-\subsection{Problem: absolute gates trust a weak model}
+\subsection{\texorpdfstring{Why decouple admission from absolute $\hat{y}$}{Why decouple admission from absolute latency}}
 Many predictive schedulers implicitly assume $\hat{y}$ is calibrated enough to
 compare against an SLO in absolute milliseconds. Section~\ref{sec:mape} shows that
 assumption fails for NLMS on dual-T4 (MAPE $\sim$90--130\%). Cold-start priors and
@@ -478,24 +511,19 @@ motivate treating admission as a policy that must not inherit model bias.
 \subsection{Three admission modes}
 Ranking is always $\arg\min_w S_w$ among feasible workers. Admission is separate:
 
-\begin{description}[style=nextline,leftmargin=1.2em]
-\item[\texttt{rank\_only}]
-Never reject for SLO based on $S_w$. Only hard VRAM/tier/KV blocks apply. NLMS is
-used purely for ranking. Preferred for routing A/B tests and when the operator
-handles overload externally.
-\item[\texttt{empirical} (default)]
-Maintain a rolling window of observed e2e latencies (default length $64$). After
-warm-up ($\ge 8$ samples), compute the $p$-th percentile (default $p{=}95$). Reject
-only if that empirical tail exceeds the SLO \emph{and} the best current score lies
-in the worst quartile of available worker scores. Cold-start never rejects on
-$\hat{y}$ alone.
-\item[\texttt{absolute} (legacy / diagnostic)]
-Reject if $\min_w S_w > \mathrm{SLO}$. Sensitive to MAPE and cold-start scale.
-Retained so operators can quantify how often absolute would disagree with the
+\begin{itemize}
+\item \texttt{rank\_only}: never reject for SLO based on $S_w$; only hard
+VRAM/tier/KV blocks apply. NLMS is used only for ranking.
+\item \texttt{empirical} (default): after warm-up ($\ge 8$ samples in a window of
+length $64$), reject only if the empirical $p$-th percentile (default $p{=}95$)
+exceeds the SLO \emph{and} the best score lies in the worst quartile of feasible
+workers. Cold-start does not reject on $\hat{y}$ alone.
+\item \texttt{absolute} (diagnostic): reject if $\min_w S_w > \mathrm{SLO}$.
+Sensitive to MAPE and cold-start scale; kept to measure disagreement with the
 active mode.
-\end{description}
+\end{itemize}
 
-\begin{algorithm}[!htb]
+\begin{algorithm}[ht]
 \caption{AdmissionReject$(S_{\min}, m)$}
 \label{alg:admission}
 \begin{algorithmic}[1]
@@ -513,12 +541,11 @@ active mode.
 \end{algorithmic}
 \end{algorithm}
 
-\paragraph{Diagnostics.}
 Counters \texttt{would\_reject\_absolute}, \texttt{would\_admit\_absolute}, and
 \texttt{absolute\_vs\_active\_disagree} record, on every pick, whether absolute mode
-would have made a different decision. These are the primary paper metrics for
-admission safety (Section~\ref{sec:evalC}). Rejected requests return HTTP
-503 with \texttt{Retry-After}.
+would have made a different decision; these are the primary metrics for admission
+safety (Section~\ref{sec:evalC}). Rejected requests return HTTP 503 with
+\texttt{Retry-After}.
 
 %%=============================================================================
 \section{Experimental evaluation}
@@ -526,66 +553,83 @@ admission safety (Section~\ref{sec:evalC}). Rejected requests return HTTP
 
 \subsection{Methodology}
 \label{sec:method}
+\textbf{Hardware and software.} Unless noted, engines are unmodified
+vLLM~\cite{vllm} serving Qwen2.5-3B-Instruct~\cite{qwen25} with a Hugging Face
+tokenizer behind the \texttt{dio-serve} gateway. Homogeneous dual-T4 and controlled-skew
+suites use \texttt{run\_workshop\_final\_suite.py}; multi-turn hybrid, affinity, and
+admission suites use \texttt{run\_gpu\_abc\_suite.py}; physical heterogeneous-GPU
+cells use \texttt{run\_regime\_d\_hetero.py}. Library multi-seed harnesses
+(\texttt{run\_abc\_experiments.py}) complement GPU cells with coefficient and
+ablation checks.
 
-\paragraph{Hardware and software (real GPU).}
-Dual NVIDIA Tesla T4, stock vLLM~\cite{vllm}, Qwen2.5-3B-Instruct~\cite{qwen25},
-Hugging Face tokenizer, \texttt{dio-serve} gateway. Workshop suite:
-\texttt{run\_workshop\_final\_suite.py}.
-
-\paragraph{Regimes (non-interchangeable).}
+\textbf{Experiment families (Regimes~A--D; non-interchangeable).}
+We label families for cross-reference. Lettering skips Regime~B: an early single-seed
+Locust pilot with longer-decode traces that is not used for any claim in this paper.
 \begin{enumerate}
-\item \textbf{Regime A --- homogeneous dual-T4 (real):}
-  identical peers, $\texttt{max\_tokens}{=}32$, $n{=}10$ seeds $\times$ 30 requests.
-\item \textbf{Regime B --- legacy Locust pilot (secondary):}
-  longer-decode ShareGPT~\cite{sharegpt}/arXiv/Azure-style traces, single seed;
-  absolute seconds not mixed with Regime A ms.
-\item \textbf{Regime C --- service-time skew:}
-  (i) CPU multi-seed simulation $n{=}10$; (ii) real dual-T4 with e1 behind
-  delay-proxy $\times 2$, $n{=}10$.
-\item \textbf{A/B/C real multi-turn / admission (primary for title mechanisms):}
-  dual-T4 + stock vLLM, multi-turn long system prefixes, live \texttt{/metrics}
-  scrape, $n{=}10$ seeds (\texttt{run\_gpu\_abc\_suite.py}), including affinity under
-  concurrent load; library multi-seed suite remains a controlled complement
-  (Sections~\ref{sec:evalA}--\ref{sec:evalC}).
+\item \textbf{Regime~A --- matched replicas (real dual-T4):}
+  identical peers, $\texttt{max\_tokens}{=}32$, $n{=}10$ seeds $\times$ 30 requests
+  (Section~\ref{sec:regimeA}).
+\item \textbf{Regime~C --- controlled service-time asymmetry:}
+  (i) CPU multi-seed simulation $n{=}10$; (ii) real dual-T4 with one peer under a
+  controlled $\times 2$ end-to-end service-time inflation, $n{=}10\times 30$
+  (Section~\ref{sec:regimeC}).
+\item \textbf{Regime~D --- physical heterogeneity (real T4$+$A30):}
+  Tesla~T4 (16\,GB) and NVIDIA~A30 (24\,GB), unmodified vLLM, no injected delay, mixed
+  $\texttt{max\_tokens}$, primary cell $n{=}5$ seeds $\times$ 40 requests, plus an
+  offset robustness cell and fixed-length slope-sensitivity cells
+  (Section~\ref{sec:regimeD}).
+\item \textbf{Admission safety (real dual-T4; not lettered as a Regime):}
+  $n{=}10\times 40$ with a deliberately tight SLO; a calibration stress test, not a
+  throughput comparison (Section~\ref{sec:evalC}).
 \end{enumerate}
 
-\paragraph{Baselines and metrics.}
-Round-Robin (RR), Least-Loaded (LL), RLS~\cite{haykin2002adaptive} ($d{=}2$,
-$\lambda{=}0.99$) under the same engines where applicable. Primary metrics:
-p50/p99 e2e mean$\pm$std; MAPE; fraction to backend e0; affinity hit rate /
-stickiness; admission reject rate, completions, absolute-vs-active disagreement.
-\textbf{MAPE under RR/LL:} DIO still runs a \emph{shadow} dual-timescale NLMS
-predictor on every completion for diagnostics even when the routing strategy is
-RR or LL; the MAPE column is that shadow model, not evidence that RR routes by
-$\hat{y}$. We do not claim a matched multi-node Orca~\cite{orca} or
-vLLM-distributed bake-off.
+\textbf{Baselines and metrics.} Round-Robin (RR), Least-Loaded (LL), and
+RLS~\cite{haykin2002adaptive} ($d{=}2$, $\lambda{=}0.99$) under the same engines
+where applicable. Primary metrics: p50/p99 e2e mean$\pm$std across seeds; MAPE;
+routing fraction to each backend; admission reject rate and completions. When the
+routing strategy is RR or LL, DIO still runs a \emph{shadow} dual-timescale NLMS
+predictor on every completion for diagnostics; the MAPE column is that shadow model,
+not evidence that RR routes by $\hat{y}$. Matched multi-node Orca~\cite{orca},
+vLLM-distributed, and Production Stack GPU bake-offs are out of scope.
 
 \subsection{Control-plane overhead}
 \label{sec:overhead}
-On a scalability microbench with many concurrent mock workers, instrumented
-scheduling completes in approximately $\mathbf{14\,\mu s}$ per request (worker scan,
-cost evaluation, prefix hash). Per-worker state is $\sim$256\,B. The control plane is
-not the bottleneck relative to LLM decode (Figure~\ref{fig:scalability}).
+We microbench only the gateway's \texttt{pick()} path (worker scan, cost evaluation,
+prefix hash), excluding network and engine decode. On a laptop-class CPU host with
+$32$ mock backends and $10^5$ sequential scheduling decisions (no GPU, synthetic
+worker delay), the median scheduling cost is approximately $\mathbf{14\,\mu s}$ per
+request; the local simulation cell in Section~\ref{sec:regimeC} reports a similar
+$\sim$9--10\,$\mu$s \texttt{pick()} cost for two workers. Per-worker state is
+$\sim$256\,B. Relative to multi-millisecond LLM decode, the control plane is not
+the bottleneck (Figure~\ref{fig:scalability}).
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.72\columnwidth]{fig6_scalability.png}
-\caption{Control-plane scalability microbench. Scheduling overhead remains
+\includegraphics[width=0.62\columnwidth]{fig6_scalability.png}
+\caption{Control-plane microbench (mock workers; scheduling only). Median overhead
 $\sim$14\,$\mu$s; plotted e2e latency is synthetic worker delay.}
 \label{fig:scalability}
 \end{figure}
 
-\subsection{Regime A: homogeneous dual-T4 (no free lunch)}
+\subsection{Matched replicas: homogeneous dual-T4}
 \label{sec:regimeA}
+\label{sec:mape}
 Table~\ref{tab:regimeA} is the primary homogeneous multi-seed matrix. On
-\emph{identical} backends, \textbf{NLMS does not beat Round-Robin on mean p99}
-(slightly worse: $-2.6\%\pm1.0\%$). This is the correct outcome if ranking is driven
-by learned service cost and workers truly look alike. Secondary signals: NLMS keeps
-tight p99 std ($31$\,ms) while Least-Loaded is sticky ($100\%$ to e0, p99 std
-$430$\,ms); RLS mis-routes (frac e0 $0.12$).
+\emph{identical} backends, NLMS stays near Round-Robin on mean p99
+($-2.6\%\pm1.0\%$)---the expected outcome when learned service costs match.
+Secondary signals favor stability: NLMS keeps tight p99 std ($31$\,ms) while
+Least-Loaded collapses to one worker ($100\%$ to e0, p99 std $430$\,ms); RLS
+mis-routes (frac e0 $0.12$).
 
-\begin{table}[!htb]
-\caption{Regime A (real, primary). Dual-T4 + vLLM + Qwen2.5-3B, HF tokenizer,
+NLMS MAPE on dual-T4 is high ($123\pm6\%$ with tokenizer). HF tokenizer vs.\ byte
+heuristic (W2, $n{=}3$): MAPE $117.5\pm10.9\%$ vs.\ $89.7\pm4.9\%$---tokenizer is
+worse, so error is structural (linear model, cold start, batching), not mere token
+counting. Routing uses $\arg\min S_w$; ranking under asymmetry is the success
+criterion (Regime~C). Absolute admission that trusts $\hat{y}$ is therefore unsafe
+(Section~\ref{sec:evalC}).
+
+\begin{table}[ht]
+\caption{Matched-replica control. Dual-T4 + vLLM + Qwen2.5-3B, HF tokenizer,
 $n{=}10\times 30$, $\texttt{max\_tokens}{=}32$. Mean$\pm$std.}
 \label{tab:regimeA}
 \centering
@@ -601,170 +645,375 @@ Least-Loaded & $3313\pm430$ & $141\pm13$ & $1.00\pm0.00$ & $+0.4\pm13\%$ \\
 \end{tabular}
 \end{table}
 
-\subsection{MAPE versus relative ranking}
-\label{sec:mape}
-NLMS MAPE on dual-T4 is \textbf{high} ($123\pm6\%$ with tokenizer). HF tokenizer vs.\
-byte heuristic (W2, $n{=}3$): MAPE $117.5\pm10.9\%$ vs.\ $89.7\pm4.9\%$---tokenizer is
-\textbf{worse}, so error is structural (linear model, cold start, batching), not mere
-token counting. Routing uses $\arg\min S_w$; ranking under skew is the success
-criterion (Regime C). Absolute admission that trusts $\hat{y}$ is therefore unsafe
-(Section~\ref{sec:evalC}).
+\subsection{Controlled service-time asymmetry}
+\label{sec:regimeC}
+We evaluate ranking under a clear service gap in simulation and on real dual-T4
+hardware. In simulation ($n{=}10$), with distinct true $(b,s)$ pairs, NLMS places
+$97.5\%$ of traffic on the fast worker and cuts p99 by $38.3\%\pm2.0\%$ vs.\ RR
+(Table~\ref{tab:sim}, left). RLS fails to rebalance (frac fast $0.40\pm0.18$).
+Local \texttt{pick()} overhead is NLMS $\approx 9.6\,\mu$s and RLS $\approx 9.4\,\mu$s
+at $d{=}2$.
 
-\subsection{Regime B: legacy Locust pilot (secondary)}
-\label{sec:regimeB}
-Table~\ref{tab:regimeB} retains a single-seed Locust pilot (longer decode, four
-logical workers). Absolute seconds are \textbf{not} comparable to Regime A
-milliseconds; we report it only for continuity with earlier pilots.
-
-\begin{table}[!htb]
-\caption{Regime B (legacy single-seed Locust pilot). Not multi-seed; different setup
-from Table~\ref{tab:regimeA}.}
-\label{tab:regimeB}
+On real dual-T4 ($n{=}10$), we apply a controlled $\times 2$ end-to-end service-time
+inflation on peer e1 via an instrumented latency path
+(\texttt{latency\_delay\_proxy}) while both peers still run real decode on real T4
+GPUs. This creates a reproducible slow-peer condition that models temporary
+slowdowns (interference, uneven queueing, thermal pressure) without a second GPU
+SKU. Table~\ref{tab:realC} (right): NLMS p99 $3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms
+($48.3\%\pm0.7\%$ improvement). RLS is weaker and noisier ($23.2\%\pm22.9\%$). Mean
+frac to e0 under NLMS is $0.47\pm0.08$. NLMS p99 stays close to the homogeneous
+Regime~A level because the router steers work away from the slower peer; Round-Robin
+pays the full $\times 2$ penalty on half the traffic. \begin{table}[ht]
 \centering
-\begin{tabular}{@{}llccc@{}}
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\caption{Simulation control. Slope-skew dual workers, $n{=}10\times 200$.}
+\label{tab:sim}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcc@{}}
 \toprule
-Trace & Strat. & p99 (s) & RPS & Fail \% \\
+Metric & NLMS & RR \\
 \midrule
-ShareGPT & NLMS & \textbf{67} & \textbf{0.37} & 0 \\
-ShareGPT & RR & 81 & 0.29 & 0 \\
-arXiv & NLMS & 52 & \textbf{0.36} & 0 \\
-arXiv & RR & 51 & 0.30 & 0 \\
-Azure & NLMS & 48 & 0.33 & 0 \\
-Azure & RR & 47 & 0.36 & 0 \\
+Frac.\ to fast & $0.975\pm0.00$ & $0.50\pm0.00$ \\
+p99 (sim) & $1411\pm34$ & $2287\pm49$ \\
+p99 vs RR & \multicolumn{2}{c}{$38.3\%\pm2.0\%$} \\
 \bottomrule
 \end{tabular}
-\end{table}
-
-\subsection{Regime C: service-time skew}
-\label{sec:regimeC}
-
-\paragraph{Simulation ($n{=}10$).}
-With distinct true $(b,s)$ pairs, NLMS places $97.5\%$ of traffic on the fast worker
-and cuts p99 by $38.3\%\pm2.0\%$ vs.\ RR (Table~\ref{tab:sim}). RLS fails to rebalance
-(frac fast $0.40\pm0.18$). Local \texttt{pick()} overhead: NLMS $\approx 9.6\,\mu$s,
-RLS $\approx 9.4\,\mu$s at $d{=}2$.
-
-\begin{table}[!htb]
-\caption{Regime C (simulation). Slope-skew dual workers, $n{=}10\times 200$.}
-\label{tab:sim}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.50\textwidth}
 \centering
+\caption{Real dual-T4 control with $\times 2$ injected asymmetry,
+$n{=}10\times 30$. NLMS p99 near Regime~A reflects avoidance of the slower peer.}
+\label{tab:realC}
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
 \begin{tabular}{@{}lccc@{}}
 \toprule
-Metric & NLMS & RR & Notes \\
+Strat. & p99 (ms) & frac e0 & vs RR \\
 \midrule
-Frac.\ to fast & $0.975\pm0.000$ & $0.500\pm0.000$ & \\
-p99 (sim units) & $1411\pm34$ & $2287\pm49$ & \\
-p99 vs RR & \multicolumn{2}{c}{$38.3\%\pm2.0\%$} & \\
+NLMS & $\mathbf{3427\pm38}$ & $0.47\pm0.08$ & $\mathbf{48.3\pm0.7\%}$ \\
+RLS & $5087\pm1505$ & $0.37\pm0.19$ & $23.2\pm22.9\%$ \\
+RR & $6632\pm37$ & $0.50\pm0.00$ & --- \\
 \bottomrule
 \end{tabular}
+\end{minipage}
 \end{table}
 
-\paragraph{Real dual-T4 service-time skew ($n{=}10$).}
-We inflate e1 wall-clock e2e by $\times 2$ via \texttt{latency\_delay\_proxy} while
-still serving real tokens on a real T4---a controlled \emph{slow peer}, not a second
-GPU SKU. This is an \textbf{artificial proxy} for the intro's organic divergence
-(thermal throttling, co-tenant noise, uneven queues); we measure the proxy
-reproducibly, not a natural interference trace. Table~\ref{tab:realC}: NLMS p99
-$3427\pm38$\,ms vs.\ RR $6632\pm37$\,ms ($48.3\%\pm0.7\%$ improvement). RLS is weaker
-and noisier ($23.2\%\pm22.9\%$). Mean frac to e0 under NLMS is modest
-($0.47\pm0.08$). NLMS p99 is close to Regime~A ($3413\pm31$\,ms) because the router
-largely avoids the delayed peer on the same hardware and probe workload; RR is much
-worse ($6632$\,ms) because half the traffic hits the $\times 2$ peer. Homogeneous
-longer decode ($\texttt{max\_tokens}{=}128$, $n{=}3\times 20$) stays tied with RR
-($13835\pm73$ vs.\ $13821\pm88$\,ms).
+\subsection{Physical GPU heterogeneity: T4 and A30}
+\label{sec:regimeD}
+Regime~C establishes that DIO ranks correctly when a peer is \emph{made} slow.
+The natural objection is that an injected $\times 2$ inflation is a proxy, whereas
+real hardware gaps are neither constant nor uniform across the request mix.
+Regime~D removes the proxy: two different GPU types, no instrumented delay path,
+identical weights, unmodified vLLM on both. M\'{e}lange~\cite{melange} addresses
+GPU-heterogeneous \emph{provisioning and placement}; DIO addresses online replica
+selection after a heterogeneous fleet has already been deployed, learning from
+black-box telemetry alone without requiring an offline latency/throughput
+performance-capacity model before deployment.
 
-\begin{table}[!htb]
-\caption{Regime C (real GPU, primary). Dual-T4 + delay-proxy $\times 2$,
-$n{=}10\times 30$, HF tokenizer. NLMS p99 near Table~\ref{tab:regimeA} is expected
-(avoids slow peer), not a copy artifact.}
-\label{tab:realC}
+\textbf{Setup.} One NVIDIA Tesla~T4 (16\,GB GDDR6) and one NVIDIA~A30 (24\,GB HBM2),
+each running an unmodified \texttt{vllm.entrypoints.openai.api\_server} with
+Qwen2.5-3B-Instruct (fp16), \texttt{--gpu-memory-utilization 0.85}, in a single
+datacentre region (E2E Networks On-Demand). Both workers export the Prometheus
+\texttt{/metrics} endpoint. The DIO gateway is co-located with the T4 worker and
+reaches the A30 over the provider network. Because we do not measure the path-latency
+delta, the experiment should not be interpreted as a network-independent speedup;
+if anything, co-location may favour the T4. We use the per-token slope $s$ in
+$\hat{y}=sN+b$ as a compact measure of the observed service-rate difference between
+workers (decode performance for this workload is expected to be strongly influenced
+by memory bandwidth, but we do not measure bandwidth directly).
+
+\textbf{Declared VRAM (not a performance profile).} Each backend's VRAM is declared
+explicitly (\texttt{--vram} 16000 / 24000\,MB) so the soft/hard VRAM terms of the
+joint cost use correct device memory sizes. This is configuration of hardware
+memory capacity, not an offline latency or throughput profile of either SKU.
+
+\textbf{Workload design: slope identifiability.} Regimes~A and~C fix
+\texttt{max\_tokens}, which leaves the token feature $N$ nearly constant. Under a
+near-constant regressor the decomposition of $\hat{y}$ into slope and intercept is
+ill-conditioned: many $(s,b)$ pairs fit the data equally well, so the learned $s$
+is arbitrary even when $\hat{y}$ itself is accurate. This does not harm ranking ---
+a constant absorbed into $b$ cancels when comparing peers --- but it makes any
+per-worker slope claim unsupportable. Regime~D therefore mixes
+$\texttt{max\_tokens}\in\{32,64,128,256\}$ with varied prompt lengths, giving $N$
+genuine spread. Cell~D3 (Table~\ref{tab:d3}) repeats the measurement at fixed
+lengths to show how constant $N$ compresses the learned slope gap.
+
+\textbf{Protocol.} Sequential load (one in-flight request), $n{=}5$ seeds $\times$ 40
+requests per strategy, fresh gateway process per seed. Strategies: dual-timescale
+NLMS, $d{=}2$ RLS, Round-Robin, Least-Loaded. Primary metrics: p50/p95/p99 e2e
+mean$\pm$std across seeds, routing fraction to the A30, and paired mean p99
+improvement vs.\ RR (wins/$n$). Sequential single-in-flight load isolates ranking
+from continuous-batching interactions; concurrent multi-in-flight Regime~D is left
+as future work (Section~\ref{sec:limitations}). Direct no-gateway probes on the same
+engines give a mean \emph{end-to-end} latency ratio
+$\mathrm{T4}/\mathrm{A30}\approx 2.68\times$ on fixed 64-token chats; this is a
+workload-level e2e ratio, distinct from the per-token slope ratio reported below.
+
+\textbf{Slope validation.} For every worker we fit an offline least-squares model
+to the same $(N,\,\text{observed latency})$ pairs the online learner trained on,
+using the gateway's own token feature so both estimators see identical inputs. The
+online NLMS slope is then reported against that OLS fit. Because NLMS is a tracking
+filter under a normalized step size rather than an unbiased estimator, its slope is
+expected to be shrunk toward zero relative to OLS; what matters for the scheduler
+is that the ordering and an approximately consistent ratio survive, since
+$\mathrm{pick}()$ consumes only relative costs.
+
+\textbf{Online routing results.}
+Table~\ref{tab:realD} reports the multi-seed matrix. The headline comparison against
+Round-Robin is that both online learners improve mean p99: NLMS by
+$\mathbf{33.3\%}$ (SD~$17.4\%$) and RLS by $33.7\%$ (SD~$24.1\%$), each with
+$\mathbf{5/5}$ paired wins (exact sign test $p{=}0.031$ under a coin-flip null). A
+seed-matched Wilcoxon signed-rank test on per-seed p99 (NLMS vs.\ RLS; $n{=}5$)
+yields $W{=}7$ (exact two-sided $p{=}1.00$): \emph{there is no evidence of a median
+p99 difference between NLMS and RLS at this sample size}. We therefore do not claim
+that dual-timescale NLMS is a more accurate ranker than $d{=}2$ RLS on this cell.
+The systems case for NLMS is different: \textbf{comparable central effectiveness to
+RLS} under the same linear feature model, with \textbf{$O(1)$ per-update cost}
+rather than $O(d^2)$, and \textbf{cleaner, lower-dispersion routing}. NLMS sends a
+mean of $\mathbf{89.5\%}$ of traffic to the A30 (SD~$2.1\%$); RLS averages $79.5\%$
+but with routing-fraction SD $0.375$ on a $[0,1]$ metric---not mild noise around a
+moderate mean: four seeds send $\ge$95\% of traffic to the A30, while a single seed
+flips toward the T4 ($12.5\%$ A30 / $87.5\%$ T4) and dominates the dispersion.
+NLMS also shows lower seed-to-seed p99 dispersion (SD $1328$ vs.\ $1821$\,ms). RR
+remains a clean $50/50$ control. Least-Loaded collapses entirely onto the T4
+($100\%$ of traffic) and \emph{regresses} mean p99 by $22.7\%$ (SD~$3.1\%$) vs.\ RR
+($0/5$ wins): queue depth alone is a poor proxy when peers differ in decode speed.
+
+\begin{table}[!t]
 \centering
+\caption{Online routing on real T4$+$A30 unmodified vLLM
+(Qwen2.5-3B, mixed \texttt{max\_tokens}, $n{=}5$ seeds $\times$ 40 requests,
+no injected delay, sequential). Mean$\pm$SD across seeds; vs RR is paired mean p99
+improvement (wins/$n$); frac~A30 is the routing fraction to the lower-latency GPU.}
+\label{tab:realD}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-Strategy & p99 (ms) & frac e0 & vs RR & MAPE (\%) \\
+Strategy & p50 (ms) & p99 (ms) & frac A30 & vs RR (p99) \\
 \midrule
-NLMS & $\mathbf{3427\pm38}$ & $0.47\pm0.08$ & $\mathbf{48.3\pm0.7\%}$ & $126\pm12$ \\
-RLS ($d{=}2$) & $5087\pm1505$ & $0.37\pm0.19$ & $23.2\pm22.9\%$ & $119\pm10$ \\
-Round-Robin & $6632\pm37$ & $0.50\pm0.00$ & --- & $102\pm3$ \\
+NLMS & $1130\pm271$ & $\mathbf{5092\pm1328}$ & $\mathbf{0.895\pm0.021}$ & $\mathbf{33.3\pm17.4\%}$ ($5/5$) \\
+RLS & $1183\pm490$ & $5045\pm1821$ & $0.795\pm0.375$ & $33.7\pm24.1\%$ ($5/5$) \\
+Round-Robin & $1524\pm222$ & $7629\pm210$ & $0.50\pm0.00$ & --- \\
+Least-Loaded & $3265\pm1160$ & $9356\pm257$ & $0.00\pm0.00$ & $-22.7\pm3.1\%$ ($0/5$) \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\textbf{Offset robustness seeds.}
+Table~\ref{tab:realDextra} reports five additional NLMS/RLS seeds with an offset
+workload seed base (same engines, sequential mixed-length protocol). The cell was
+collected to check that A30-directed routing is not an artefact of the first five
+seeds; it does not re-run Round-Robin, so we report routing fraction and p99 rather
+than paired vs-RR improvements. NLMS sends a mean of $92\%$ of traffic to the A30
+(SD~$1.9\%$); RLS sends $97\%$ (SD~$1.0\%$). Both learners remain A30-directed,
+consistent with Table~\ref{tab:realD}.
+
+\begin{table}[!t]
+\centering
+\caption{Offset robustness cell on the same T4$+$A30 pair
+($n{=}5$ additional seeds $\times$ 40 requests, sequential mixed \texttt{max\_tokens};
+NLMS/RLS only). Mean$\pm$SD across seeds.}
+\label{tab:realDextra}
+\footnotesize
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Strategy & p99 (ms) & frac A30 \\
+\midrule
+NLMS & $5555\pm1142$ & $0.920\pm0.019$ \\
+RLS & $4562\pm1067$ & $0.970\pm0.010$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Ordering check.}
+Table~\ref{tab:slopeD} compares online NLMS slopes to offline OLS on the same
+observed pairs. OLS recovers a T4/A30 \emph{per-token slope} ratio of
+$29.80/10.58\approx 2.82\times$ (high $R^2$). This is distinct from the $2.68\times$
+fixed-length e2e probe above. NLMS slopes are shrunk toward zero --- as expected of
+a tracking filter --- but preserve order and an approximately consistent A30/T4
+ratio ($0.318$ vs.\ OLS $0.355$).
+
+\begin{table}[!t]
+\centering
+\caption{Ordering check on T4$+$A30. Online NLMS per-token slope
+vs.\ offline OLS on the same observed $(N,\text{latency})$ pairs under RR traffic
+($n{=}5$ seeds; $R^2$ from the pooled OLS fit). Ratio is A30/T4 (smaller $=$ lower
+per-token cost on A30).}
+\label{tab:slopeD}
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Worker & VRAM (MB) & NLMS $s$ & OLS $s$ & $R^2$ \\
+\midrule
+T4 & 16000 & $16.03\pm1.67$ & $29.80$ & $0.982$ \\
+A30 & 24000 & $5.10\pm0.57$ & $10.58$ & $0.988$ \\
+\midrule
+Ratio (A30/T4) & --- & $0.318$ & $0.355$ & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Fixed-length slope sensitivity (cell D3).}
+Table~\ref{tab:d3} fixes \texttt{max\_tokens} at $32$, $128$, or $256$
+($n{=}3$ seeds each). NLMS still routes most traffic to the A30, but the learned
+T4/A30 slope ratio collapses toward $1$ as $N$ becomes nearly constant
+($1.34\times$, $1.16\times$, $1.09\times$), whereas mixed-length OLS in
+Table~\ref{tab:slopeD} separates the workers by $\approx 2.82\times$. Ranking can
+succeed under fixed length; trustworthy per-worker slope estimates require spread
+in $N$.
+
+\begin{table}[!t]
+\centering
+\caption{Cell D3: fixed \texttt{max\_tokens} on T4$+$A30 (NLMS only, $n{=}3$ seeds
+each). Learned slopes lose separation as $N$ becomes nearly constant; routing to
+A30 remains high.}
+\label{tab:d3}
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+$\texttt{max\_tokens}$ & p99 (ms) & frac A30 & NLMS $s_{\mathrm{T4}}$ & NLMS $s_{\mathrm{A30}}$ \\
+\midrule
+32 & $728\pm16$ & $0.975$ & $2.68$ & $2.00$ \\
+128 & $3621\pm5$ & $0.900$ & $7.79$ & $6.74$ \\
+256 & $7184\pm4$ & $0.892$ & $9.42$ & $8.64$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Takeaway.} On real heterogeneous unmodified vLLM under sequential load,
+black-box online ranking beats RR and LL without requiring an offline
+latency/throughput model before deployment. Dual-timescale NLMS matches RLS on
+central p99 while offering $O(1)$ updates and more stable A30-directed routing; the
+OLS ordering check is diagnostic, not a deployment prerequisite. Concurrent load,
+more seeds, and a simple EWMA baseline remain open
+(Section~\ref{sec:limitations}).
+
+\iffalse
 \subsection{Hybrid cost on real dual-T4 multi-turn}
 \label{sec:evalA}
-Subsections~\ref{sec:evalA}--\ref{sec:evalC} are the \textbf{primary real-hardware}
-checks of the title mechanisms, using dual stock vLLM on Tesla~T4, Qwen2.5-3B,
-HF tokenizer, and live Prometheus \texttt{/metrics} scrape
-(\texttt{run\_gpu\_abc\_suite.py}, $n{=}10$ seeds). Workload: multi-turn sessions with
-long shared system prefixes (agent-style), $12$ sessions $\times$ $4$ turns,
-$\texttt{max\_tokens}{=}32$, with light concurrency on G1 to build real queue/KV
-activity. Metrics probe confirmed scrape \texttt{ok} on both engines before load.
+The next experiments are the primary real-hardware checks of hybrid cost,
+affinity, and admission on \emph{homogeneous} dual-T4 (stock vLLM, Qwen2.5-3B, HF
+tokenizer, live Prometheus \texttt{/metrics}, \texttt{run\_gpu\_abc\_suite.py},
+$n{=}10$ seeds). Workload: multi-turn sessions with long shared system prefixes
+(agent-style), $12$ sessions $\times$ $4$ turns, $\texttt{max\_tokens}{=}32$. Metrics
+probe confirmed scrape \texttt{ok} on both engines before load.
 
-\paragraph{Setup (G1).}
-Three DIO configurations: \texttt{nlms\_hybrid\_on} (metrics scrape + hybrid cost
-terms), \texttt{nlms\_hybrid\_off} (NLMS only, scrape disabled), and Round-Robin.
-All use rank-only admission (no SLO rejects).
+\textbf{G1 design: a $2\times2$ confound, and what we can still conclude.}
+The two G1 NLMS arms differ in \emph{two} knobs simultaneously:
+\begin{description}
+\item[\texttt{nlms\_hybrid\_on}] \texttt{engine\_metrics=True}, \texttt{cache\_bonus\_ms=200}
+\item[\texttt{nlms\_hybrid\_off}] \texttt{engine\_metrics=False}, \texttt{cache\_bonus\_ms=0}
+\end{description}
+The published contrast therefore bundles the scraped \texttt{/metrics} fusion
+(Contribution~2) with the session-affinity cache bonus (Contribution~1).
+We audit this in the text and the appendix rather than silently correcting it
+because the audit itself is instructive. The arithmetic is straightforward:
+across the 100 snapshots recorded by the campaign, max possible engine-metric
+penalty is $1.032$\,ms, against the affinity bonus of $200$\,ms --- a $194{\times}$
+ratio.\footnote{Appendix~\ref{app:g1-seeds} and the companion repository
+(\texttt{scripts/audit\_g1\_confound.py}) reproduce the decomposition.}
 
-\paragraph{Results.}
-Table~\ref{tab:hybrid} and Figure~\ref{fig:evalA}: hybrid-on mean p99 is
-$2000\pm1031$\,ms (median $1633$\,ms) vs.\ hybrid-off $3378\pm43$\,ms and RR
-$3388\pm21$\,ms. Per-seed p99 improvement vs.\ RR is
-$\mathbf{40.9\%\pm30.5\%}$ (positive on $\mathbf{8/10}$ seeds; two seeds slightly
-negative when load spreads). Hybrid-off is near RR on p99 under concurrent multi-turn
-load---scrape-enabled hybrid terms separate the arms. Stickiness under hybrid-on is
-$0.998\pm0.007$ (RR $0.75$). High hybrid-on variance is real: warm sticky seeds keep
-low tails; balanced seeds look RR-like. The stable claim is that hybrid metrics
-improve multi-turn tails on most seeds, not that every seed matches the old $n{=}5$
-point estimate.
+Two additional implementation facts bear on the interpretation. First, \texttt{--enable-prefix-caching} was not passed to vLLM, so the engine never exported
+\texttt{vllm:prefix\_cache\_hits/queries} and the $c_p{\cdot}\text{Hit}_w$ term was
+identically zero in every run. Second, the ``concurrent'' flag in
+\texttt{run\_multiturn\_load} used a synchronous \texttt{httpx.Client}, so at most
+one request was ever in flight; $\max(\texttt{num\_running}){=}1$,
+$\max(\texttt{num\_waiting}){=}0$, and the $c_q{\cdot}W_w$ term was also zero.
 
-\begin{table}[!htb]
-\caption{Real dual-T4 multi-turn hybrid suite ($n{=}10$; 12 sessions $\times$ 4 turns;
-live \texttt{/metrics}; concurrent load). Mean$\pm$std.}
+\textbf{What the numbers show.}
+Table~\ref{tab:hybrid} and Figure~\ref{fig:evalA} report the measured data unaltered.
+Hybrid-on mean p99 is $2000\pm1031$\,ms (median $1633$\,ms) vs.\ hybrid-off
+$3378\pm43$\,ms and RR $3388\pm21$\,ms. Per-seed p99 improvement vs.\ RR is
+$\mathbf{40.9\%\pm30.5\%}$ (median $\mathbf{51.8\%}$; positive on $\mathbf{8/10}$
+seeds). A two-sided Wilcoxon signed-rank test on paired seed p99 (hybrid-on vs.\ RR)
+gives $W{=}3$ at $n{=}10$ ($W_+{=}52$, $W_-{=}3$), $p{\approx}0.01$, which is
+statistically significant but does not identify \emph{which} knob drove the gain.
+
+Given the $194{\times}$ ratio above, we attribute the effect to the cache-bonus
+term (Contribution~1, session affinity), not to the scraped gauge terms
+(Contribution~2) --- the reverse of how earlier drafts of this manuscript read the
+same data. Hybrid-off remains near Round-Robin on p99, so the NLMS ranker itself is
+not the source. Stickiness under hybrid-on is $0.998\pm0.007$ (RR $0.75$).
+
+To correctly attribute the two knobs, we complement the GPU campaign with a
+$2{\times}2$ factorial mechanism-study on mock-engines that export the identical
+Prometheus gauges but where concurrency and prefix-caching are provably active
+($\texttt{peak\_running}{=}4$ on every seed). With $n{=}20$ seeds, the mock
+factorial gives $\text{engine\_metrics\_effect} = +2.5\% \pm 28.3\%$ (not
+significant) and $\text{affinity\_effect} = +6.9\% \pm 24.9\%$ (not significant at
+these low latencies, $\sim$220\,ms). The mock study confirms that the scraped
+signal is real but small, and that at the $\sim$3\,s latencies of the dual-T4
+regime, the 200--400\,ms cache bonus is the first-order term. The paper keeps the
+GPU data as-is under the corrected attribution; a re-run of the factorial on
+dual-T4 hardware with \texttt{--enable-prefix-caching} and a multi-threaded load
+generator remains on our maintenance roadmap.
+
+\textbf{An unexpected secondary finding.} Hybrid-off sends 81--98\% of traffic to
+e0 yet its p99 ($\sim$3378\,ms) is indistinguishable from Round-Robin
+($\sim$3388\,ms). The NLMS ranker homogenizes latency across two identical-T4
+engines, but strongly favoring one peer at negligible tail penalty is a property
+we cannot fully explain from the current data and flag as a question for further
+study.
+
+\begin{table}[!t]
+\caption{Real dual-T4 multi-turn hybrid suite (G1; $n{=}10$; 12$\times$4 turns;
+live \texttt{/metrics}). \textbf{The two NLMS arms differ in two knobs at once}
+(engine metrics \emph{and} cache bonus $C$), so the $40.9\%$ margin is the
+\emph{joint} effect, not the engine-metric effect; Section~\ref{sec:evalA} shows
+the cache bonus dominates by $194{\times}$. Not comparable to
+Table~\ref{tab:affinity} ($C{=}400$\,ms). Mean$\pm$std; median p99-vs-RR $51.8\%$;
+Wilcoxon $W{=}3$, $p{\approx}0.01$. Per-seed: Appendix~\ref{app:g1-seeds}.}
 \label{tab:hybrid}
 \centering
+\footnotesize
 \begin{tabular}{@{}lcccc@{}}
 \toprule
-Mode & p99 (ms) & Stickiness & Aff.\ hit & p99 vs RR \\
+Arm (knobs) & p99 (ms) & Stickiness & Aff.\ hit & p99 vs RR \\
 \midrule
-NLMS + hybrid metrics & $2000\pm1031$ & $0.998\pm0.007$ & $0.925\pm0.018$ & $\mathbf{40.9\pm30.5\%}$ \\
-NLMS, hybrid off & $3378\pm43$ & $0.956\pm0.012$ & $0.855\pm0.025$ & $\sim$0\% \\
+NLMS, metrics\,+\,affinity ($C{=}200$) & $2000\pm1031$ & $0.998\pm0.007$ & $0.925\pm0.018$ & $\mathbf{40.9\pm30.5\%}$ \\
+NLMS, neither ($C{=}0$) & $3378\pm43$ & $0.956\pm0.012$ & $0.855\pm0.025$ & $\sim$0\% \\
 Round-Robin & $3388\pm21$ & $0.750\pm0.00$ & $0.00$ & --- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.78\columnwidth]{fig_hybrid_A.png}
-\caption{Real dual-T4 multi-turn hybrid suite ($n{=}10$). (a)~p99 e2e; (b)~session
+\includegraphics[width=0.70\columnwidth]{fig_hybrid_A.png}
+\caption{Dual-T4 multi-turn hybrid suite ($n{=}10$). (a)~p99 e2e; (b)~session
 stickiness.}
 \label{fig:evalA}
 \end{figure}
 
 \subsection{Session affinity on real dual-T4 multi-turn}
 \label{sec:evalB}
+Same dual-T4 engines and multi-turn prefixes. G2 uses concurrent$=1$; G2b uses
+concurrent$=2$. NLMS uses raised cache bonus $C{=}400$\,ms with hybrid scrape vs.\
+Round-Robin ($n{=}10$). G1 and G2 share hardware but not $C$, so stickiness values
+near $1.0$ in both tables are not the same configuration.
 
-\paragraph{Setup (G2 / G2b).}
-Same dual-T4 engines; multi-turn with long system prefixes. G2 uses concurrent$=1$;
-G2b uses concurrent$=2$ under load. NLMS with raised cache bonus ($C{=}400$\,ms) and
-hybrid scrape vs.\ Round-Robin ($n{=}10$).
-
-\paragraph{Results.}
 Table~\ref{tab:affinity} and Figure~\ref{fig:evalB}: under concurrent$=1$,
 NLMS+affinity stickiness is $\mathbf{1.00}$ vs.\ RR $\mathbf{0.50}$; affinity hit
 rate is $\mathbf{0.912\pm0.013}$. Mean p99 is $2335\pm852$\,ms vs.\ RR
-$3386\pm8$\,ms (high variance; several seeds near $1.6$--$1.8$\,s). Under concurrent
-load (G2b), stickiness remains $\mathbf{0.998\pm0.007}$ vs.\ RR $0.75$, and hit rate
-is $\mathbf{0.932\pm0.005}$---affinity does not collapse under load. For multi-turn
+$3386\pm8$\,ms. Under concurrent load (G2b), stickiness remains
+$\mathbf{0.998\pm0.007}$ vs.\ RR $0.75$, and hit rate is
+$\mathbf{0.932\pm0.005}$---affinity does not collapse under load. For multi-turn
 and agent traffic~\cite{autogen,langgraph,preble}, dual-T4 evidence supports keeping
-turns on the warm replica without multi-SKU hardware, complementary to in-engine
+turns on the warm replica, complementary to in-engine
 RadixAttention~\cite{radixattention}.
 
-\begin{table}[!htb]
-\caption{Real dual-T4 multi-turn affinity ($n{=}10$; 12$\times$4 turns). Mean$\pm$std.
-G2b = concurrent load.}
+\begin{table}[!t]
+\caption{Real dual-T4 multi-turn affinity (G2/G2b; $n{=}10$; 12$\times$4 turns;
+$C{=}400$\,ms). Not comparable to Table~\ref{tab:hybrid} ($C{=}200$\,ms).
+Mean$\pm$std. G2b = concurrent load.}
 \label{tab:affinity}
 \centering
+\footnotesize
 \begin{tabular}{@{}lcccc@{}}
 \toprule
 Mode & Conc. & Aff.\ hit & Stickiness & p99 (ms) \\
@@ -777,37 +1026,35 @@ Round-Robin & 2 & $0.00$ & $0.75\pm0.00$ & $3378\pm16$ \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.78\columnwidth]{fig_affinity_B.png}
-\caption{Real dual-T4 multi-turn affinity ($n{=}10$). Hit rate, stickiness under
-load, and p99 (concurrent$=1$).}
+\includegraphics[width=0.70\columnwidth]{fig_affinity_B.png}
+\caption{Dual-T4 multi-turn affinity ($n{=}10$): hit rate, stickiness under load,
+and p99 (concurrent$=1$).}
 \label{fig:evalB}
 \end{figure}
 
-%%=============================================================================
-\subsection{Admission safety on the real gateway}
+\fi
+\subsection{Admission safety under poor absolute calibration}
 \label{sec:evalC}
-
-\paragraph{Setup (G3).}
 Same dual-T4 pair; sequential short chat probes ($40$/seed, $n{=}10$). Tight SLO
 $L{=}800$\,ms (below typical e2e on this setup) exercises admission under unreliable
 absolute $\hat{y}$ (Section~\ref{sec:mape}). Modes: \texttt{absolute},
 \texttt{empirical}, \texttt{rank\_only}.
 
-\paragraph{Results.}
 Table~\ref{tab:admission} and Figure~\ref{fig:evalC}: \texttt{absolute} rejects
-$\mathbf{39.5\%\pm21.0\%}$ of requests (HTTP 503). \texttt{empirical} and
+$\mathbf{0.40\pm0.21}$ of requests (HTTP 503; $\sim$40\%). \texttt{empirical} and
 \texttt{rank\_only} reject $\mathbf{0\%}$ and complete all $40$ requests per seed.
-Completed-request p99 is similar across modes ($\sim$3.4\,s); the systems point is
-reject \emph{rate}: absolute thrash under high MAPE, empirical and rank\_only do
-not~\cite{clockwork,distserve,sloawarellm}.
+Completed-request p99 is similar across modes ($\sim$3.4\,s). The relevant metric is
+reject \emph{rate}: absolute mode over-rejects under high MAPE, while empirical and
+rank\_only do not~\cite{clockwork,distserve,sloawarellm}.
 
-\begin{table}[!htb]
+\begin{table}[!t]
 \caption{Real dual-T4 admission suite ($n{=}10\times 40$; SLO $L{=}800$\,ms).
 Mean$\pm$std. p99 is over completed requests only.}
 \label{tab:admission}
 \centering
+\footnotesize
 \begin{tabular}{@{}lccc@{}}
 \toprule
 Mode & Reject rate & Completed / 40 & p99 completed (ms) \\
@@ -819,130 +1066,330 @@ Mode & Reject rate & Completed / 40 & p99 completed (ms) \\
 \end{tabular}
 \end{table}
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
-\includegraphics[width=0.78\columnwidth]{fig_admission_C.png}
-\caption{Real dual-T4 admission under tight SLO ($n{=}10$). Absolute rejects
+\includegraphics[width=0.70\columnwidth]{fig_admission_C.png}
+\caption{Dual-T4 admission under tight SLO ($n{=}10$). Absolute rejects
 $\sim$40\%; empirical and \texttt{rank\_only} reject none.}
 \label{fig:evalC}
 \end{figure}
 
-%%=============================================================================
+\iffalse
 \subsection{Ablations and resilience}
 \label{sec:ablation}
-On an L4 stressed long-prompt microbench, removing VRAM admission elevates hard
-failures ($\sim$23\%); removing queue wait raises tail latency; removing tiers hurts
-mixed-capability mixes (Figure~\ref{fig:ablres}a). Cold-start and overload behaviors
-are summarized in the same figure (b): under intentional overload, DIO returns
-HTTP 503 rather than unbounded queueing, which matches empirical/rank-only safety
-rather than absolute-$\hat{y}$ thrashing.
+On a library long-prompt microbench (secondary to the dual-T4 suite), removing VRAM
+admission elevates hard failures ($\sim$23\%); removing queue wait raises tail
+latency; removing tiers hurts mixed-capability mixes (Figure~\ref{fig:ablres}a).
+Cold-start and overload behaviors are summarized in the same figure~(b): under
+intentional overload, DIO returns HTTP 503 rather than unbounded queueing, consistent
+with empirical/rank-only safety rather than absolute-$\hat{y}$ thrashing.
 
-\begin{figure}[!htb]
+\begin{figure}[ht]
 \centering
 \begin{minipage}[t]{0.48\columnwidth}
 \centering
-\includegraphics[width=\linewidth]{fig_ablation.png}\\[-0.2em]
+\includegraphics[width=\linewidth]{fig_ablation.png}\\[2pt]
 {\footnotesize (a) Cost-term ablation}
 \end{minipage}\hfill
 \begin{minipage}[t]{0.48\columnwidth}
 \centering
-\includegraphics[width=\linewidth]{fig5_resilience_FINAL.png}\\[-0.2em]
+\includegraphics[width=\linewidth]{fig5_resilience_FINAL.png}\\[2pt]
 {\footnotesize (b) Resilience / overload}
 \end{minipage}
-\caption{L4 microbench ablations. (a)~Cost-term ablation. (b)~Resilience including
-overload admission (HTTP 503).}
+\caption{Library microbench ablations (secondary). (a)~Cost terms.
+(b)~Overload admission (HTTP 503).}
 \label{fig:ablres}
 \end{figure}
+\fi
+
+%%=============================================================================
+\section{Positioning against existing systems}
+\label{sec:sys-compare}
+\iffalse
+
+Table~\ref{tab:sys-compare} places DIO among representative LLM serving stacks.
+Headline numbers from prior work are not directly comparable to our dual-T4
+measurements: they use different system layers, hardware classes, and metrics. We
+report them only to position our gateway relative to those systems.
+
+\begin{table}[!t]
+\caption{Systems comparison (layer, invasiveness, representative published claims,
+and relation to DIO). Prior numbers are from each paper's own evaluation; DIO
+numbers are dual-T4 + Qwen2.5-3B + stock vLLM ($n{=}10$ multi-seed where noted).}
+\label{tab:sys-compare}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{1.55cm}p{2.0cm}p{1.35cm}p{3.55cm}p{3.7cm}@{}}
+\toprule
+System & Layer & Engine mods & Representative claim & Relation to DIO \\
+\midrule
+vLLM / SGLang / TGI
+  & Single-node engine
+  & N/A (the engine)
+  & Continuous batching, PagedAttention / RadixAttention
+  & DIO sits \emph{in front}; reuses stock \texttt{/metrics} \\
+Round-Robin / least-conn.\ (Nginx, Envoy, K8s)
+  & L7 multi-instance
+  & None
+  & Equal capacity units; no engine gauges
+  & Primary head-to-head baseline; DIO beats RR under skew and multi-turn \\
+Ray Serve / Triton
+  & Orchestrator
+  & None / model repo
+  & Actor / model-level routing; operator metrics
+  & Complementary; DIO is request-level NLMS+hybrid+admission \\
+DistServe~\cite{distserve}
+  & Prefill/decode disagg.
+  & Co-designed
+  & OSDI'24: up to $7.4\times$ higher request rate or $12.6\times$ tighter SLO vs.\ co-located SOTA (earlier arXiv: up to $4.48\times$ / $10.2\times$); $>$90\% SLO attainment
+  & Orthogonal win at pipeline split; not a stock multi-vLLM gateway \\
+Splitwise~\cite{splitwise}
+  & Phase splitting
+  & Co-designed
+  & Phase-split placement/cost wins on large fleets (paper-specific cluster setups)
+  & Same layer class as DistServe; out of DIO scope \\
+Mooncake~\cite{mooncake}
+  & KV-centric disagg.\ + early reject
+  & Co-designed
+  & Up to $525\%$ throughput gain in simulated long-context overload; $\sim$75\% more requests under real Kimi workloads (authors' report)
+  & Cluster co-design; DIO does not disaggregate KV pools \\
+MemServe~\cite{memserve}
+  & Elastic MemPool + global cache policy
+  & Co-designed
+  & Improved JCT/TTFT via global prompt-tree locality (qualitative abstract claim; no single headline multiplier)
+  & Global memory plane; DIO uses only per-instance Prometheus \\
+Llumnix~\cite{llumnix}
+  & Live rescheduling
+  & KV migration hooks
+  & Up to order-of-magnitude tail; high-prio up to $1.5\times$; up to $\sim$36\% cost savings (authors' eval)
+  & Requires live migration; DIO is sticky routing without moving KV \\
+NexusSched~\cite{nexussched}
+  & Predictive + engine co-design
+  & Deep hooks
+  & Multi-feature $O(d^2)$ predictors + two-layer synergy (see paper for workload-specific gains)
+  & Heavier model/update; DIO uses $O(d)$ dual-timescale NLMS \\
+Preble~\cite{preble} / CacheBlend~\cite{cacheblend}
+  & Prompt / cache-aware schedule
+  & Varies
+  & Large gains from shared-prefix / cached-knowledge reuse (workload-dependent)
+  & Motivates affinity; DIO adds gateway stickiness + scrape on stock vLLM \\
+\midrule
+\textbf{DIO (this work)}
+  & Multi-instance gateway
+  & \textbf{None} (HTTP)
+  & Homogeneous parity; $\times 2$ skew: \textbf{48.3\%}$\pm$0.7\% p99 vs RR; multi-turn affinity \textbf{8/10} seeds; T4$+$A30: $\sim$90\% to fast SKU, \textbf{33.3\%}$\pm$17.4\% p99 vs RR ($5/5$); stickiness $\approx$1; safe admission
+  & Thin OpenAI front door for stock multi-vLLM \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{What prior systems optimize.}
+DistServe, Splitwise, Mooncake, and MemServe co-design prefill/decode pools, KV
+placement, or elastic memory planes; their published multiplications of goodput or
+throughput assume that architectural freedom~\cite{distserve,splitwise,mooncake,memserve}.
+Llumnix and NexusSched go further into live KV migration or engine-coupled
+predictors~\cite{llumnix,nexussched}. An operator who can adopt those stacks should
+do so:
+their numbers---DistServe up to $7.4\times$ request rate / $12.6\times$ tighter SLO
+(OSDI'24)~\cite{distserve}, Mooncake up to $525\%$ simulated throughput and
+$\sim$75\% more real-load requests~\cite{mooncake}, Llumnix order-of-magnitude
+tails / up to $\sim$36\% cost~\cite{llumnix}---are the right class of win for that
+deployment model. Table~\ref{tab:sys-compare} quotes those figures from each paper's
+own evaluation and does not re-benchmark them.
+
+\textbf{Where DIO is better fitted.}
+Many production sites already run two or three stock vLLM (or SGLang/TGI) processes
+behind Nginx/Envoy/Ray Serve with Round-Robin. That is the pattern we optimize.
+Head-to-head on stock vLLM + Qwen2.5-3B: (i)~homogeneous dual-T4 short probes show
+near-RR parity (Section~\ref{sec:regimeA}); (ii)~controlled $\times 2$ service
+asymmetry: NLMS cuts p99 by \textbf{48.3\%$\pm$0.7\%} vs.\ RR
+(Section~\ref{sec:regimeC}); (iii)~real multi-turn affinity wins on \textbf{8/10}
+seeds (Section~\ref{sec:evalA}) with stickiness \textbf{1.00 vs.\ 0.50}
+(Section~\ref{sec:evalB}); (iv)~physical T4$+$A30 multi-SKU ranking:
+$\sim$90\% traffic to the faster card and \textbf{33.3\%$\pm$17.4\%} p99 vs.\ RR
+(Section~\ref{sec:regimeD}); (v)~empirical/rank\_only admission complete traffic
+under a tight SLO while absolute mode rejects $\sim$40\% on dual-T4
+(Section~\ref{sec:evalC}). Envoy/Ray Serve can weight backends by operator gauges,
+but typically do not fuse dual-timescale NLMS, stock vLLM Prometheus scrape,
+multi-turn prefix affinity with reported hit rate, and decoupled admission in one
+request path.
+
+\textbf{Test-suite scope.}
+Prior systems often report large-fleet results on A100/H100-class hardware with
+application traces and goodput under SLO. Our suite is intentionally focused and
+reproducible: dual stock vLLM, Qwen2.5-3B, dual-T4 $n{=}10$ for G1--G3, T4$+$A30
+$n{=}5$ for Regime~D, library coefficient checks, and controlled service-time
+asymmetry for Regime~C. That matches the common multi-instance operator pattern and
+is not a bake-off against disaggregated DistServe/Mooncake fleets.
+Table~\ref{tab:sys-compare} is a positioning table, not a leaderboard.
+
+%%=============================================================================
+\fi
+\begin{table}[ht]
+\caption{Scope comparison. This is not a performance leaderboard: published
+systems use different models, clusters, workloads, and metrics.}
+\label{tab:scope-compare}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{2.2cm}p{2.4cm}p{2.1cm}p{3.4cm}@{}}
+\toprule
+System & Interface to engines & Primary routing signal & Relation to DIO \\
+\midrule
+vLLM Production Stack~\cite{productionstack}
+ & Kubernetes or static backends & Session/prefix-aware policies
+ & Deployable without a full cluster (static discovery). \\
+Gateway API Inference Extension / llm-d~\cite{gaie,llmd}
+ & Kubernetes Endpoint Picker & Engine metrics, request cost, prefix/cache state
+ & Broader cluster integration; DIO is a smaller standalone HTTP gateway. \\
+NVIDIA Dynamo~\cite{dynamo}
+ & Dynamic worker discovery and KV events & KV overlap plus prefill/decode load
+ & Richer cache state; DIO uses ordinary HTTP endpoints and e2e telemetry. \\
+Llumnix~\cite{llumnix}
+ & Engine hooks plus live migration & Fine-grained instance state and rescheduling
+ & Co-designed system with a broader optimization scope. \\
+\textbf{DIO (this work)}
+ & Unmodified OpenAI-compatible vLLM APIs & Online per-worker latency ranking
+ & T4$+$A30 routing without a pre-deployment latency/throughput model. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Published systems use different hardware, fleets, models, and optimization layers;
+their numbers are not a leaderboard against ours. DIO's contribution is a
+reproducible measurement of black-box online ranking on two unequal unmodified vLLM
+replicas, plus the admission-calibration boundary. Both DIO and the Production Stack
+router speak OpenAI-compatible HTTP; Production Stack also supports static
+discovery without Kubernetes, so operators can extend from a laptop smoke path to a
+cluster-native install without changing the engine interface.
 
 %%=============================================================================
 \section{Discussion and limitations}
 \label{sec:limitations}
 
-\paragraph{When each mechanism matters.}
-NLMS ranking alone helps under observed service skew (Section~\ref{sec:regimeC}), not
-when peers match (Section~\ref{sec:regimeA}). Hybrid scrape terms matter under real
-multi-turn pressure with live \texttt{/metrics} (Section~\ref{sec:evalA}); without
-scrape, multi-turn concurrent p99 collapses toward RR. Affinity stickiness holds at
-concurrent$=1$ and under concurrent load (Section~\ref{sec:evalB}). Prefer
-\texttt{empirical} or \texttt{rank\_only} admission when MAPE is high
-(Section~\ref{sec:evalC}). In practice: enable hybrid scrape when \texttt{/metrics}
-exists, keep affinity on for chat/agent traffic, and do not gate production traffic
-on absolute $\hat{y}$ alone.
+\textbf{What the experiments establish.}
+NLMS ranking helps when workers have an observed service gap, either controlled
+(Section~\ref{sec:regimeC}) or physical (Section~\ref{sec:regimeD}); it should not
+be expected to improve matched replicas (Section~\ref{sec:regimeA}). Prefer
+\texttt{empirical} or \texttt{rank\_only} admission when absolute prediction error
+is high (Section~\ref{sec:evalC}). Optional affinity and scraped-metric paths are
+implementation capabilities and are not sold as independent performance wins here.
 
-\paragraph{Hybrid coefficient sensitivity.}
-\label{sec:coeff-sens}
-The dual-T4 hybrid headline uses defaults $(c_{\mathrm{kv}},c_q,c_p)=(800,50,150)$.
-A library multi-seed check ($n{=}10$) scales each coefficient independently by
-$\pm 50\%$ under injected engine pressure. Under that strong asymmetry, all variants
-still send all traffic to the cool worker (frac cool $=1.0$) and p99 is unchanged
-relative to default---i.e., the \emph{routing decision} is invariant once the hybrid
-signal is strong enough. That does \emph{not} replace a dual-T4 grid search of the
-multi-turn headline (mean $\sim$41\% vs.\ RR at $n{=}10$): the magnitude of that
-real-engine gain may still depend on the defaults. We treat dual-T4 coefficient
-sensitivity as an open question and ship config overrides plus a GPU sweep mode
-(\texttt{run\_gpu\_abc\_suite.py --run-coeff}).
-
-\paragraph{Limitations and open strengthenings.}
-(i)~Hybrid telemetry is limited to stock vLLM Prometheus exports (no continuous NVML
-SM/power loop). (ii)~Regime~C skew is a delay-proxy on identical T4s, not multi-SKU
-hardware or organic thermal/co-tenant traces---the intro's motivating organic
-divergence is measured only via that reproducible proxy. (iii)~Title-mechanism dual-T4
-multi-turn cells now use $n{=}10$, but hybrid-on and affinity p99 remain high-variance
-(some seeds near RR); stickiness and admission reject rates are the more stable
-signals. (iv)~Hybrid coefficients are heuristic-default plus library $\pm$50\%
-invariance check, not dual-T4 grid-searched
-(\texttt{--run-coeff} is available). (v)~Baselines are RR/LL/RLS on the same vLLM
-pair, not multi-node Orca/vLLM-distributed; we do not bake off every metrics-weighted
-Envoy/Ray Serve plugin.
+\textbf{Limitations.}
+\textbf{(i)~Seed count.} The physical primary cell uses five paired seeds
+($\times$40 requests) plus an offset five-seed routing-robustness cell on one
+T4$+$A30 pair, one model (Qwen2.5-3B), and one cloud region. Small $n$ and
+single-model/SKU coverage limit generality; p99 is outlier-sensitive, so we report
+mean$\pm$SD, paired win counts, and the offset routing check rather than claiming
+broad robustness from five seeds alone. Expanding the primary cell to $n{=}8$--$10$
+is the highest-priority follow-up measurement.
+\textbf{(ii)~Sequential load.} Regime~D is deliberately one-in-flight, which
+isolates ranking from continuous batching but removes the concurrent queue/KV
+dynamics that motivate multi-instance serving. Demonstrating that the learned
+heterogeneity advantage survives even a small concurrency sweep (e.g., $1/4/8$
+in-flight) is the second highest-priority follow-up; without it, claims about
+production multi-instance load remain provisional.
+\textbf{(iii)~Baselines.} We compare RR, Least-Loaded, and $d{=}2$ RLS under the
+same cost shell. We do not evaluate a still simpler EWMA/recent-latency ranker
+without a token feature; that baseline is needed to argue that NLMS structure is
+necessary rather than merely sufficient among lightweight black-box predictors.
+Against RLS we claim comparable central p99 with $O(1)$ updates and cleaner
+routing, not superior accuracy.
+\textbf{(iv)~Other.} Gateway co-location with the T4 means path latency may favour
+the T4; without a measured path delta we do not claim a network-independent
+speedup. Direct no-gateway probes and offline OLS are \emph{post-hoc validation},
+not inputs to the online controller---DIO does not require an offline
+latency/throughput performance-capacity model before deployment. The controlled
+dual-T4 study uses an injected delay and is a mechanism validation, not a second
+physical heterogeneous deployment. NLMS step sizes and hybrid coefficients are
+defaults (Appendix~\ref{app:coeff}), not grid-searched; no $\mu$ sensitivity sweep
+is reported. Table~\ref{tab:scope-compare} positions DIO against production routers
+without a shared-workload GPU bake-off; the Production Stack static-backend smoke
+path establishes installability only.
 
 %%=============================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 
-DIO is a thin OpenAI-compatible gateway for stock multi-instance vLLM deployments.
-It ranks with dual-timescale NLMS, corrects scores with scraped engine metrics,
-keeps multi-turn sessions sticky when that helps, and admits traffic without
-trusting absolute $\hat{y}$ when MAPE is high. On dual-T4, matched short probes give
-no free lunch; a $\times 2$ slow peer yields a large p99 gain; and real multi-turn
-runs show hybrid scrape, session affinity, and safe admission each matter in the
-ways the title claims. Source code and artifacts are public.
+DIO is a thin OpenAI-compatible gateway for multi-instance unmodified vLLM
+deployments. Matched dual-T4 peers stay near Round-Robin. Under a controlled
+service gap and a physical T4$+$A30 pair, dual-timescale NLMS learns a useful
+relative ordering from black-box end-to-end telemetry without requiring an offline
+latency/throughput model before deployment. On the physical cell it matches $d{=}2$
+RLS on central p99 while retaining $O(1)$ updates and more stable routing to the
+lower-latency GPU under sequential load. The same model is too poorly calibrated
+for a direct absolute SLO gate (MAPE $\sim$90--130\%; $\sim$40\% reject rate under
+absolute admission). Keeping ranking and admission as separate policies is a
+correctness requirement for predictive gateways built on black-box telemetry.
+Source code and artifacts are public.
 
 %%=============================================================================
 \backmatter
 
 \bmhead{Acknowledgements}
-The authors thank colleagues for feedback on earlier drafts.
+We thank colleagues for feedback on earlier drafts.
 
 \section*{Declarations}
 
 \begin{itemize}
 \item \textbf{Funding.} No external funding was received for this work.
-\item \textbf{Conflict of interest/Competing interests.} The authors declare that
-they have no competing interests.
+\item \textbf{Competing interests.} The authors declare that they have no
+competing interests.
 \item \textbf{Ethics approval and consent to participate.} Not applicable
 (no human subjects or personal data).
 \item \textbf{Consent for publication.} Not applicable.
-\item \textbf{Data availability.} Aggregated results are under
-\texttt{results\_workshop\_final/}, \texttt{results\_gpu\_abc/}, and related
-directories. Scripts regenerate library and dual-T4 suites.
+\item \textbf{Data availability.} Aggregated experimental results and scripts
+to regenerate library, dual-T4, and T4$+$A30 suites are available in the public
+code repository (see Code availability). Primary artifacts live under
+\texttt{results\_workshop\_final/}, \texttt{results\_gpu\_abc/},
+\texttt{results\_regime\_d/}, and related directories.
 \item \textbf{Materials availability.} Not applicable.
 \item \textbf{Code availability.} Source code for \texttt{dio-serve} (hybrid
 \texttt{/metrics} scrape, affinity, admission modes), validation suites
 (\texttt{run\_workshop\_final\_suite.py}, \texttt{run\_abc\_experiments.py},
-delay-proxy harness), and paper artifacts are available at
+\texttt{run\_gpu\_abc\_suite.py}, \texttt{run\_regime\_d\_hetero.py}, delay-proxy
+harness), and paper artifacts are available at
 \url{https://github.com/nisaral/DIO}.
-\item \textbf{Author contribution.} K.N.\ led system design, implementation,
-experiments, and manuscript drafting. K.P.\ and K.M.\ contributed to evaluation,
-analysis, and manuscript revision. All authors approved the final manuscript.
+\item \textbf{Author contributions.} All authors contributed equally to this work
+as main authors (conceptualization, system design, experiments, analysis, and
+manuscript writing/revision). All authors approved the final manuscript.
 \end{itemize}
 
 \begin{appendices}
+\iffalse
+\section{Legacy Locust pilot (Regime~B)}
+\label{app:regimeB}
+Table~\ref{tab:regimeB} is a single-seed Locust pilot with longer-decode traces
+and four logical workers. Absolute seconds are \emph{not} comparable to
+Regimes~A--D (milliseconds, multi-seed). We retain the table only for continuity
+with earlier internal pilots; it is not used for claims in the main text.
+
+\begin{table}[!t]
+\caption{Legacy single-seed Locust pilot (secondary). Not multi-seed; not
+comparable to Table~\ref{tab:regimeA}.}
+\label{tab:regimeB}
+\centering
+\footnotesize
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Trace & Strat. & p99 (s) & RPS & Fail \% \\
+\midrule
+ShareGPT & NLMS & $\mathbf{67}$ & $\mathbf{0.37}$ & 0 \\
+ShareGPT & RR & 81 & 0.29 & 0 \\
+arXiv & NLMS & 52 & $\mathbf{0.36}$ & 0 \\
+arXiv & RR & 51 & 0.30 & 0 \\
+Azure & NLMS & 48 & 0.33 & 0 \\
+Azure & RR & 47 & 0.36 & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\fi
+
 \section{Notation summary}
 \label{app:notation}
-\begin{table}[!htb]
-\caption{Main symbols.}
-\label{tab:notation}
-\centering
+\begin{center}
+\textbf{Main symbols.}\smallskip
 \begin{tabular}{@{}ll@{}}
 \toprule
 Symbol & Meaning \\
@@ -958,7 +1405,7 @@ $C$ & Prefix affinity bonus (ms) \\
 $L$ & Latency SLO (ms) \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{center}
 
 \section{Default coefficients}
 \label{app:coeff}
@@ -967,8 +1414,51 @@ $\mu_{\mathrm{slow}}{=}0.01$, $\mu_b{=}0.005$, $\alpha{=}0.8$, $B{=}8$,
 $c_{\mathrm{kv}}{=}800$, $c_q{=}50$, $c_p{=}150$, $C{=}200$, VRAM soft/hard
 $4096$/$2400$\,MB, metrics interval $1$\,s, empirical percentile $p{=}95$, recent
 window $64$. Hybrid triple selection is heuristic parity with base terms
-(Section~\ref{sec:hybrid}); not dual-T4 grid-searched. All are overridable via
-\texttt{DIO\_*} settings.
+(Section~\ref{sec:hybrid}). All values are overridable via \texttt{DIO\_*} settings.
+We did not grid-search step sizes or hybrid coefficients on dual-T4 or T4$+$A30
+hardware, and this paper does not include a sensitivity ablation on
+$(\mu_{\mathrm{fast}},\mu_{\mathrm{slow}},\alpha)$; the Regime~D results therefore
+hold for these defaults only (see Section~\ref{sec:limitations}).
+
+\iffalse
+\section{G1 hybrid per-seed breakdown}
+\label{app:g1-seeds}
+Table~\ref{tab:g1-seeds} lists every dual-T4 multi-turn seed for the hybrid suite
+(Section~\ref{sec:evalA}). Seeds $1007$ and $1008$ are the two slight regressions
+vs.\ Round-Robin; the other eight improve p99. Wilcoxon signed-rank uses paired
+seed p99 (hybrid-on vs.\ RR): absolute differences ranked $1{\ldots}10$ (no ties),
+signed rank sums $W_+{=}52$, $W_-{=}3$, so $W{=}\min(W_+,W_-){=}3$. For $n{=}10$
+the two-sided exact critical value at $\alpha{=}0.01$ is $W{\le}3$, hence
+$p{\approx}0.01$.
+
+\begin{table}[!t]
+\caption{G1 per-seed e2e p99 (ms) and improvement of hybrid-on vs.\ RR
+($(p99_{\mathrm{RR}}-p99_{\mathrm{on}})/p99_{\mathrm{RR}}$). Seeds $1000$--$1009$;
+$n{=}10$.}
+\label{tab:g1-seeds}
+\centering
+\footnotesize
+\begin{tabular}{@{}rcccc@{}}
+\toprule
+Seed & Hybrid-on & Hybrid-off & RR & vs RR (\%) \\
+\midrule
+1000 & 1123 & 3391 & 3366 & $+66.6$ \\
+1001 & 963 & 3288 & 3409 & $+71.8$ \\
+1002 & 978 & 3388 & 3398 & $+71.2$ \\
+1003 & 1124 & 3395 & 3375 & $+66.7$ \\
+1004 & 2852 & 3381 & 3382 & $+15.7$ \\
+1005 & 1517 & 3375 & 3412 & $+55.5$ \\
+1006 & 1750 & 3363 & 3367 & $+48.0$ \\
+1007 & 3430 & 3382 & 3366 & $-1.9$ \\
+1008 & 3514 & 3464 & 3381 & $-3.9$ \\
+1009 & 2749 & 3356 & 3421 & $+19.6$ \\
+\midrule
+Mean$\pm$std & $2000\pm1031$ & $3378\pm43$ & $3388\pm21$ & $40.9\pm30.5$ \\
+Median & 1633 & 3381 & 3381 & $51.8$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+\fi
 \end{appendices}
 
 \bibliography{sn-bibliography}%

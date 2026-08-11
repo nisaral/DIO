@@ -337,6 +337,10 @@ class Scheduler:
         self._lock = threading.Lock()
         self.predictors: Dict[str, DualTimescaleNLMS] = {}
         self.rls: Dict[str, SimpleRLS] = {}
+        # EWMA of observed e2e latency per worker (strategy == "ewma"); no token feature.
+        self.ewma_e2e: Dict[str, float] = {}
+        self.ewma_alpha: float = 0.2
+        self.ewma_prior_ms: float = 5000.0
         self.prefix_cache: Dict[int, str] = {}
         self.engine_snap: Dict[str, Any] = {}  # worker_id -> EngineSnapshot-like dict
         self.rr_index = 0
@@ -422,11 +426,13 @@ class Scheduler:
             if free_vram_mb is not None:
                 self.predictors[worker_id].free_vram_mb = free_vram_mb
             self.rls[worker_id] = SimpleRLS(slope=init_s, intercept=init_b)
+            self.ewma_e2e[worker_id] = float(self.ewma_prior_ms)
 
     def unregister(self, worker_id: str) -> None:
         with self._lock:
             self.predictors.pop(worker_id, None)
             self.rls.pop(worker_id, None)
+            self.ewma_e2e.pop(worker_id, None)
 
     def set_vram(self, worker_id: str, free_mb: float) -> None:
         with self._lock:
@@ -588,6 +594,31 @@ class Scheduler:
                 self._log_decision(dec)
                 return wid, dec
 
+            # EWMA of recent e2e only (no token feature): score = ewma + wait heuristic.
+            if self.strategy in ("ewma", "ema", "recent_latency"):
+                best_id = None
+                best_score = float("inf")
+                best_dec = None
+                for wid in ids:
+                    pred = self.predictors[wid]
+                    ewma = float(self.ewma_e2e.get(wid, self.ewma_prior_ms))
+                    wait = (pred.pending / max(1.0, self.batch_size)) * ewma
+                    score = ewma + wait
+                    if score < best_score:
+                        best_score = score
+                        best_id = wid
+                        best_dec = RoutingDecision(
+                            wid, ewma, wait, 0.0, 0.0, 0.0, score, tokens, self.strategy
+                        )
+                if best_id is None or best_dec is None:
+                    self.admission.rejected_no_worker += 1
+                    raise AdmissionError("no feasible backend")
+                self.predictors[best_id].pending += 1
+                self.admission.admitted += 1
+                self._log_decision(best_dec)
+                self.last_decision = best_dec
+                return best_id, best_dec
+
             use_rls = self.strategy == "rls"
             best_id: Optional[str] = None
             best_score = float("inf")
@@ -676,6 +707,10 @@ class Scheduler:
                 info = self.predictors[worker_id].update(e2e_ms, tokens)
                 if worker_id in self.rls:
                     self.rls[worker_id].update(e2e_ms, tokens)
+                if worker_id in self.ewma_e2e:
+                    prev = self.ewma_e2e[worker_id]
+                    a = self.ewma_alpha
+                    self.ewma_e2e[worker_id] = a * float(e2e_ms) + (1.0 - a) * prev
                 sample = {
                     "unix_ms": int(time.time() * 1000),
                     "worker_id": worker_id,

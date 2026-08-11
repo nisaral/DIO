@@ -59,7 +59,11 @@ def serve(
     ),
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(8085, "--port", "-p"),
-    strategy: str = typer.Option("nlms", "--strategy", help="nlms|rls|static|round_robin|least_loaded"),
+    strategy: str = typer.Option(
+        "nlms",
+        "--strategy",
+        help="nlms|rls|ewma|static|round_robin|least_loaded",
+    ),
     nlms_mode: str = typer.Option("dual", "--nlms-mode", help="dual|single"),
     slo_ms: float = typer.Option(5000.0, "--slo-ms", help="Admission threshold (ms)"),
     admission_off: bool = typer.Option(False, "--admission-off", help="Disable SLO admission rejects"),

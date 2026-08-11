@@ -1,0 +1,74 @@
+Dear Prof. Salim Hariri, Editor-in-Chief,
+Cluster Computing: The Journal of Networks, Software Tools and Applications
+
+We submit the manuscript entitled:
+
+  "DIO: Black-Box Online Routing for Heterogeneous vLLM Replicas"
+
+for consideration as an original research article.
+
+
+Motivation and fit
+------------------
+Multi-instance vLLM (or SGLang/TGI) deployments commonly place Nginx, Envoy,
+Kubernetes Services, or Ray Serve in front of independent replicas with
+Round-Robin. Those balancers treat peers as interchangeable, yet queue depth,
+KV-cache pressure, and transient per-replica slowdowns diverge in practice.
+Co-designed cluster systems address this with deep engine hooks, disaggregated
+prefill/decode pools, or live KV migration. Many deployments need a non-invasive
+OpenAI-compatible front door instead. That setting sits in the journal's scope on
+distributed systems, scheduling, and high-performance application stacks.
+
+DIO (dio-serve) is a thin gateway requiring no engine patches. It ranks backends
+with dual-timescale NLMS learned from black-box end-to-end latency and token
+counts, optionally folds in each engine's existing Prometheus /metrics, and
+exposes optional session affinity and admission modes. The paper's focus is online
+relative service-rate learning for heterogeneous unmodified vLLM replicas --- not
+a claim to replace Kubernetes-native or co-designed serving stacks.
+
+
+Principal results
+-----------------
+  - Dual Tesla T4 (n=10 seeds): near Round-Robin parity on matched peers;
+    controlled 2x service-time asymmetry: mean p99 improves by 48.3% (SD 0.7%) vs RR.
+  - Physical heterogeneity --- Tesla T4 + NVIDIA A30 (primary n=5 seeds, sequential
+    mixed max_tokens, no injected delay): NLMS and d=2 RLS both improve mean p99 vs RR
+    by ~33% (5/5 wins each; Wilcoxon NLMS vs RLS p=1.00). We do not claim NLMS beats
+    RLS on accuracy; the systems case is comparable central p99 with O(1) updates and
+    cleaner routing (NLMS 89.5% +/- 2.1% to A30; RLS 79.5% +/- 37.5% with one seed
+    flipping to the T4). Offline OLS is a post-hoc check (~2.82x slope ratio vs 2.68x
+    fixed-length e2e probe), not a pre-deployment profile. Least-Loaded collapses onto
+    the slow T4. Offset five-seed cell reproduces A30-directed routing.
+  - Admission boundary: empirical and rank-only complete all requests under a tight
+    SLO; absolute-prediction gating rejects ~40% (reject rate 0.40 +/- 0.21).
+
+
+On interpretation
+-----------------
+We are direct about scope. Regime D is sequential single-in-flight load on one
+model and one GPU pair; concurrent multi-in-flight heterogeneous ranking and a
+Production Stack GPU bake-off remain future work. NLMS and RLS are competitive on
+central p99 at n=5; NLMS shows lower seed-to-seed dispersion and cleaner routing
+in this cell. Optional affinity and metric scrape are operational extensions, not
+independent performance claims for the primary contribution.
+
+
+Authors and affiliation
+-----------------------
+  Keyush Nisar, Krishil Parikh, Krisha Maisheri,
+  Aruna Gawade, Nilesh T. Rathod, Angelin Florence A
+
+  Affiliation (all): Department of Artificial Intelligence and Machine Learning,
+  Dwarkadas J. Sanghvi College of Engineering, Mumbai, India
+
+  Contact: Keyush Nisar --- nisarkeyush3@gmail.com
+
+Code and multi-seed artifacts: https://github.com/nisaral/DIO
+
+We choose the subscription track (no APC) if accepted.
+
+Sincerely,
+Keyush Nisar
+Department of Artificial Intelligence and Machine Learning
+Dwarkadas J. Sanghvi College of Engineering, Mumbai, India
+nisarkeyush3@gmail.com

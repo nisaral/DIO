@@ -32,10 +32,15 @@
 }
 
 @misc{melange,
-  author = {others},
-  title  = {{M\'elange}: Cost-Efficient {LLM} Serving on Heterogeneous {GPUs}},
-  year   = {2024},
-  note   = {arXiv preprint}
+  author       = {Griggs, Tyler and Liu, Xiaoxuan and Yu, Jiaxiang and Kim, Doyoung
+                  and Chiang, Wei-Lin and Cheung, Alvin and Stoica, Ion},
+  title        = {{M\'{e}lange}: Cost Efficient Large Language Model Serving by
+                  Exploiting {GPU} Heterogeneity},
+  year         = {2024},
+  eprint       = {2404.14527},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.DC},
+  note         = {arXiv:2404.14527}
 }
 
 @inproceedings{orca,
@@ -179,32 +184,31 @@
 }
 
 @misc{memserve,
-  author = {others},
-  title  = {{MemServe}: Context Caching for Disaggregated {LLM} Serving},
-  year   = {2024},
-  note   = {arXiv preprint}
+  author        = {Hu, Cunchen and Huang, Heyang and Hu, Junhao and Xu, Jiang and Chen, Xusheng and Xie, Tao and Wang, Chenxi and Wang, Sa and Bao, Yungang and Sun, Ninghui and Shan, Yizhou},
+  title         = {{MemServe}: Context Caching for Disaggregated {LLM} Serving with Elastic Memory Pool},
+  year          = {2024},
+  eprint        = {2406.17565},
+  archivePrefix = {arXiv}
 }
 
 @misc{mooncake,
-  author = {others},
-  title  = {{Mooncake}: Trading between Memory and Storage for Efficient {LLM} Serving},
-  year   = {2024},
-  note   = {arXiv preprint}
+  author        = {Qin, Ruoyu and Li, Zheming and He, Weiran and Zhang, Mingxing and Wu, Yongwei and Zheng, Weimin and Xu, Xinran},
+  title         = {{Mooncake}: A {KVCache}-centric Disaggregated Architecture for {LLM} Serving},
+  year          = {2024},
+  eprint        = {2407.00079},
+  archivePrefix = {arXiv}
 }
 
-@misc{sloaware2026,
-  author = {others},
-  title  = {{SLO}-Aware Scheduling without Output-Length Prediction},
-  year   = {2026},
-  note   = {arXiv preprint}
-}
+% Removed incomplete entry (author "others" only); use sloawarellm / distserve instead.
 
 @misc{qwen25,
-  author = {Yang, An and others},
-  title  = {{Qwen2.5} Technical Report},
-  year   = {2024},
-  eprint = {2412.15115},
-  archivePrefix = {arXiv}
+  author        = {Yang, An and Yang, Baosong and Hui, Binyuan and Zheng, Bo and Yu, Bowen and Zhou, Chang and Li, Chengpeng and Li, Chengyuan and Liu, Dayiheng and Huang, Fei and Dong, Guanting and Wei, Haoran and Lin, Huan and Tang, Jialong and Wang, Jialin and Yang, Jian and Tu, Jianhong and Zhang, Jianwei and Ma, Jianxin and Yang, Jian and Xu, Jingren and Zhou, Jin and Lin, Jinze and others},
+  title         = {{Qwen2.5} Technical Report},
+  year          = {2024},
+  eprint        = {2412.15115},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+  note          = {arXiv:2412.15115}
 }
 
 @misc{prometheus,
@@ -268,14 +272,6 @@
   archivePrefix = {arXiv}
 }
 
-@misc{mooncaakekv,
-  author = {Qin, R. and others},
-  title  = {{Mooncake}: A {KVCache}-centric Disaggregated Architecture for {LLM} Serving},
-  year   = {2024},
-  eprint = {2407.00079},
-  archivePrefix = {arXiv}
-}
-
 @misc{vattention,
   author = {Prabhu, R. and others},
   title  = {{vAttention}: Dynamic Memory Management for Serving {LLMs} without {PagedAttention}},
@@ -284,12 +280,14 @@
   archivePrefix = {arXiv}
 }
 
-@inproceedings{fastserve,
-  author    = {Wu, Bingyang and Zhong, Yinmin and Zhang, Zili and Liu, Shengyu and Liu, Fangyue and Sun, Yuanhang and others},
-  title     = {Fast Distributed Inference Serving for Large Language Models},
-  booktitle = {arXiv},
-  year      = {2023},
-  note      = {arXiv:2305.05920}
+@misc{fastserve,
+  author        = {Wu, Bingyang and Zhong, Yinmin and Zhang, Zili and Liu, Shengyu and Liu, Fangyue and Sun, Yuanhang and Huang, Gang and Liu, Xuanzhe and Jin, Xin},
+  title         = {Fast Distributed Inference Serving for Large Language Models},
+  year          = {2023},
+  eprint        = {2305.05920},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.NI},
+  note          = {arXiv:2305.05920}
 }
 
 @misc{serverlessllm,
@@ -301,11 +299,13 @@
 }
 
 @misc{autogen,
-  author = {Wu, Qingyun and others},
-  title  = {{AutoGen}: Enabling Next-Gen {LLM} Applications via Multi-Agent Conversation},
-  year   = {2023},
-  eprint = {2308.08155},
-  archivePrefix = {arXiv}
+  author        = {Wu, Qingyun and Bansal, Gagan and Zhang, Jieyu and Wu, Yiran and Li, Beibin and Zhu, Erkang and Jiang, Li and Zhang, Xiaoyun and Zhang, Shaokun and Liu, Jiale and Awadallah, Ahmed Hassan and White, Ryen W. and Burger, Doug and Wang, Chi},
+  title         = {{AutoGen}: Enabling Next-Gen {LLM} Applications via Multi-Agent Conversation},
+  year          = {2023},
+  eprint        = {2308.08155},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.AI},
+  note          = {arXiv:2308.08155}
 }
 
 @misc{langgraph,
@@ -375,11 +375,13 @@
 }
 
 @misc{vidur,
-  author = {Agrawal, Amey and others},
-  title  = {{Vidur}: A Large-Scale Simulation Framework for {LLM} Inference},
-  year   = {2024},
-  eprint = {2405.05465},
-  archivePrefix = {arXiv}
+  author        = {Agrawal, Amey and Kedia, Nitin and Mohan, Jayashree and Panwar, Ashish and Kwatra, Nipun and Gulavani, Bhargav S. and Ramjee, Ramachandran and Tumanov, Alexey},
+  title         = {{Vidur}: A Large-Scale Simulation Framework for {LLM} Inference},
+  year          = {2024},
+  eprint        = {2405.05465},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  note          = {arXiv:2405.05465}
 }
 
 @misc{lmcache,
@@ -397,10 +399,13 @@
 }
 
 @misc{sloawarellm,
-  author = {Qiu, H. and others},
-  title  = {Towards Efficient and Reliable {LLM} Serving: A Real-World Workload Study},
-  year   = {2024},
-  note   = {arXiv preprint; SLO-oriented serving}
+  author        = {Wang, Yuxin and Chen, Yuhan and Li, Zeyu and Tang, Zhenheng and Guo, Rui and Wang, Xin and Wang, Qiang and Zhou, Amelie Chi and Chu, Xiaowen},
+  title         = {Towards Efficient and Reliable {LLM} Serving: A Real-World Workload Study},
+  year          = {2024},
+  eprint        = {2401.17644},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.DC},
+  note          = {arXiv:2401.17644; also released as Burst{GPT} workload study}
 }
 
 @book{kleinrock1975queueing,
@@ -423,4 +428,60 @@
   title        = {Envoy Proxy},
   year         = {2024},
   howpublished = {\url{https://www.envoyproxy.io/}}
+}
+
+@misc{gaie,
+  author       = {{Kubernetes SIG-Network}},
+  title        = {Gateway API Inference Extension},
+  year         = {2025},
+  howpublished = {\url{https://github.com/kubernetes-sigs/gateway-api-inference-extension}}
+}
+
+@misc{llmd,
+  author       = {{Google Cloud}},
+  title        = {llm-d: LLM-aware Gateway for Kubernetes},
+  year         = {2025},
+  howpublished = {\url{https://github.com/GoogleCloudPlatform/llm-d}}
+}
+
+@misc{gkeinference,
+  author       = {{Google Cloud}},
+  title        = {GKE Inference Gateway},
+  year         = {2025},
+  howpublished = {\url{https://cloud.google.com/kubernetes-engine/docs/concepts/inference-gateway}}
+}
+
+@misc{dynamo,
+  author       = {{NVIDIA Corporation}},
+  title        = {{NVIDIA Dynamo}: Distributed Inference Serving System},
+  year         = {2025},
+  howpublished = {\url{https://github.com/nvidia/dynamo}}
+}
+
+@misc{productionstack,
+  author       = {{vLLM Project}},
+  title        = {vLLM Production Stack --- Prefix-aware, {KV}-aware, and Session Routing},
+  year         = {2025},
+  howpublished = {\url{https://docs.vllm.ai/projects/production-stack/en/latest/}}
+}
+
+@misc{alibabagw,
+  author       = {{Alibaba Cloud}},
+  title        = {{ACK/ACS} Inference Gateway with Prefix-Cache-Aware Routing},
+  year         = {2025},
+  howpublished = {\url{https://www.alibabacloud.com/help/en/ack/}}
+}
+
+@misc{sglangrouter,
+  author       = {{SGLang Project}},
+  title        = {{SGLang} Router --- Cache-Aware Load Balancing},
+  year         = {2025},
+  howpublished = {\url{https://github.com/sgl-project/sglang}}
+}
+
+@misc{envoyai,
+  author       = {{Envoy AI Gateway Authors}},
+  title        = {Envoy {AI} Gateway},
+  year         = {2025},
+  howpublished = {\url{https://github.com/envoyproxy/ai-gateway}}
 }
