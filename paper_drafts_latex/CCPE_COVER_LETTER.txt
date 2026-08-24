@@ -1,0 +1,32 @@
+Dear Editor,
+
+Please consider our manuscript, “DIO: Hybrid Cost Routing, Session Affinity, and
+Calibration-Robust Admission for Multi-Instance LLM Serving over Stock vLLM,” for
+publication in Concurrency and Computation: Practice and Experience.
+
+The manuscript presents an engine-agnostic control-plane gateway for deployments
+that already run multiple OpenAI-compatible LLM servers. DIO learns relative
+backend service capacity from black-box request completions, optionally fuses
+read-only Prometheus telemetry, preserves multi-turn prefix locality, and separates
+latency ranking from admission decisions when absolute prediction is poorly
+calibrated. The emphasis is on practice and experience: no engine fork or custom
+kernel is required, failure and restart behavior are documented, and the complete
+implementation and committed result summaries are public.
+
+The revised evaluation includes a real five-seed Tesla T4/Tesla A30 deployment,
+where NLMS reduces p99 latency by 33.3% versus Round-Robin and wins all five paired
+seeds. It also reports a negative operational result: Least-Loaded routes all
+traffic to the T4 in this heterogeneous setting and is 22.7% worse than
+Round-Robin. A paired-bootstrap reanalysis, artifact map, and explicit limitations
+are included. A separate Production Stack smoke test is presented only as a
+compatibility case study, not as an unsupported performance comparison.
+
+The authors declare no external funding and no competing interests. The manuscript
+is not under consideration elsewhere. Source code and experimental artifacts are
+available at https://github.com/nisaral/DIO; a versioned archival release will be
+deposited in Zenodo and cited by DOI before publication.
+
+Thank you for your consideration.
+
+Sincerely,
+Keyush Nisar, on behalf of all authors

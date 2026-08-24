@@ -26,9 +26,9 @@ It exists because the usual answer, N vLLM processes behind Nginx or Envoy with
 Round-Robin, treats every replica as interchangeable while queue depth, KV-cache
 pressure, and transient per-replica slowdowns diverge in practice.
 
-> **Paper:** *DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission for
+> **Paper:** *DIO: Hybrid Cost Routing, Session Affinity, and Calibration-Robust Admission for
 > Multi-Instance LLM Serving over Stock vLLM* — arXiv preprint (link on
-> announcement), under review at *Cluster Computing* (Springer).
+> announcement), being revised for a practice-oriented journal submission.
 
 ---
 
@@ -192,7 +192,7 @@ Cite the paper, not the software, once the preprint is announced:
 
 ```bibtex
 @misc{dio2026,
-  title  = {DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission
+  title  = {DIO: Hybrid Cost Routing, Session Affinity, and Calibration-Robust Admission
             for Multi-Instance LLM Serving over Stock vLLM},
   author = {Nisar, Keyush and Parikh, Krishil and Maisheri, Krisha and
             Gawade, Aruna and Rathod, Nilesh T. and Florence A, Angelin},
@@ -200,11 +200,10 @@ Cite the paper, not the software, once the preprint is announced:
   eprint = {XXXX.XXXXX},
   archivePrefix = {arXiv},
   primaryClass  = {cs.DC},
-  note   = {Under review, Cluster Computing}
+  note   = {Software and experimental artifact release}
 }
 ```
 
 ## License
 
 Apache-2.0 — see [`dio-serve/LICENSE`](dio-serve/LICENSE).
-

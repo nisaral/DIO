@@ -30,15 +30,14 @@ a claim to replace Kubernetes-native or co-designed serving stacks.
 Principal results
 -----------------
   - Dual Tesla T4 (n=10 seeds): near Round-Robin parity on matched peers;
-    controlled 2x service-time asymmetry: mean p99 improves by 48.3% (SD 0.7%) vs RR.
+    controlled 2x end-to-end latency inflation: mean p99 improves by 48.3% (SD 0.7%) vs RR.
   - Physical heterogeneity --- Tesla T4 + NVIDIA A30 (primary n=5 seeds, sequential
     mixed max_tokens, no injected delay): NLMS and d=2 RLS both improve mean p99 vs RR
     by ~33% (5/5 wins each; Wilcoxon NLMS vs RLS p=1.00). We do not claim NLMS beats
-    RLS on accuracy; the systems case is comparable central p99 with O(1) updates and
-    cleaner routing (NLMS 89.5% +/- 2.1% to A30; RLS 79.5% +/- 37.5% with one seed
+    RLS on accuracy; they have similar mean p99, with NLMS showing lower routing-fraction
+    variability (NLMS 89.5% +/- 2.1% to A30; RLS 79.5% +/- 37.5% with one seed
     flipping to the T4). Offline OLS is a post-hoc check (~2.82x slope ratio vs 2.68x
-    fixed-length e2e probe), not a pre-deployment profile. Least-Loaded collapses onto
-    the slow T4. Offset five-seed cell reproduces A30-directed routing.
+    fixed-length end-to-end probe), not a pre-deployment profile. Offset five-seed cell reproduces A30-directed routing.
   - Admission boundary: empirical and rank-only complete all requests under a tight
     SLO; absolute-prediction gating rejects ~40% (reject rate 0.40 +/- 0.21).
 
@@ -55,7 +54,7 @@ independent performance claims for the primary contribution.
 
 Authors and affiliation
 -----------------------
-  Keyush Nisar, Krishil Parikh, Krisha Maisheri,
+  Keyush Nisar, Krisha Maisheri, Krishil Parikh,
   Aruna Gawade, Nilesh T. Rathod, Angelin Florence A
 
   Affiliation (all): Department of Artificial Intelligence and Machine Learning,

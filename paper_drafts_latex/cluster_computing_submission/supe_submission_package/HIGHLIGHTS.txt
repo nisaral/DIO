@@ -1,0 +1,6 @@
+Highlights (optional portal field)
+1. Thin OpenAI-compatible multi-instance gateway over stock vLLM (no engine patches).
+2. Hybrid NLMS + Prometheus /metrics routing with strong multi-turn dual-T4 gains vs Round-Robin.
+3. Near-perfect session/prefix affinity stickiness under concurrent load.
+4. Safe admission: empirical/rank-only keep traffic flowing where absolute-ŷ over-rejects.
+5. Large tail-latency wins under controlled service-time asymmetry; open-source dio-serve.

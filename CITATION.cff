@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "DIO: Calibration-Robust Routing and Admission for Multi-Instance LLM Serving"
+message: "If you use DIO or its artifacts, please cite this software release."
+type: software
+license: Apache-2.0
+url: https://github.com/nisaral/DIO
+authors:
+  - family-names: Nisar
+    given-names: Keyush
+  - family-names: Parikh
+    given-names: Krishil
+  - family-names: Maisheri
+    given-names: Krisha
+  - family-names: Gawade
+    given-names: Aruna
+  - family-names: Rathod
+    given-names: Nilesh T.
+  - family-names: Florence
+    given-names: Angelin A.
+keywords:
+  - LLM serving
+  - vLLM
+  - heterogeneous GPUs
+  - admission control
+  - load balancing
