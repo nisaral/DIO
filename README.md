@@ -219,6 +219,9 @@ fastest engine is throttled 8x part-way through (`--agents 8`):
 | sticky round-robin (`ip_hash`-style) | 0.0 | 1438 ms | -- |
 | **DIO** | **1.2** | **1298 ms** | **86%** |
 
+Raw per-run metrics, the verification tables and the repro commands live in
+[`docs/launch/evidence/`](docs/launch/evidence/).
+
 Read that honestly. The whole-run p95/p99 is dominated by whatever was in flight
 when the engine degraded, so the *mean* and the *traffic share* are the columns that
 carry information; DIO keeps sessions pinned (1.2 switches vs 10.8) and still holds

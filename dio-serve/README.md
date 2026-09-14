@@ -363,6 +363,30 @@ gw.run()
 
 ---
 
+## Known gaps (honest list)
+
+These are real, scoped and mostly tracked as
+[good first issues](https://github.com/nisaral/DIO/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22):
+
+- **Admission is a ranking gate, and a reporting gate, more than a shedder.** In the
+  default `empirical` mode a request is only rejected when the observed tail exceeds
+  `slo_ms` *and* no backend is a clear winner, so a saturated-but-unequal pool keeps
+  answering 200s. Overload is now at least visible (`X-DIO-Over-Budget`,
+  `rejected_slo_suppressed`); a strict mode is issue #23.
+- **Session affinity degrades under prefix churn.** The LRU holds 2048 prefixes, keyed
+  on the first 256 characters; with many distinct prompts a live swarm measured
+  `affinity.hit_rate` at 0.24-0.34. That is the workload, not a routing failure, but the
+  counters to see it (evictions) are issue #21.
+- **The learner is noisy under heavy concurrency.** In a 72-way burst one backend's
+  intercept collapsed towards zero while its MAE exceeded its own mean latency. Nothing
+  is poisoned (the clamp fixed that) but the fit is not trustworthy under churn.
+- **Model naming is inconsistent** between `/v1/models`, `/api/tags` and routing, and a
+  gateway with no `model_map` forwards any `model` string it is given (issue #20).
+- **No request-size cap** on body bytes or prompt length (issue #22); `max_tokens_cap`
+  guards only the completion budget and defaults to off.
+- **No authN on `/v1/*` and `/api/*`.** DIO is a control plane, not an auth layer:
+  `DIO_API_KEY` guards the admin surface only. Put it behind your own proxy.
+
 ## Verification & Testing
 
 DIO is thoroughly tested with comprehensive unit and integration suites:
