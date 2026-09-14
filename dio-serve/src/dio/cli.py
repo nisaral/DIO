@@ -462,6 +462,25 @@ def config_show(
     ))
 
 
+@app.command("mcp")
+def mcp(
+    gateway_url: str = typer.Option(
+        "http://127.0.0.1:8085",
+        "--gateway-url",
+        "-g",
+        help="DIO Gateway base URL to connect to",
+    ),
+) -> None:
+    """Run DIO as a Model Context Protocol (MCP) server over stdio for AI-IDE integration."""
+    from dio.mcp import DIOMCPServer
+
+    server = DIOMCPServer(gateway_url=gateway_url)
+    try:
+        asyncio.run(server.run_stdio())
+    except (KeyboardInterrupt, SystemExit):
+        pass
+
+
 @app.command("version")
 def version() -> None:
     from dio import __version__

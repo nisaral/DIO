@@ -46,6 +46,7 @@ from dio.config_file import (
 )
 from dio.engine_metrics import EngineSnapshot, scrape_metrics_url
 from dio.gateway import DIOGateway
+from dio.mcp import DIOMCPServer
 from dio.scheduler import (
     AblationFlags,
     AdmissionStats,
@@ -60,6 +61,7 @@ __all__ = [
     "BackendPool",
     "DIOConfig",
     "DIOGateway",
+    "DIOMCPServer",
     "Scheduler",
     "DualTimescaleNLMS",
     "RoutingDecision",

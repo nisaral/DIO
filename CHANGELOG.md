@@ -5,6 +5,7 @@ All notable changes to DIO and `dio-serve` will be documented in this file.
 ## [v0.4.0] - 2026-09-14
 
 ### Highlights
+- **MCP Server for AI-IDE Integration (`dio mcp`)**: Packages DIO as a Model Context Protocol (MCP) server over JSON-RPC 2.0 stdio. AI-powered IDEs (Cursor, Claude Desktop, VS Code, Windsurf) can query cluster health, inspect model availability, obtain real-time latency/cost predictions using learned NLMS slopes, and route prompts intelligently.
 - **Ollama Native Adapter**: DIO now acts as a drop-in gateway for both OpenAI and Ollama clients (`POST /api/chat`, `POST /api/generate`, `GET /api/tags`, `GET /api/version`, `POST /api/show`). Point tools like OpenWebUI, Continue.dev, or Ollama CLI to DIO and route transparently across vLLM and Ollama engines!
 - **Config-as-Code (`dio.yaml`)**: Define multi-backend pools, model routing maps, and dual-timescale NLMS scheduler knobs in a clean YAML file.
 - **Auto-Discovery CLI (`dio init -d`)**: Scans localhost for running Ollama (11434), vLLM (8000/8001), and SGLang (30000) instances, discovers loaded models, and auto-generates a ready-to-run `dio.yaml`.
@@ -13,13 +14,15 @@ All notable changes to DIO and `dio-serve` will be documented in this file.
 - **Windows Terminal Polish**: Clean ASCII formatting for CLI banners, tables, and panels across Windows PowerShell and CMD.
 
 ### Added
+- `dio.mcp`: Model Context Protocol server exposing `dio_get_models`, `dio_predict_latency`, `dio_route_prompt`, and `dio_cluster_status` tools.
+- `dio mcp`: CLI command to launch the MCP server over stdio with customizable `--gateway-url`.
 - `dio.config_file`: YAML and JSON config parser with upward directory traversal discovery.
 - `detect_local_backends`: Async probing of local ports to discover active engines and models.
 - `dio init`: CLI command with `--detect` / `--no-detect` and `--output` options.
 - `dio config`: CLI command to display resolved backend tables and model routing rules.
 - `_proxy_ollama_stream`: Dynamic on-the-fly translation from upstream OpenAI SSE to client-facing Ollama NDJSON streams.
 - `MockBackendServer` streaming: In-process test and demo server now yields realistic SSE chunks with simulated TTFT and decode latency.
-- Comprehensive test suite: Added `test_config_file.py`, `test_multi_model_routing.py`, `test_streaming.py`, and `test_ollama_adapter.py` (28/28 passing).
+- Comprehensive test suite: Added `test_config_file.py`, `test_multi_model_routing.py`, `test_streaming.py`, `test_ollama_adapter.py`, and `test_mcp.py` (35/35 passing).
 
 ### Changed
 - Refactored `_resolve_model_backends` to safely reject unknown models when explicit model bindings exist.

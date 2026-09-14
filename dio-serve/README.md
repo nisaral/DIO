@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
   <img src="https://img.shields.io/badge/python-3.9+-brightgreen.svg" alt="Python 3.9+" />
-  <img src="https://img.shields.io/badge/tests-28%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-35%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
 </p>
 
@@ -21,6 +21,7 @@
   <a href="#config-as-code-dioyaml">Config-as-Code</a> ·
   <a href="#universal-api-openai--ollama">Ollama & OpenAI Support</a> ·
   <a href="#multi-model-routing">Multi-Model Routing</a> ·
+  <a href="#mcp-server-for-ai-ides">MCP Server</a> ·
   <a href="#cli-reference">CLI Reference</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
@@ -58,6 +59,7 @@ Instead of naive Round-Robin (Nginx/Envoy) that ignores GPU divergence, thermal 
 
 ## Highlights in v0.4.0
 
+- 🤖 **MCP Server for AI-IDEs (`dio mcp`)**: Seamlessly connects DIO to Claude Desktop, Cursor, VS Code, and Windsurf over JSON-RPC 2.0 stdio. AI assistants can inspect running models, query cluster health, preview latency and queue delays via learned NLMS filters, and route inferences.
 - ⚙️ **Config-as-Code (`dio.yaml`)**: Define multi-backend pools, model routing rules, and scheduler knobs in a single YAML file.
 - 🔍 **Local Engine Auto-Discovery (`dio init -d`)**: Automatically scans `localhost` for active Ollama (11434), vLLM (8000/8001), and SGLang (30000) instances, detects loaded models, and generates your customized `dio.yaml`.
 - 🦙 **Universal Drop-In API (OpenAI + Ollama)**: Exposes both OpenAI endpoints (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Ollama native endpoints (`/api/chat`, `/api/generate`, `/api/tags`, `/api/version`, `/api/show`). Point your favorite client to DIO without changing code!
@@ -212,6 +214,47 @@ When requests arrive at DIO, the target model parameter is evaluated:
 
 ---
 
+## MCP Server for AI-IDEs
+
+Package DIO as a **Model Context Protocol (MCP)** server so AI assistants (Cursor, Claude Desktop, VS Code Continue/Cline, Windsurf) can interact with your cluster:
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `dio_get_models` | Query DIO for available models, active backend bindings, and health |
+| `dio_predict_latency` | Get latency and cost predictions before sending requests using learned NLMS slopes |
+| `dio_route_prompt` | Route prompts through DIO's smart scheduler to the optimal backend |
+| `dio_cluster_status` | Query live cluster telemetry, learned slopes, intercepts, and KV pressure |
+
+### IDE Integration Setup
+
+#### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "dio": {
+      "command": "dio",
+      "args": ["mcp", "--gateway-url", "http://127.0.0.1:8085"]
+    }
+  }
+}
+```
+
+#### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "dio": {
+      "command": "dio",
+      "args": ["mcp", "--gateway-url", "http://127.0.0.1:8085"]
+    }
+  }
+}
+```
+
+---
+
 ## CLI Reference
 
 | Command | Usage | Description |
@@ -219,6 +262,7 @@ When requests arrive at DIO, the target model parameter is evaluated:
 | `dio serve` | `dio serve [-c dio.yaml] [-p 8085]` | Start DIO gateway using config file or CLI backend flags |
 | `dio init` | `dio init [-d / -n] [-o dio.yaml]` | Generate `dio.yaml` with auto-discovery of running engines |
 | `dio config` | `dio config [-c dio.yaml]` | Display parsed backends table and model-to-backend routing map |
+| `dio mcp` | `dio mcp [-g http://127.0.0.1:8085]` | Run DIO as an MCP server over stdio for AI-IDE integration |
 | `dio demo` | `dio demo [-t 20] [-p 8085]` | Zero-GPU live demo with mock backends and traffic generation |
 | `dio bench-smoke` | `dio bench-smoke [-n 40] [-c 4]` | Compare NLMS vs Round-Robin on synthetic heterogeneous workers |
 | `dio version` | `dio version` | Show current package version (`0.4.0`) |
@@ -276,7 +320,7 @@ DIO is thoroughly tested with comprehensive unit and integration suites:
 ```bash
 pytest tests/ -v
 ```
-*All 28 tests passing across config parsing, multi-model routing, SSE streaming, and Ollama adapter.*
+*All 35 tests passing across config parsing, multi-model routing, SSE streaming, Ollama adapter, and MCP server.*
 
 ---
 

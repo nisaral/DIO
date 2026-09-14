@@ -51,6 +51,7 @@ dio demo
 
 - Point **OpenAI SDK / LangChain** at `http://localhost:8085/v1`
 - Point **Ollama CLI / OpenWebUI** at `http://localhost:8085/api` (or `OLLAMA_HOST=http://localhost:8085`)
+- Connect **Cursor / Claude Desktop / VS Code** via MCP: `dio mcp`
 
 Full docs → **[dio-serve/README.md](dio-serve/README.md)** ·
 Config-as-Code → **[dio.example.yaml](dio.example.yaml)** ·
