@@ -15,7 +15,7 @@ from rich.table import Table
 
 app = typer.Typer(
     name="dio",
-    help="DIO — predictive NLMS orchestrator that wraps vLLM / OpenAI-compatible engines.",
+    help="DIO - predictive NLMS orchestrator that wraps vLLM / OpenAI / Ollama engines.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -52,14 +52,24 @@ def _parse_backends(values: List[str], tiers: List[str], vrams: List[float]) -> 
 @app.command("serve")
 def serve(
     backend: List[str] = typer.Option(
-        ...,
+        [],
         "--backend",
         "-b",
         help="Backend base URL (repeatable). Formats: URL | id=URL | id=URL;tier=large",
     ),
+    config_file: Optional[str] = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to dio.yaml config file (auto-discovered if omitted)",
+    ),
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(8085, "--port", "-p"),
-    strategy: str = typer.Option("nlms", "--strategy", help="nlms|rls|static|round_robin|least_loaded"),
+    strategy: str = typer.Option(
+        "nlms",
+        "--strategy",
+        help="nlms|rls|ewma|static|round_robin|least_loaded",
+    ),
     nlms_mode: str = typer.Option("dual", "--nlms-mode", help="dual|single"),
     slo_ms: float = typer.Option(5000.0, "--slo-ms", help="Admission threshold (ms)"),
     admission_off: bool = typer.Option(False, "--admission-off", help="Disable SLO admission rejects"),
@@ -104,38 +114,80 @@ def serve(
           -d '{"model":"default","messages":[{"role":"user","content":"hi"}]}'
     """
     from dio import DIOConfig, DIOGateway
+    from dio.config_file import discover_config, load_config_file
 
-    backends = _parse_backends(backend, tier, vram)
-    cfg = DIOConfig(
-        host=host,
-        port=port,
-        strategy=strategy,  # type: ignore
-        nlms_mode=nlms_mode,  # type: ignore
-        slo_ms=slo_ms,
-        admission_off=admission_off,
-        admission_mode=admission_mode,  # type: ignore
-        tokenizer_name=tokenizer or None,
-        use_tokenizer=bool(tokenizer),
-        engine_metrics=engine_metrics,
-        cache_bonus_ms=cache_bonus_ms,
-        ablation=ablation,  # type: ignore
-    )
+    # Priority: --config > auto-discover dio.yaml > CLI --backend flags
+    model_map = {}
+    if config_file or (not backend and discover_config()):
+        try:
+            file_backends, file_cfg, model_map = load_config_file(config_file)
+            console.print(f"[green]Loaded config from[/green] {config_file or discover_config()}")
+            # CLI flags override config file values
+            if backend:
+                backends = _parse_backends(backend, tier, vram)
+            else:
+                backends = file_backends
+            cfg = file_cfg
+            # Override with explicit CLI flags if they differ from defaults
+            if host != "0.0.0.0":
+                cfg.host = host
+            if port != 8085:
+                cfg.port = port
+        except FileNotFoundError:
+            if not backend:
+                console.print("[red]No backends specified and no dio.yaml found.[/red]")
+                console.print("  Use: dio serve -b http://localhost:8000")
+                console.print("  Or:  dio init  (to create a config file)")
+                raise typer.Exit(1)
+            backends = _parse_backends(backend, tier, vram)
+            cfg = DIOConfig(
+                host=host, port=port, strategy=strategy, nlms_mode=nlms_mode,
+                slo_ms=slo_ms, admission_off=admission_off, admission_mode=admission_mode,
+                tokenizer_name=tokenizer or None, use_tokenizer=bool(tokenizer),
+                engine_metrics=engine_metrics, cache_bonus_ms=cache_bonus_ms, ablation=ablation,
+            )
+    else:
+        if not backend:
+            console.print("[red]No backends specified.[/red]")
+            console.print("  Use: dio serve -b http://localhost:8000")
+            console.print("  Or:  dio init  (to create a config file)")
+            raise typer.Exit(1)
+        backends = _parse_backends(backend, tier, vram)
+        cfg = DIOConfig(
+            host=host, port=port, strategy=strategy, nlms_mode=nlms_mode,
+            slo_ms=slo_ms, admission_off=admission_off, admission_mode=admission_mode,
+            tokenizer_name=tokenizer or None, use_tokenizer=bool(tokenizer),
+            engine_metrics=engine_metrics, cache_bonus_ms=cache_bonus_ms, ablation=ablation,
+        )
+
     table = Table(title="DIO backends")
     table.add_column("id")
     table.add_column("url")
     table.add_column("tier")
+    table.add_column("models", overflow="fold")
     for b in backends:
-        table.add_row(b.id, b.base_url, b.tier)
+        models = b.labels.get("models", b.model or "-")
+        table.add_row(b.id, b.base_url, b.tier, models)
     console.print(table)
+
+    if model_map:
+        mt = Table(title="Model -> Backend routing")
+        mt.add_column("model")
+        mt.add_column("backends")
+        for m, bids in model_map.items():
+            mt.add_row(m, ", ".join(bids))
+        console.print(mt)
+
     console.print(
         Panel.fit(
-            f"[bold]strategy[/bold]={strategy}  [bold]nlms[/bold]={nlms_mode}  "
-            f"[bold]slo[/bold]={slo_ms}ms  [bold]listen[/bold]={host}:{port}\n"
-            f"OpenAI base_url → [cyan]http://{host}:{port}/v1[/cyan]",
+            f"[bold]strategy[/bold]={cfg.strategy}  [bold]nlms[/bold]={cfg.nlms_mode}  "
+            f"[bold]slo[/bold]={cfg.slo_ms}ms  [bold]listen[/bold]={cfg.host}:{cfg.port}\n"
+            f"OpenAI base_url -> [cyan]http://{cfg.host}:{cfg.port}/v1[/cyan]\n"
+            f"Ollama base_url -> [cyan]http://{cfg.host}:{cfg.port}/api[/cyan]",
             title="DIO Serve",
         )
     )
-    gw = DIOGateway(backends=backends, config=cfg)
+    gw = DIOGateway(backends=backends, config=cfg, model_map=model_map)
     gw.run()
 
 
@@ -295,6 +347,138 @@ def bench_smoke(
         console.print(table)
 
     asyncio.run(_run())
+
+
+@app.command("init")
+def init(
+    output: str = typer.Option(
+        "dio.yaml",
+        "--output",
+        "-o",
+        help="Output file path",
+    ),
+    detect: bool = typer.Option(
+        True,
+        "--detect/--no-detect",
+        "-d/-n",
+        help="Auto-detect running local engines (Ollama on 11434, vLLM on 8000/8001, SGLang on 30000)",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing file"),
+) -> None:
+    """
+    Generate a starter dio.yaml config file with optional auto-discovery of local engines.
+    """
+    import asyncio
+    import os
+
+    from dio.config_file import (
+        detect_local_backends,
+        generate_detected_config,
+        generate_example_config,
+    )
+
+    if os.path.exists(output) and not force:
+        console.print(f"[yellow]{output} already exists.[/yellow] Use --force to overwrite.")
+        raise typer.Exit(1)
+
+    discovered = []
+    if detect:
+        console.print("[dim]Scanning localhost for running inference engines...[/dim]")
+        try:
+            discovered = asyncio.run(detect_local_backends())
+        except Exception:
+            discovered = []
+
+    if discovered:
+        console.print(f"[green]Discovered {len(discovered)} active inference engine(s):[/green]")
+        for b in discovered:
+            models_str = ", ".join(b.get("models", []))
+            console.print(
+                f"  [cyan]*[/cyan] {b['id']} ({b['engine']}) at {b['url']} [dim]models: {models_str}[/dim]"
+            )
+        content = generate_detected_config(discovered)
+    else:
+        if detect:
+            console.print("[dim]No active local engines found; generating template config.[/dim]")
+        content = generate_example_config()
+
+    with open(output, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    console.print(f"[green][OK] Created {output}[/green]")
+    console.print("")
+    console.print("Next steps:")
+    console.print(f"  1. Review [cyan]{output}[/cyan]")
+    console.print("  2. Run [cyan]dio serve[/cyan] (auto-loads dio.yaml)")
+
+
+@app.command("config")
+def config_show(
+    config_file: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Config file path",
+    ),
+) -> None:
+    """Show resolved configuration from dio.yaml (or specify a path)."""
+    from dio.config_file import discover_config, load_config_file
+
+    try:
+        backends, cfg, model_map = load_config_file(config_file)
+    except FileNotFoundError:
+        console.print("[yellow]No dio.yaml found.[/yellow] Run [cyan]dio init[/cyan] to create one.")
+        raise typer.Exit(1)
+
+    found = config_file or discover_config()
+    console.print(f"Config: [cyan]{found}[/cyan]\n")
+
+    table = Table(title="Backends")
+    table.add_column("id")
+    table.add_column("url")
+    table.add_column("tier")
+    table.add_column("engine")
+    table.add_column("models", overflow="fold")
+    for b in backends:
+        table.add_row(
+            b.id, b.base_url, b.tier,
+            b.labels.get("engine", "openai"),
+            b.labels.get("models", b.model or "-"),
+        )
+    console.print(table)
+
+    if model_map:
+        console.print("")
+        mt = Table(title="Model Routing")
+        mt.add_column("model")
+        mt.add_column("backends")
+        for m, bids in model_map.items():
+            mt.add_row(m, ", ".join(bids))
+        console.print(mt)
+
+    console.print("")
+    console.print(Panel.fit(
+        f"strategy={cfg.strategy}  nlms_mode={cfg.nlms_mode}\n"
+        f"slo_ms={cfg.slo_ms}  admission={cfg.admission_mode}\n"
+        f"engine_metrics={cfg.engine_metrics}  port={cfg.port}",
+        title="Scheduler",
+    ))
+
+
+@app.command("mcp")
+def mcp(
+    gateway_url: str = typer.Option(
+        "http://127.0.0.1:8085",
+        "--gateway-url",
+        "-g",
+        help="DIO Gateway base URL to connect to",
+    ),
+) -> None:
+    """Run DIO as a Model Context Protocol (MCP) server over stdio for AI-IDE integration."""
+    from dio.mcp import DIOMCPServer
+
+    server = DIOMCPServer(gateway_url=gateway_url)
+    try:
+        asyncio.run(server.run_stdio())
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
 
 @app.command("version")

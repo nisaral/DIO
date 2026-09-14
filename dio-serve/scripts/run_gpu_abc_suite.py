@@ -47,7 +47,9 @@ import os
 import random
 import statistics
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
@@ -195,9 +197,14 @@ def run_multiturn_load(
 ) -> Dict[str, Any]:
     """
     Multi-turn sessions sharing a long system prefix per session.
-    concurrent>1 issues overlapping requests to build real queue/KV pressure.
+
+    concurrent>1 runs that many sessions IN PARALLEL (one thread per session),
+    so requests genuinely overlap at the engines and num_waiting/num_running
+    can exceed 1. Turns within a session stay sequential -- that ordering is
+    what makes the shared-prefix affinity test meaningful.
     """
     random.seed(seed)
+    lock = threading.Lock()
     e2e: List[float] = []
     routes: Dict[str, int] = {}
     sticky = 0
@@ -206,67 +213,102 @@ def run_multiturn_load(
     ok = fail = 0
     rejects = 0
 
-    with httpx.Client(timeout=300.0) as client:
-        # reset stats
-        try:
-            client.post(f"{base.rstrip('/')}/debug/reset_stats")
-        except Exception:
-            pass
-
-        for s in range(n_sessions):
-            sys_p = SYSTEM_PREFIXES[s % len(SYSTEM_PREFIXES)]
-            for t in range(turns):
-                user = USER_TURNS[t % len(USER_TURNS)] + f" (sess={s} turn={t} seed={seed})"
-                messages = [
-                    {"role": "system", "content": sys_p},
-                    {"role": "user", "content": user},
-                ]
-                t0 = time.perf_counter()
-                try:
-                    r = client.post(
-                        f"{base.rstrip('/')}/v1/chat/completions",
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "max_tokens": max_tokens,
-                            "temperature": 0.0,
-                        },
-                    )
-                    ms = (time.perf_counter() - t0) * 1000.0
-                    if r.status_code == 200:
+    def run_session(s: int, client: httpx.Client) -> None:
+        nonlocal sticky, total_turns, ok, fail, rejects
+        sys_p = SYSTEM_PREFIXES[s % len(SYSTEM_PREFIXES)]
+        for t in range(turns):
+            user = USER_TURNS[t % len(USER_TURNS)] + f" (sess={s} turn={t} seed={seed})"
+            messages = [
+                {"role": "system", "content": sys_p},
+                {"role": "user", "content": user},
+            ]
+            t0 = time.perf_counter()
+            try:
+                r = client.post(
+                    f"{base.rstrip('/')}/v1/chat/completions",
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": 0.0,
+                    },
+                )
+                ms = (time.perf_counter() - t0) * 1000.0
+                if r.status_code == 200:
+                    wid = r.headers.get("X-DIO-Backend") or "unknown"
+                    with lock:
                         ok += 1
                         e2e.append(ms)
-                        wid = r.headers.get("X-DIO-Backend") or "unknown"
                         routes[wid] = routes.get(wid, 0) + 1
                         if s not in session_home:
                             session_home[s] = wid
                         if wid == session_home[s]:
                             sticky += 1
                         total_turns += 1
-                    elif r.status_code == 503:
+                elif r.status_code == 503:
+                    with lock:
                         fail += 1
                         rejects += 1
-                    else:
+                else:
+                    with lock:
                         fail += 1
-                except Exception:
+            except Exception:
+                with lock:
                     fail += 1
 
-                # Optional: fire concurrent fillers for pressure (same prefix)
-                if concurrent > 1 and t == 0:
-                    for c in range(concurrent - 1):
-                        try:
-                            client.post(
-                                f"{base.rstrip('/')}/v1/chat/completions",
-                                json={
-                                    "model": model,
-                                    "messages": messages,
-                                    "max_tokens": max(8, max_tokens // 2),
-                                    "temperature": 0.0,
-                                },
-                                timeout=120.0,
-                            )
-                        except Exception:
-                            pass
+    # Peak in-flight witness. The end-of-run /debug/engine snapshot only shows
+    # the idle tail, so it cannot confirm that requests actually overlapped.
+    # This samples DURING the load and records the high-water mark.
+    peak = {"num_running": 0.0, "num_waiting": 0.0}
+    stop_sampler = threading.Event()
+
+    def sample_engine_peaks() -> None:
+        with httpx.Client(timeout=5.0) as sc:
+            while not stop_sampler.is_set():
+                snaps = (fetch_json(sc, f"{base.rstrip('/')}/debug/engine") or {}).get(
+                    "snapshots"
+                ) or {}
+                if isinstance(snaps, dict):
+                    for snap in snaps.values():
+                        if not isinstance(snap, dict):
+                            continue
+                        for key in ("num_running", "num_waiting"):
+                            try:
+                                v = float(snap.get(key) or 0.0)
+                            except (TypeError, ValueError):
+                                continue
+                            with lock:
+                                if v > peak[key]:
+                                    peak[key] = v
+                stop_sampler.wait(0.25)
+
+    with httpx.Client(
+        timeout=300.0,
+        limits=httpx.Limits(
+            max_connections=max(8, concurrent * 2),
+            max_keepalive_connections=max(8, concurrent * 2),
+        ),
+    ) as client:
+        # reset stats
+        try:
+            client.post(f"{base.rstrip('/')}/debug/reset_stats")
+        except Exception:
+            pass
+
+        sampler = threading.Thread(target=sample_engine_peaks, daemon=True)
+        sampler.start()
+        try:
+            if concurrent > 1:
+                with ThreadPoolExecutor(max_workers=concurrent) as ex:
+                    futs = [ex.submit(run_session, s, client) for s in range(n_sessions)]
+                    for f in futs:
+                        f.result()
+            else:
+                for s in range(n_sessions):
+                    run_session(s, client)
+        finally:
+            stop_sampler.set()
+            sampler.join(timeout=5.0)
 
         dbg = fetch_json(client, f"{base.rstrip('/')}/debug/metrics")
         eng = fetch_json(client, f"{base.rstrip('/')}/debug/engine")
@@ -286,6 +328,12 @@ def run_multiturn_load(
         "e2e_mean_ms": statistics.mean(e2e) if e2e else None,
         "affinity": aff,
         "engine_debug": eng.get("snapshots") or dbg.get("engine_metrics"),
+        # High-water marks sampled DURING load, not from the idle tail.
+        # peak_num_running <= 1 means the run was effectively sequential and
+        # any queue-pressure claim is unsupported.
+        "peak_num_running": peak["num_running"],
+        "peak_num_waiting": peak["num_waiting"],
+        "concurrent": concurrent,
         "admission": (dbg.get("admission") or {}),
         "prediction": (dbg.get("prediction") or {}),
         "mape_pct": (dbg.get("prediction") or {}).get("mape_pct"),
@@ -599,9 +647,13 @@ def main() -> int:
 
         # ---- G1 Hybrid ----
         if not args.skip_g1:
+            # 2x2 factorial: engine_metrics and cache_bonus_ms are varied
+            # INDEPENDENTLY. The earlier 2-arm design changed both knobs at once,
+            # so any hybrid_on-vs-hybrid_off delta was unattributable between
+            # scraped /metrics fusion (C1) and session affinity (C2).
             g1_cfgs = [
                 {
-                    "name": "nlms_hybrid_on",
+                    "name": "nlms_hybrid_on",  # metrics ON,  affinity ON
                     "strategy": "nlms",
                     "engine_metrics": True,
                     "cache_bonus_ms": 200.0,
@@ -609,7 +661,23 @@ def main() -> int:
                     "admission_mode": "rank_only",
                 },
                 {
-                    "name": "nlms_hybrid_off",
+                    "name": "nlms_metrics_only",  # metrics ON,  affinity OFF
+                    "strategy": "nlms",
+                    "engine_metrics": True,
+                    "cache_bonus_ms": 0.0,
+                    "admission_off": True,
+                    "admission_mode": "rank_only",
+                },
+                {
+                    "name": "nlms_affinity_only",  # metrics OFF, affinity ON
+                    "strategy": "nlms",
+                    "engine_metrics": False,
+                    "cache_bonus_ms": 200.0,
+                    "admission_off": True,
+                    "admission_mode": "rank_only",
+                },
+                {
+                    "name": "nlms_hybrid_off",  # metrics OFF, affinity OFF
                     "strategy": "nlms",
                     "engine_metrics": False,
                     "cache_bonus_ms": 0.0,
@@ -641,17 +709,52 @@ def main() -> int:
                 n_adm=args.adm_n,
                 label="G1",
             )
-            # vs RR improvement
+            # 1-factor margins over the factorial, so the engine-metrics effect
+            # is isolated from the affinity effect:
+            #   metrics effect = nlms_hybrid_on  vs nlms_affinity_only
+            #   affinity effect= nlms_hybrid_on  vs nlms_metrics_only
             g1 = summary["G1_hybrid"]["configs"]
-            if "rr" in g1 and "nlms_hybrid_on" in g1:
-                rr = g1["rr"]["per_seed"]
+            if "nlms_hybrid_on" in g1 and "nlms_hybrid_off" in g1:
+                rr = g1["nlms_hybrid_off"]["per_seed"]
                 hy = g1["nlms_hybrid_on"]["per_seed"]
                 imps = []
                 for i in range(min(len(rr), len(hy))):
                     a, b = rr[i].get("e2e_p99_ms"), hy[i].get("e2e_p99_ms")
                     if a and b and a > 0:
                         imps.append(100.0 * (a - b) / a)
-                g1["nlms_hybrid_on"]["p99_vs_rr_pct"] = mean_std(imps)
+                g1["nlms_hybrid_on"]["p99_vs_hybrid_off_pct"] = mean_std(imps)
+
+            def _paired_gain(base_name: str, treat_name: str) -> Any:
+                """Mean/std paired p99 gain of treat over base, per seed."""
+                if base_name not in g1 or treat_name not in g1:
+                    return None
+                bs = g1[base_name]["per_seed"]
+                ts = g1[treat_name]["per_seed"]
+                out = []
+                for i in range(min(len(bs), len(ts))):
+                    a, b = bs[i].get("e2e_p99_ms"), ts[i].get("e2e_p99_ms")
+                    if a and b and a > 0:
+                        out.append(100.0 * (a - b) / a)
+                return mean_std(out) if out else None
+
+            summary["G1_hybrid"]["factorial_margins"] = {
+                # holding affinity ON, does adding scraped /metrics help?
+                "engine_metrics_effect_pct": _paired_gain(
+                    "nlms_affinity_only", "nlms_hybrid_on"
+                ),
+                # holding metrics ON, does adding affinity help?
+                "affinity_effect_pct": _paired_gain(
+                    "nlms_metrics_only", "nlms_hybrid_on"
+                ),
+                # each knob alone against the double-off corner
+                "metrics_only_vs_off_pct": _paired_gain(
+                    "nlms_hybrid_off", "nlms_metrics_only"
+                ),
+                "affinity_only_vs_off_pct": _paired_gain(
+                    "nlms_hybrid_off", "nlms_affinity_only"
+                ),
+                "both_vs_rr_pct": _paired_gain("rr", "nlms_hybrid_on"),
+            }
 
         # ---- G2 Affinity ----
         if not args.skip_g2:

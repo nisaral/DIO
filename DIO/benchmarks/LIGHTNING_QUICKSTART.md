@@ -45,9 +45,9 @@ If push fails, use your branch name: `git branch` to check.
 ```bash
 cd /teamspace/studios/this_studio
 
-# Clone (replace with your repo URL)
-git clone https://github.com/YOUR_USER/Go-serve.git
-cd Go-serve
+# Clone repository
+git clone https://github.com/nisaral/DIO.git
+cd DIO
 git checkout feat-v2-rls-scheduler
 git pull
 

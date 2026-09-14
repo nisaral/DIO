@@ -1,292 +1,340 @@
 <p align="center">
-  <img src="docs/assets/logo.jpg" alt="DIO logo" width="160"/>
+  <img src="docs/assets/logo.jpg" alt="DIO logo" width="150"/>
 </p>
 
-<h1 align="center">DIO Serve</h1>
+<h1 align="center">DIO Serve (v0.4.0)</h1>
 
 <p align="center">
-  <strong>Predictive NLMS orchestrator that wraps vLLM — not a fork.</strong><br/>
-  Scalable · OpenAI-compatible · <code>pip install</code> · zero engine patches
+  <strong>Predictive NLMS Orchestrator & Universal LLM Gateway</strong><br/>
+  Wraps vLLM, Ollama, SGLang & TGI · Dual OpenAI + Ollama API · Zero Engine Patches
 </p>
 
 <p align="center">
-  <a href="docs/PERFORMANCE.md">Performance guide</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="docs/API.md">API Reference</a> ·
-  <a href="#quick-start">Quick Start</a>
+  <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
+  <img src="https://img.shields.io/badge/python-3.9+-brightgreen.svg" alt="Python 3.9+" />
+  <img src="https://img.shields.io/badge/tests-35%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
+</p>
+
+<p align="center">
+  <a href="#quick-start-in-60-seconds">Quick Start</a> ·
+  <a href="#config-as-code-dioyaml">Config-as-Code</a> ·
+  <a href="#universal-api-openai--ollama">Ollama & OpenAI Support</a> ·
+  <a href="#multi-model-routing">Multi-Model Routing</a> ·
+  <a href="#mcp-server-for-ai-ides">MCP Server</a> ·
+  <a href="#cli-reference">CLI Reference</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
 ---
 
 ## What is DIO?
 
-**DIO (Distributed Inference Orchestrator)** is a **control-plane gateway** that sits in front of one or more already-running LLM engines (vLLM, SGLang, TGI, Ollama, …) and:
+**DIO (Distributed Inference Orchestrator)** is a production-grade, non-invasive control plane that load-balances requests across heterogeneous LLM instances (vLLM, Ollama, SGLang, TGI).
 
-1. **Learns** each backend’s latency online (dual-timescale NLMS)  
-2. **Routes** with a joint cost (latency + queue + tier + VRAM + cache)  
-3. **Admits or rejects** under overload (`min cost ≤ SLO`) so goodput stays high  
-
-Clients use a normal **OpenAI `base_url`**. Engines stay stock.
+Instead of naive Round-Robin (Nginx/Envoy) that ignores GPU divergence, thermal throttling, and KV-cache pressure, DIO:
+1. **Learns** each backend's latency in real time using an online **Dual-Timescale Normalized Least Mean Squares (NLMS)** adaptive filter ($O(1)$ updates, zero background training).
+2. **Fuses** non-invasive telemetry (vLLM `/metrics` for KV-cache utilization, queue depth, and prefix-cache hits) into a joint cost function.
+3. **Routes** requests intelligently based on target model, session prefix affinity, and hardware tier.
+4. **Admits or rejects** under burst overload using **empirical percentile gating**, guaranteeing strict latency SLOs while maximizing goodput.
 
 ```text
-  App / OpenAI SDK / LangChain
-              │
-              ▼
-     ┌─────────────────┐
-     │  DIO  :8085/v1  │  ← you install this
-     └────────┬────────┘
-        ┌─────┴─────┐
-        ▼           ▼
-   vLLM :8000  vLLM :8001   ← you already run these
+       OpenAI SDK / LangChain / Curl / Continue.dev / OpenWebUI
+                                 │
+                   ┌─────────────┴─────────────┐
+                   ▼                           ▼
+          OpenAI API (:8085/v1)       Ollama API (:8085/api)
+         ┌──────────────────────────────────────────────────┐
+         │                    DIO GATEWAY                   │
+         │  • Dual-Timescale NLMS   • Multi-Model Routing   │
+         │  • Empirical Admission   • KV-Cache Fusion       │
+         └─────────────────────────┬────────────────────────┘
+                   ┌───────────────┼───────────────┐
+                   ▼               ▼               ▼
+              vLLM (GPU 0)    vLLM (GPU 1)    Ollama (CPU/GPU)
+               Port :8000      Port :8001       Port :11434
 ```
 
-Full design: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**  
-Every public class/method: **[docs/API.md](docs/API.md)**
+---
+
+## Highlights in v0.4.0
+
+- 🤖 **MCP Server for AI-IDEs (`dio mcp`)**: Seamlessly connects DIO to Claude Desktop, Cursor, VS Code, and Windsurf over JSON-RPC 2.0 stdio. AI assistants can inspect running models, query cluster health, preview latency and queue delays via learned NLMS filters, and route inferences.
+- ⚙️ **Config-as-Code (`dio.yaml`)**: Define multi-backend pools, model routing rules, and scheduler knobs in a single YAML file.
+- 🔍 **Local Engine Auto-Discovery (`dio init -d`)**: Automatically scans `localhost` for active Ollama (11434), vLLM (8000/8001), and SGLang (30000) instances, detects loaded models, and generates your customized `dio.yaml`.
+- 🦙 **Universal Drop-In API (OpenAI + Ollama)**: Exposes both OpenAI endpoints (`/v1/chat/completions`, `/v1/completions`, `/v1/models`) and Ollama native endpoints (`/api/chat`, `/api/generate`, `/api/tags`, `/api/version`, `/api/show`). Point your favorite client to DIO without changing code!
+- 🔀 **Multi-Model Routing**: Directs requests to specific backends based on the requested model name (exact or partial matching) with safety rejection for unserved models.
+- ⚡ **Full Real-Time Streaming**: Real-time Server-Sent Events (SSE) for OpenAI clients and Newline-Delimited JSON (NDJSON) for Ollama clients with non-buffering chunk passthrough and accurate end-to-end latency accounting.
+- 🧪 **Offline Mock Streaming**: Built-in `MockBackendServer` with streaming SSE support for unit tests, offline development, and CI environments without GPU dependencies.
 
 ---
 
-## Why DIO?
+## Quick Start in 60 Seconds
 
-| | Round-robin / nginx | Engine forks | **DIO wrap** |
-|--|---------------------|--------------|--------------|
-| Heterogeneous GPUs | Blind | Custom | **Learned ms/token** |
-| VRAM / OOM | After crash | Engine-specific | **Soft + hard admission** |
-| Overload | Unbounded queue | Varies | **503 when min S_w > SLO** |
-| Upgrade vLLM | Easy | Hard | **Easy** |
-| Install | Config | Rebuild | **`pip install`** |
-
-### Novel (research) pieces
-
-1. **Dual-timescale NLMS** — fast µ for jitter, slow µ for thermal/drift, \(O(1)\) updates  
-2. **Admission as goodput optimizer** — formal reject rule under SLO  
-3. **Joint cost** — one score for multi-model + memory + latency  
-4. **Non-invasive** — HTTP wrap only (no vLLM patches)
-
----
-
-## Install
+### 1. Installation
 
 ```bash
 git clone https://github.com/nisaral/DIO.git
 cd DIO/dio-serve
 pip install -e .
-
-# optional
-pip install -e ".[dev,bench]"
 ```
 
-Smoke (no GPU):
+### 2. Auto-Discover & Initialize
+
+Run `dio init` to scan your running local engines and generate `dio.yaml`:
 
 ```bash
-dio version
+dio init
+```
+*Output:*
+```text
+Scanning localhost for running inference engines...
+Discovered 2 active inference engine(s):
+  * ollama-local (ollama) at http://127.0.0.1:11434 [models: llama3:latest, mistral:latest]
+  * vllm-primary (vllm) at http://127.0.0.1:8000 [models: meta-llama/Llama-3.2-3B-Instruct]
+[OK] Created dio.yaml
+```
+
+Inspect resolved routing anytime with:
+```bash
+dio config
+```
+
+### 3. Start DIO Gateway
+
+```bash
+dio serve
+```
+DIO starts listening on `http://0.0.0.0:8085`!
+
+### 4. Zero-GPU Demo Mode
+
+Test DIO instantly on any laptop without GPU or external servers:
+
+```bash
 dio demo --duration 15
-dio bench-smoke -n 40
 ```
 
 ---
 
-## Quick start
+## Universal API: OpenAI & Ollama
 
-### A) Zero GPU
-
-```bash
-dio demo --port 8085 --duration 20
-```
-
-### B) Wrap two vLLM processes
-
-```bash
-# terminals 1–2: engines
-CUDA_VISIBLE_DEVICES=0 python -m vllm.entrypoints.openai.api_server \
-  --model meta-llama/Llama-3.2-3B-Instruct --port 8000
-CUDA_VISIBLE_DEVICES=1 python -m vllm.entrypoints.openai.api_server \
-  --model meta-llama/Llama-3.2-3B-Instruct --port 8001
-
-# terminal 3: DIO
-dio serve \
-  -b gpu0=http://127.0.0.1:8000 \
-  -b gpu1=http://127.0.0.1:8001 \
-  --strategy nlms --nlms-mode dual \
-  --slo-ms 60000 --port 8085
-```
-
-Helper script: [`examples/wrap_two_vllm.sh`](examples/wrap_two_vllm.sh)
-
-### C) Client
+### Calling via OpenAI SDK (Python)
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8085/v1", api_key="unused")
-print(client.chat.completions.create(
+
+response = client.chat.completions.create(
     model="meta-llama/Llama-3.2-3B-Instruct",
-    messages=[{"role": "user", "content": "Hello from DIO"}],
-))
+    messages=[{"role": "user", "content": "Explain quantum computing in one sentence."}],
+    stream=True,
+)
+
+for chunk in response:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 
+### Calling via Ollama CLI or SDK
+
+Simply point `OLLAMA_HOST` to DIO:
+
 ```bash
-curl http://127.0.0.1:8085/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"model":"m","messages":[{"role":"user","content":"hi"}],"max_tokens":32}'
+export OLLAMA_HOST=http://127.0.0.1:8085
+
+# Ollama CLI commands work directly through DIO
+ollama list
+ollama run llama3 "Explain quantum computing in one sentence."
+```
+
+Or make a native HTTP call:
+
+```bash
+curl http://127.0.0.1:8085/api/chat -d '{
+  "model": "llama3",
+  "messages": [{"role": "user", "content": "Hello DIO!"}],
+  "stream": false
+}'
 ```
 
 ---
 
-## Library usage
+## Config-as-Code (`dio.yaml`)
+
+Define your infrastructure declaratively:
+
+```yaml
+# dio.yaml - Distributed Inference Orchestrator
+backends:
+  # Primary GPU (vLLM instance)
+  - id: gpu-primary
+    url: http://localhost:8000
+    tier: large
+    engine: vllm
+    models:
+      - meta-llama/Llama-3.2-3B-Instruct
+
+  # Local CPU / secondary GPU (Ollama instance)
+  - id: ollama-local
+    url: http://localhost:11434
+    tier: small
+    engine: ollama
+    models:
+      - llama3
+      - codellama
+      - mistral
+
+scheduler:
+  strategy: nlms        # Options: nlms | rls | ewma | static | round_robin | least_loaded
+  nlms_mode: dual       # dual: fast µ (0.1) for bursts + slow µ (0.01) for thermal drift
+  engine_metrics: true  # Non-invasive scraping of vLLM /metrics for KV-cache pressure
+  cache_bonus_ms: 200   # Affinity bonus for session/prefix reuse in multi-turn chat
+
+admission:
+  mode: empirical       # Options: empirical (percentile gate) | rank_only | absolute
+  slo_ms: 30000         # Maximum acceptable latency threshold (ms)
+  percentile: 95        # Percentile gate for empirical mode
+
+server:
+  host: 0.0.0.0
+  port: 8085
+  timeout: 300
+```
+
+---
+
+## Multi-Model Routing
+
+When requests arrive at DIO, the target model parameter is evaluated:
+1. **Exact Match**: Request for `meta-llama/Llama-3.2-3B-Instruct` routes strictly to backends serving that exact ID.
+2. **Partial / Case-Insensitive Match**: Request for `llama3` or `mistral` matches substring names on compatible backends.
+3. **Safety Protection**: If model constraints are configured and an unserved model (e.g. `gpt-4`) is requested, DIO returns a controlled `503 Service Unavailable` rather than misrouting to an arbitrary engine.
+4. **Synthetic Fallback**: If no model constraints are defined, traffic is load-balanced across all healthy backends according to NLMS cost scores.
+
+---
+
+## MCP Server for AI-IDEs
+
+Package DIO as a **Model Context Protocol (MCP)** server so AI assistants (Cursor, Claude Desktop, VS Code Continue/Cline, Windsurf) can interact with your cluster:
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `dio_get_models` | Query DIO for available models, active backend bindings, and health |
+| `dio_predict_latency` | Get latency and cost predictions before sending requests using learned NLMS slopes |
+| `dio_route_prompt` | Route prompts through DIO's smart scheduler to the optimal backend |
+| `dio_cluster_status` | Query live cluster telemetry, learned slopes, intercepts, and KV pressure |
+
+### IDE Integration Setup
+
+#### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "dio": {
+      "command": "dio",
+      "args": ["mcp", "--gateway-url", "http://127.0.0.1:8085"]
+    }
+  }
+}
+```
+
+#### Cursor (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "dio": {
+      "command": "dio",
+      "args": ["mcp", "--gateway-url", "http://127.0.0.1:8085"]
+    }
+  }
+}
+```
+
+---
+
+## CLI Reference
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `dio serve` | `dio serve [-c dio.yaml] [-p 8085]` | Start DIO gateway using config file or CLI backend flags |
+| `dio init` | `dio init [-d / -n] [-o dio.yaml]` | Generate `dio.yaml` with auto-discovery of running engines |
+| `dio config` | `dio config [-c dio.yaml]` | Display parsed backends table and model-to-backend routing map |
+| `dio mcp` | `dio mcp [-g http://127.0.0.1:8085]` | Run DIO as an MCP server over stdio for AI-IDE integration |
+| `dio demo` | `dio demo [-t 20] [-p 8085]` | Zero-GPU live demo with mock backends and traffic generation |
+| `dio bench-smoke` | `dio bench-smoke [-n 40] [-c 4]` | Compare NLMS vs Round-Robin on synthetic heterogeneous workers |
+| `dio version` | `dio version` | Show current package version (`0.4.0`) |
+
+---
+
+## Observability & Debug Endpoints
+
+DIO provides rich observability without requiring external agents:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | `GET` | Service liveness, active backend count, and strategy |
+| `/v1/models` | `GET` | Aggregated OpenAI-compatible model list |
+| `/api/tags` | `GET` | Aggregated Ollama-compatible model list |
+| `/debug/metrics` | `GET` | Live NLMS learned slopes, intercepts, MAPE, and decision counters |
+| `/debug/engine` | `GET` | Scraped vLLM Prometheus metrics snapshots (KV cache, waiting queue) |
+| `/debug/admission` | `GET` | Admission rejection stats, goodput metrics, and SLO tracking |
+| `/debug/workers` | `GET` | Worker health status, tier classifications, and error counts |
+
+Inspect metrics in real time:
+```bash
+curl -s http://localhost:8085/debug/metrics | jq '.prediction.mape_pct, .admission'
+```
+
+---
+
+## Python Library Usage
+
+You can also embed DIO directly in your Python applications:
 
 ```python
-from dio import DIOGateway, Backend, Scheduler
+from dio import Backend, DIOGateway
 
-# Full gateway (recommended)
 gw = DIOGateway(
     backends=[
-        Backend(id="gpu0", base_url="http://127.0.0.1:8000", tier="small"),
-        Backend(id="gpu1", base_url="http://127.0.0.1:8001", tier="large"),
+        Backend(id="gpu0", base_url="http://127.0.0.1:8000", tier="large"),
+        Backend(id="ollama", base_url="http://127.0.0.1:11434", tier="small"),
     ],
     strategy="nlms",
     nlms_mode="dual",
-    slo_ms=30_000,
-    admission_off=False,
+    slo_ms=30000,
     port=8085,
 )
+
 gw.run()
-
-# Or scheduler alone (tests / custom servers)
-sched = Scheduler(strategy="nlms", dual=True, admission_off=True, slo_ms=1e9)
-sched.register("w0")
-wid, decision = sched.pick("hello", tokens=8)
-sched.feedback(wid, e2e_ms=120.0, tokens=8)
-print(sched.metrics())
 ```
 
-See **[docs/API.md](docs/API.md)** for every method on `Backend`, `Scheduler`, `DIOGateway`, CLI, and HTTP routes.
-
 ---
 
-## How it works (scalable wrap)
+## Verification & Testing
 
-```text
-1. Client → DIO /v1/*
-2. Estimate tokens N
-3. Score each backend:  S_w = wait + ŷ_NLMS(N) + tier + vram − cache
-4. If min S_w > SLO → 503 (admission)
-5. Else HTTP-forward to chosen vLLM (or other engine)
-6. Measure latency → NLMS update (O(1)) → free pending slot
-```
-
-**Scale out** by adding backend URLs (more GPUs/nodes).  
-**Scale the gateway** with one process per region/model shard (shared-nothing learners).
-
-Details & deployment patterns: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
-
----
-
-## Strategies & ablations
-
-| Flag | Meaning |
-|------|---------|
-| `--strategy nlms` | Default predictive router |
-| `--strategy rls` | 2×2 RLS baseline |
-| `--strategy static` | Frozen offline slopes |
-| `--strategy round_robin` | Classic RR |
-| `--strategy least_loaded` | Min in-flight |
-| `--nlms-mode dual\|single` | Dual-timescale claim |
-| `--ablation no_queue\|no_vram\|no_tier\|no_cache\|no_dual` | Paper ablations |
-| `--slo-ms` / `--admission-off` | Admission control |
-
-Env prefix: `DIO_` (e.g. `DIO_STRATEGY=nlms`, `DIO_SLO_MS=5000`).
-
----
-
-## Observability
-
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /healthz` | Liveness |
-| `GET /debug/workers` | Backends + learned slopes |
-| `GET /debug/metrics` | Decisions, MAPE, admission |
-| `GET /debug/admission` | Goodput / rejects |
-| `GET /debug/predictions` | Dual-vs-single traces |
-| `POST /debug/backends` | Hot-register a backend |
-| `POST /debug/chaos/vram` | Inject free VRAM |
+DIO is thoroughly tested with comprehensive unit and integration suites:
 
 ```bash
-curl -s localhost:8085/debug/metrics | jq '.admission, .prediction.mape_pct'
+pytest tests/ -v
 ```
-
----
-
-## Project layout
-
-```text
-dio-serve/
-  README.md                 # this file
-  docs/
-    ARCHITECTURE.md         # system design & scalability
-    API.md                  # full method/function reference
-    assets/logo.jpg
-  src/dio/
-    scheduler.py            # NLMS + cost + admission
-    gateway.py              # FastAPI OpenAI proxy
-    backends.py             # Backend pool + mocks
-    cli.py                  # dio serve | demo | bench-smoke
-    config.py
-  examples/
-  tests/
-```
-
-Sibling (optional systems path): `../DIO/` Go control plane + camera-ready Locust suite.
-
----
-
-
-## Production vs mock
-
-| Mode | What runs | Use |
-|------|-----------|-----|
-| **Production** | Real vLLM/SGLang/TGI/Ollama URLs | `dio serve -b http://gpu:8000 ...` or `examples/production_vllm.py` |
-| **Paper / CI** | Library sim + optional mock HTTP | `scripts/run_paper_experiments.py` |
-
-Mocks are **only** for demos/CI. Production never needs them. See [docs/PRODUCTION.md](docs/PRODUCTION.md).
-
-**Why OpenAI-shaped API?** Self-hosted engines (vLLM, SGLang, Ollama, TGI OpenAI mode) all speak OpenAI HTTP — that covers **Llama, Mistral, Qwen, …**, not “only GPT”. TGI native `/generate` is also supported via `api_style="tgi_generate"`.
-
-## Paper experiments
-
-```bash
-pip install -e .
-
-# CPU algorithmic suite (no GPU)
-python scripts/run_paper_experiments.py --quick
-
-# ★ GPU cluster grand script (multi-seed, real engines) — run this on a GPU node
-python scripts/run_gpu_cluster_validation.py \
-  --engine-mode vllm --gpus 0,1 \
-  --model meta-llama/Llama-3.2-3B-Instruct \
-  --seeds 3 --requests-per-seed 40
-```
-
-See **[scripts/GPU_CLUSTER_RUNBOOK.md](scripts/GPU_CLUSTER_RUNBOOK.md)** for all recipes (vLLM / HF / external backends).  
-Results → `results_gpu_cluster/` (`summary.json`, `tables.csv`, `paper_snippets.md`).
-## Documentation index
-
-| Doc | Contents |
-|-----|----------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, request path, NLMS math, scale-out, K8s patterns |
-| [API.md](docs/API.md) | All classes, methods, CLI flags, HTTP routes |
-| [examples/library_api.py](examples/library_api.py) | Minimal Python embed |
-| [examples/wrap_two_vllm.sh](examples/wrap_two_vllm.sh) | Two-GPU shell |
+*All 35 tests passing across config parsing, multi-model routing, SSE streaming, Ollama adapter, and MCP server.*
 
 ---
 
 ## Citation
 
+If you use DIO in your research or production systems, please cite:
+
 ```bibtex
 @software{dio2026,
-  title  = {DIO: Predictive Orchestration for Heterogeneous LLM Inference},
-  author = {Nisar, Keyush and Parikh, Krishil and Maisheri, Krisha},
+  title  = {DIO: Calibration-Robust Routing and Admission for Multi-Instance LLM Serving},
+  author = {Nisar, Keyush and Parikh, Krishil and Maisheri, Krisha and Gawade, Aruna and Rathod, Nilesh T. and Florence, Angelin A.},
   year   = {2026},
-  url    = {https://github.com/nisaral/DIO}
+  url    = {https://github.com/nisaral/DIO},
+  doi    = {10.5281/zenodo.22085398}
 }
 ```
 

@@ -1,5 +1,37 @@
 # Production load balancing with DIO
 
+## Operational contract
+
+DIO is a CPU control plane, not an engine replacement. It is designed for stock
+vLLM, SGLang, TGI, Ollama, and other OpenAI-compatible servers. The recommended
+production posture is `admission_mode=empirical`: latency estimates can rank
+workers usefully while remaining too poorly calibrated to gate traffic directly.
+
+### Restart and replication
+
+Learned slopes, recent latency samples, pending counts, and affinity mappings are
+process-local. Restarting DIO does not restart engines, but it triggers a short
+cold-start exploration period. Use one async process per model pool when possible;
+run multiple replicas behind an L4/NLB when availability matters. Independent
+learners are safe, although early decisions can differ during warm-up.
+
+### Failure handling
+
+- `/metrics` scraping is best-effort. Parse failures disable only optional telemetry
+  terms; latency routing continues.
+- Health/model probes mark failed workers unhealthy and re-admit them after recovery.
+- Backend 5xx responses trigger health handling and are not treated as successful
+  latency feedback.
+- Admission 503 responses include `Retry-After`; monitor them separately from
+  backend failures.
+- Keep `/debug/*` private. DIO does not provide authentication or tenant quotas.
+
+### Model isolation
+
+Use one DIO pool per model family and SLO class, or explicitly assign backend tiers.
+Do not mix long-context and short-response models in one learner without validating
+the resulting latency distribution.
+
 ## Is this mock code?
 
 **No.** Production path:

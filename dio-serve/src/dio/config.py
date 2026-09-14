@@ -12,7 +12,9 @@ class DIOConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DIO_", extra="ignore")
 
     # Routing
-    strategy: Literal["nlms", "rls", "static", "round_robin", "least_loaded"] = "nlms"
+    strategy: Literal[
+        "nlms", "rls", "ewma", "static", "round_robin", "least_loaded"
+    ] = "nlms"
     nlms_mode: Literal["dual", "single"] = "dual"
     ablation: Literal[
         "full", "no_queue", "no_vram", "no_vram_hard", "no_tier", "no_cache", "no_dual"

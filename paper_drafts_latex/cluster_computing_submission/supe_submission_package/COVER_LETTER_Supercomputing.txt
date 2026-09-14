@@ -1,0 +1,81 @@
+Dear Editor-in-Chief and Editorial Board,
+The Journal of Supercomputing
+
+We submit the manuscript entitled:
+
+  “DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission
+   for Multi-Instance LLM Serving over Stock vLLM”
+
+for consideration as an original research article in The Journal of Supercomputing.
+
+Motivation and fit
+------------------
+Operators commonly place several stock vLLM (or similar) engines behind a simple
+Round-Robin or least-connections balancer. Peers are not equal in practice:
+queues, KV-cache pressure, and temporary slowdowns create avoidable tail latency.
+Co-designed cluster systems can fix this with deep engine hooks or live KV
+migration, but many deployments need a non-invasive OpenAI-compatible front door.
+
+DIO (dio-serve) is a thin multi-instance gateway that combines:
+  (A) hybrid cost routing — dual-timescale NLMS ranking plus non-invasive scrape
+      of each engine’s Prometheus /metrics (KV usage, waiting requests, prefix hits);
+  (B) session/prefix affinity for multi-turn and agent traffic, with reported
+      affinity hit rate and stickiness;
+  (C) sound admission that does not trust absolute latency predictions when MAPE
+      is high (rank-only / empirical defaults; absolute mode shown as a diagnostic).
+
+These themes match The Journal of Supercomputing’s scope in parallel and
+distributed systems, scheduling, and high-performance application stacks.
+
+Main results (dual Tesla T4, Qwen2.5-3B, stock vLLM; multi-seed n=10 where noted)
+-------------------------------------------------------------------------------
+  • Homogeneous short probes: near Round-Robin parity (stable, no spurious wins).
+  • Controlled ×2 service-time asymmetry on real dual-T4: NLMS cuts p99 by about
+    half vs Round-Robin (48.3% ± 0.7%) and beats RLS.
+  • Real multi-turn hybrid metrics: strong tail gains on most seeds (8/10; median
+    ~52% better p99 vs RR; Wilcoxon p≈0.01), clearly above hybrid-off.
+  • Affinity: essentially perfect stickiness vs RR under load; hit rate ~0.91–0.93.
+  • Admission: empirical/rank_only keep all traffic under a tight SLO; absolute
+    predicted-latency gating over-rejects (~40%).
+
+The paper targets the common stock multi-instance pattern (no engine patches) with
+multi-seed dual-T4 evidence and open-source artifacts (https://github.com/nisaral/DIO).
+
+Originality and prior dissemination
+-----------------------------------
+This manuscript is original, is not under consideration elsewhere, and has not been
+published previously. A preprint may be posted on arXiv; that does not constitute
+prior formal publication.
+
+Authors (all equal main authors)
+--------------------------------
+  Keyush Nisar                  — nisarkeyush3@gmail.com
+  Krishil Parikh                — krishilparikh75@gmail.com
+  Krisha Maisheri               — krishamaisheri16@gmail.com
+  Aruna Gawade                  — aruna.gawade@djsce.ac.in
+  Nilesh T. Rathod              — nilesh.rathod@djsce.ac.in
+  Angelin Florence A            — angelin.florence@djsce.ac.in
+  Affiliation (all): Department of Computer Engineering,
+               Dwarkadas J. Sanghvi College of Engineering, Mumbai, India
+  Contact for submission logistics (portal): nisarkeyush3@gmail.com
+
+Suggested handling
+------------------
+We believe the manuscript is appropriate for a regular research article on
+distributed LLM serving and multi-instance scheduling. We are willing to share
+reviewer-facing artifacts and code links as needed.
+
+Declarations
+------------
+Funding: none.
+Competing interests: none.
+Ethics: not applicable.
+
+Thank you for your time and consideration. We look forward to your decision.
+
+Sincerely,
+Keyush Nisar
+Corresponding Author
+nisarkeyush3@gmail.com
+Department of Computer Engineering
+Dwarkadas J. Sanghvi College of Engineering, Mumbai, India

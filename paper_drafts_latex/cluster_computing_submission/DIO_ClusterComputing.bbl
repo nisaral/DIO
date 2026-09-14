@@ -1,6 +1,6 @@
 %% BioMed_Central_Bib_Style_v1.01
 
-\begin{thebibliography}{49}
+\begin{thebibliography}{55}
 % BibTex style file: bmc-mathphys.bst (version 2.1), 2014-07-24
 \ifx \bisbn   \undefined \def \bisbn  #1{ISBN #1}\fi
 \ifx \binits  \undefined \def \binits#1{#1}\fi
@@ -57,8 +57,20 @@ In: \bbtitle{SOSP}
 %%% 2
 \bibitem[\protect\citeauthoryear{Zheng et~al.}{2023}]{sglang}
 \begin{botherref}
-\oauthor{\bsnm{Zheng}, \binits{L.}}, et al.:
-{SGLang}: Efficient Execution of Structured Language Model Programs
+\oauthor{\bsnm{Zheng}, \binits{L.}},
+\oauthor{\bsnm{Yin}, \binits{L.}},
+\oauthor{\bsnm{Xie}, \binits{Z.}},
+\oauthor{\bsnm{Sun}, \binits{C.}},
+\oauthor{\bsnm{Huang}, \binits{J.}},
+\oauthor{\bsnm{Yu}, \binits{C.H.}},
+\oauthor{\bsnm{Cao}, \binits{S.}},
+\oauthor{\bsnm{Kozyrakis}, \binits{C.}},
+\oauthor{\bsnm{Stoica}, \binits{I.}},
+\oauthor{\bsnm{Gonzalez}, \binits{J.E.}},
+\oauthor{\bsnm{Barrett}, \binits{C.}},
+\oauthor{\bsnm{Sheng}, \binits{Y.}}:
+{SGLang}: Efficient Execution of Structured Language Model Programs.
+arXiv:2312.07104; see also NeurIPS 2024 version~\cite{radixattention}
 (2023)
 \end{botherref}
 \endbibitem
@@ -179,7 +191,8 @@ Communications of the ACM
 \oauthor{\bsnm{Li}, \binits{J.}},
 \oauthor{\bsnm{Wu}, \binits{W.}}:
 A Predictive and Synergistic Two-Layer Scheduling Framework for {LLM} Serving
-  ({NexusSched})
+  ({NexusSched}).
+arXiv:2509.23384
 (2025)
 \end{botherref}
 \endbibitem
@@ -225,7 +238,8 @@ In: \bbtitle{SOSP}
 \bauthor{\bsnm{Haykin}, \binits{S.}}:
 \bbtitle{Adaptive Filter Theory},
 \bedition{4}th edn.
-\bpublisher{Prentice Hall}, \blocation{???}
+\bpublisher{Prentice Hall},
+\blocation{Upper Saddle River, NJ}
 (\byear{2002})
 \end{bbook}
 \endbibitem
@@ -241,63 +255,34 @@ Prometheus: Monitoring System and Time Series Database.
 \endbibitem
 
 %%% 19
-\bibitem[\protect\citeauthoryear{Wu et~al.}{2023}]{autogen}
+\bibitem[\protect\citeauthoryear{Prabhu et~al.}{2024}]{vattention}
 \begin{botherref}
-\oauthor{\bsnm{Wu}, \binits{Q.}}, et al.:
-{AutoGen}: Enabling Next-Gen {LLM} Applications via Multi-Agent Conversation
-(2023)
+\oauthor{\bsnm{Prabhu}, \binits{R.}}, et al.:
+{vAttention}: Dynamic Memory Management for Serving {LLMs} without
+  {PagedAttention}
+(2024)
 \end{botherref}
 \endbibitem
 
 %%% 20
-\bibitem[\protect\citeauthoryear{{LangChain}}{2024}]{langgraph}
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2023}]{fastserve}
 \begin{botherref}
-\oauthor{\bsnm{{LangChain}}}:
-{LangGraph}: Build Resilient Language Agents as Graphs.
-\url{https://github.com/langchain-ai/langgraph}
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 21
-\bibitem[\protect\citeauthoryear{Gim et~al.}{2023}]{promptcache}
-\begin{botherref}
-\oauthor{\bsnm{Gim}, \binits{I.}}, et al.:
-{Prompt Cache}: Modular Attention Reuse for Low-Latency Inference
+\oauthor{\bsnm{Wu}, \binits{B.}},
+\oauthor{\bsnm{Zhong}, \binits{Y.}},
+\oauthor{\bsnm{Zhang}, \binits{Z.}},
+\oauthor{\bsnm{Liu}, \binits{S.}},
+\oauthor{\bsnm{Liu}, \binits{F.}},
+\oauthor{\bsnm{Sun}, \binits{Y.}},
+\oauthor{\bsnm{Huang}, \binits{G.}},
+\oauthor{\bsnm{Liu}, \binits{X.}},
+\oauthor{\bsnm{Jin}, \binits{X.}}:
+Fast Distributed Inference Serving for Large Language Models.
+arXiv:2305.05920
 (2023)
 \end{botherref}
 \endbibitem
 
-%%% 22
-\bibitem[\protect\citeauthoryear{Juravsky et~al.}{2024}]{hydragen}
-\begin{botherref}
-\oauthor{\bsnm{Juravsky}, \binits{J.}}, et al.:
-{Hydragen}: High-Throughput {LLM} Inference with Shared Prefixes
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 23
-\bibitem[\protect\citeauthoryear{Srivatsa et~al.}{2024}]{preble}
-\begin{botherref}
-\oauthor{\bsnm{Srivatsa}, \binits{V.}}, et al.:
-{Preble}: Efficient Distributed Prompt Scheduling for {LLM} Serving
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 24
-\bibitem[\protect\citeauthoryear{Gujarati et~al.}{2020}]{clockwork}
-\begin{bchapter}
-\bauthor{\bsnm{Gujarati}, \binits{A.}}, \betal:
-\bctitle{Serving {DNNs} like clockwork: Performance predictability from the
-  bottom up}.
-In: \bbtitle{OSDI}
-(\byear{2020})
-\end{bchapter}
-\endbibitem
-
-%%% 25
+%%% 21
 \bibitem[\protect\citeauthoryear{Zhong et~al.}{2024}]{distserve}
 \begin{bchapter}
 \bauthor{\bsnm{Zhong}, \binits{Y.}}, \betal:
@@ -308,42 +293,7 @@ In: \bbtitle{OSDI}
 \end{bchapter}
 \endbibitem
 
-%%% 26
-\bibitem[\protect\citeauthoryear{Yang et~al.}{2024}]{qwen25}
-\begin{botherref}
-\oauthor{\bsnm{Yang}, \binits{A.}}, et al.:
-{Qwen2.5} Technical Report
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 27
-\bibitem[\protect\citeauthoryear{Prabhu et~al.}{2024}]{vattention}
-\begin{botherref}
-\oauthor{\bsnm{Prabhu}, \binits{R.}}, et al.:
-{vAttention}: Dynamic Memory Management for Serving {LLMs} without
-  {PagedAttention}
-(2024)
-\end{botherref}
-\endbibitem
-
-%%% 28
-\bibitem[\protect\citeauthoryear{Wu et~al.}{2023}]{fastserve}
-\begin{bchapter}
-\bauthor{\bsnm{Wu}, \binits{B.}},
-\bauthor{\bsnm{Zhong}, \binits{Y.}},
-\bauthor{\bsnm{Zhang}, \binits{Z.}},
-\bauthor{\bsnm{Liu}, \binits{S.}},
-\bauthor{\bsnm{Liu}, \binits{F.}},
-\bauthor{\bsnm{Sun}, \binits{Y.}}, \betal:
-\bctitle{Fast distributed inference serving for large language models}.
-In: \bbtitle{arXiv}
-(\byear{2023}).
-\bcomment{arXiv:2305.05920}
-\end{bchapter}
-\endbibitem
-
-%%% 29
+%%% 22
 \bibitem[\protect\citeauthoryear{Patel et~al.}{2024}]{splitwise}
 \begin{botherref}
 \oauthor{\bsnm{Patel}, \binits{P.}}, et al.:
@@ -353,27 +303,60 @@ arXiv preprint
 \end{botherref}
 \endbibitem
 
-%%% 30
-\bibitem[\protect\citeauthoryear{others}{2024a}]{mooncake}
+%%% 23
+\bibitem[\protect\citeauthoryear{Qin et~al.}{2024}]{mooncake}
 \begin{botherref}
-et al.:
-{Mooncake}: Trading between Memory and Storage for Efficient {LLM} Serving.
-arXiv preprint
+\oauthor{\bsnm{Qin}, \binits{R.}},
+\oauthor{\bsnm{Li}, \binits{Z.}},
+\oauthor{\bsnm{He}, \binits{W.}},
+\oauthor{\bsnm{Zhang}, \binits{M.}},
+\oauthor{\bsnm{Wu}, \binits{Y.}},
+\oauthor{\bsnm{Zheng}, \binits{W.}},
+\oauthor{\bsnm{Xu}, \binits{X.}}:
+{Mooncake}: A {KVCache}-centric Disaggregated Architecture for {LLM} Serving
 (2024)
 \end{botherref}
 \endbibitem
 
-%%% 31
-\bibitem[\protect\citeauthoryear{others}{2024b}]{memserve}
+%%% 24
+\bibitem[\protect\citeauthoryear{Hu et~al.}{2024}]{memserve}
 \begin{botherref}
-et al.:
-{MemServe}: Context Caching for Disaggregated {LLM} Serving.
-arXiv preprint
+\oauthor{\bsnm{Hu}, \binits{C.}},
+\oauthor{\bsnm{Huang}, \binits{H.}},
+\oauthor{\bsnm{Hu}, \binits{J.}},
+\oauthor{\bsnm{Xu}, \binits{J.}},
+\oauthor{\bsnm{Chen}, \binits{X.}},
+\oauthor{\bsnm{Xie}, \binits{T.}},
+\oauthor{\bsnm{Wang}, \binits{C.}},
+\oauthor{\bsnm{Wang}, \binits{S.}},
+\oauthor{\bsnm{Bao}, \binits{Y.}},
+\oauthor{\bsnm{Sun}, \binits{N.}},
+\oauthor{\bsnm{Shan}, \binits{Y.}}:
+{MemServe}: Context Caching for Disaggregated {LLM} Serving with Elastic Memory
+  Pool
 (2024)
 \end{botherref}
 \endbibitem
 
-%%% 32
+%%% 25
+\bibitem[\protect\citeauthoryear{Gim et~al.}{2023}]{promptcache}
+\begin{botherref}
+\oauthor{\bsnm{Gim}, \binits{I.}}, et al.:
+{Prompt Cache}: Modular Attention Reuse for Low-Latency Inference
+(2023)
+\end{botherref}
+\endbibitem
+
+%%% 26
+\bibitem[\protect\citeauthoryear{Juravsky et~al.}{2024}]{hydragen}
+\begin{botherref}
+\oauthor{\bsnm{Juravsky}, \binits{J.}}, et al.:
+{Hydragen}: High-Throughput {LLM} Inference with Shared Prefixes
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 27
 \bibitem[\protect\citeauthoryear{Yao et~al.}{2024}]{cacheblend}
 \begin{botherref}
 \oauthor{\bsnm{Yao}, \binits{J.}}, et al.:
@@ -383,7 +366,7 @@ arXiv preprint
 \end{botherref}
 \endbibitem
 
-%%% 33
+%%% 28
 \bibitem[\protect\citeauthoryear{Cheng et~al.}{2024}]{lmcache}
 \begin{botherref}
 \oauthor{\bsnm{Cheng}, \binits{Y.}}, et al.:
@@ -393,7 +376,16 @@ arXiv / open-source cache layer
 \end{botherref}
 \endbibitem
 
-%%% 34
+%%% 29
+\bibitem[\protect\citeauthoryear{Srivatsa et~al.}{2024}]{preble}
+\begin{botherref}
+\oauthor{\bsnm{Srivatsa}, \binits{V.}}, et al.:
+{Preble}: Efficient Distributed Prompt Scheduling for {LLM} Serving
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 30
 \bibitem[\protect\citeauthoryear{{NVIDIA Corporation}}{2024}]{triton}
 \begin{botherref}
 \oauthor{\bsnm{{NVIDIA Corporation}}}:
@@ -402,7 +394,7 @@ Triton Inference Server
 \end{botherref}
 \endbibitem
 
-%%% 35
+%%% 31
 \bibitem[\protect\citeauthoryear{Crankshaw et~al.}{2017}]{clipper}
 \begin{bchapter}
 \bauthor{\bsnm{Crankshaw}, \binits{D.}}, \betal:
@@ -412,7 +404,7 @@ In: \bbtitle{NSDI}
 \end{bchapter}
 \endbibitem
 
-%%% 36
+%%% 32
 \bibitem[\protect\citeauthoryear{Romero et~al.}{2021}]{infaas}
 \begin{bchapter}
 \bauthor{\bsnm{Romero}, \binits{F.}}, \betal:
@@ -422,7 +414,18 @@ In: \bbtitle{USENIX ATC}
 \end{bchapter}
 \endbibitem
 
-%%% 37
+%%% 33
+\bibitem[\protect\citeauthoryear{Gujarati et~al.}{2020}]{clockwork}
+\begin{bchapter}
+\bauthor{\bsnm{Gujarati}, \binits{A.}}, \betal:
+\bctitle{Serving {DNNs} like clockwork: Performance predictability from the
+  bottom up}.
+In: \bbtitle{OSDI}
+(\byear{2020})
+\end{bchapter}
+\endbibitem
+
+%%% 34
 \bibitem[\protect\citeauthoryear{Li et~al.}{2023}]{alpaserve}
 \begin{bchapter}
 \bauthor{\bsnm{Li}, \binits{Z.}}, \betal:
@@ -433,7 +436,7 @@ In: \bbtitle{OSDI}
 \end{bchapter}
 \endbibitem
 
-%%% 38
+%%% 35
 \bibitem[\protect\citeauthoryear{Wu et~al.}{2025}]{CocoServe}
 \begin{botherref}
 \oauthor{\bsnm{Wu}, \binits{J.}}, et al.:
@@ -443,17 +446,24 @@ Unlock the Potential of Fine-grained {LLM} Serving via Module-wise Autoscaling
 \end{botherref}
 \endbibitem
 
-%%% 39
-\bibitem[\protect\citeauthoryear{others}{2024}]{melange}
+%%% 36
+\bibitem[\protect\citeauthoryear{Griggs et~al.}{2024}]{melange}
 \begin{botherref}
-et al.:
-{M\'elange}: Cost-Efficient {LLM} Serving on Heterogeneous {GPUs}.
-arXiv preprint
+\oauthor{\bsnm{Griggs}, \binits{T.}},
+\oauthor{\bsnm{Liu}, \binits{X.}},
+\oauthor{\bsnm{Yu}, \binits{J.}},
+\oauthor{\bsnm{Kim}, \binits{D.}},
+\oauthor{\bsnm{Chiang}, \binits{W.-L.}},
+\oauthor{\bsnm{Cheung}, \binits{A.}},
+\oauthor{\bsnm{Stoica}, \binits{I.}}:
+{M\'{e}lange}: Cost Efficient Large Language Model Serving by Exploiting {GPU}
+  Heterogeneity.
+arXiv:2404.14527
 (2024)
 \end{botherref}
 \endbibitem
 
-%%% 40
+%%% 37
 \bibitem[\protect\citeauthoryear{Fu et~al.}{2024}]{serverlessllm}
 \begin{botherref}
 \oauthor{\bsnm{Fu}, \binits{Y.}}, et al.:
@@ -462,17 +472,98 @@ arXiv preprint
 \end{botherref}
 \endbibitem
 
+%%% 38
+\bibitem[\protect\citeauthoryear{{Kubernetes SIG-Network}}{2025}]{gaie}
+\begin{botherref}
+\oauthor{\bsnm{{Kubernetes SIG-Network}}}:
+Gateway API Inference Extension.
+\url{https://github.com/kubernetes-sigs/gateway-api-inference-extension}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 39
+\bibitem[\protect\citeauthoryear{{Google Cloud}}{2025a}]{llmd}
+\begin{botherref}
+\oauthor{\bsnm{{Google Cloud}}}:
+llm-d: LLM-aware Gateway for Kubernetes.
+\url{https://github.com/GoogleCloudPlatform/llm-d}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 40
+\bibitem[\protect\citeauthoryear{{Google Cloud}}{2025b}]{gkeinference}
+\begin{botherref}
+\oauthor{\bsnm{{Google Cloud}}}:
+GKE Inference Gateway.
+\url{https://cloud.google.com/kubernetes-engine/docs/concepts/inference-gateway}
+(2025)
+\end{botherref}
+\endbibitem
+
 %%% 41
+\bibitem[\protect\citeauthoryear{{NVIDIA Corporation}}{2025}]{dynamo}
+\begin{botherref}
+\oauthor{\bsnm{{NVIDIA Corporation}}}:
+{NVIDIA Dynamo}: Distributed Inference Serving System.
+\url{https://github.com/nvidia/dynamo}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 42
+\bibitem[\protect\citeauthoryear{{vLLM Project}}{2025}]{productionstack}
+\begin{botherref}
+\oauthor{\bsnm{{vLLM Project}}}:
+vLLM Production Stack --- Prefix-aware, {KV}-aware, and Session Routing.
+\url{https://docs.vllm.ai/projects/production-stack/en/latest/}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 43
+\bibitem[\protect\citeauthoryear{{Alibaba Cloud}}{2025}]{alibabagw}
+\begin{botherref}
+\oauthor{\bsnm{{Alibaba Cloud}}}:
+{ACK/ACS} Inference Gateway with Prefix-Cache-Aware Routing.
+\url{https://www.alibabacloud.com/help/en/ack/}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 44
+\bibitem[\protect\citeauthoryear{{SGLang Project}}{2025}]{sglangrouter}
+\begin{botherref}
+\oauthor{\bsnm{{SGLang Project}}}:
+{SGLang} Router --- Cache-Aware Load Balancing.
+\url{https://github.com/sgl-project/sglang}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 45
+\bibitem[\protect\citeauthoryear{{Envoy AI Gateway Authors}}{2025}]{envoyai}
+\begin{botherref}
+\oauthor{\bsnm{{Envoy AI Gateway Authors}}}:
+Envoy {AI} Gateway.
+\url{https://github.com/envoyproxy/ai-gateway}
+(2025)
+\end{botherref}
+\endbibitem
+
+%%% 46
 \bibitem[\protect\citeauthoryear{Sayed}{2008}]{sayed2008adaptive}
 \begin{bbook}
 \bauthor{\bsnm{Sayed}, \binits{A.H.}}:
 \bbtitle{Adaptive Filters}.
-\bpublisher{Wiley-IEEE Press}, \blocation{???}
+\bpublisher{Wiley-IEEE Press},
+\blocation{Hoboken, NJ}
 (\byear{2008})
 \end{bbook}
 \endbibitem
 
-%%% 42
+%%% 47
 \bibitem[\protect\citeauthoryear{Little}{1961}]{littleslaw}
 \begin{botherref}
 \oauthor{\bsnm{Little}, \binits{J.D.C.}}:
@@ -482,28 +573,30 @@ Operations Research
 \end{botherref}
 \endbibitem
 
-%%% 43
+%%% 48
 \bibitem[\protect\citeauthoryear{Kleinrock}{1975}]{kleinrock1975queueing}
 \begin{bbook}
 \bauthor{\bsnm{Kleinrock}, \binits{L.}}:
 \bbtitle{Queueing Systems, Volume {I}: Theory}.
-\bpublisher{Wiley}, \blocation{???}
+\bpublisher{Wiley},
+\blocation{New York}
 (\byear{1975})
 \end{bbook}
 \endbibitem
 
-%%% 44
+%%% 49
 \bibitem[\protect\citeauthoryear{Coffman and Denning}{1973}]{sjf}
 \begin{bbook}
 \bauthor{\bsnm{Coffman}, \binits{E.G.}},
 \bauthor{\bsnm{Denning}, \binits{P.J.}}:
 \bbtitle{Operating Systems Theory}.
-\bpublisher{Prentice-Hall}, \blocation{???}
+\bpublisher{Prentice-Hall},
+\blocation{Englewood Cliffs, NJ}
 (\byear{1973})
 \end{bbook}
 \endbibitem
 
-%%% 45
+%%% 50
 \bibitem[\protect\citeauthoryear{Williams et~al.}{2009}]{williams2009roofline}
 \begin{botherref}
 \oauthor{\bsnm{Williams}, \binits{S.}},
@@ -516,43 +609,104 @@ Communications of the ACM
 \end{botherref}
 \endbibitem
 
-%%% 46
-\bibitem[\protect\citeauthoryear{Qiu et~al.}{2024}]{sloawarellm}
+%%% 51
+\bibitem[\protect\citeauthoryear{Wang et~al.}{2024}]{sloawarellm}
 \begin{botherref}
-\oauthor{\bsnm{Qiu}, \binits{H.}}, et al.:
+\oauthor{\bsnm{Wang}, \binits{Y.}},
+\oauthor{\bsnm{Chen}, \binits{Y.}},
+\oauthor{\bsnm{Li}, \binits{Z.}},
+\oauthor{\bsnm{Tang}, \binits{Z.}},
+\oauthor{\bsnm{Guo}, \binits{R.}},
+\oauthor{\bsnm{Wang}, \binits{X.}},
+\oauthor{\bsnm{Wang}, \binits{Q.}},
+\oauthor{\bsnm{Zhou}, \binits{A.C.}},
+\oauthor{\bsnm{Chu}, \binits{X.}}:
 Towards Efficient and Reliable {LLM} Serving: A Real-World Workload Study.
-arXiv preprint; SLO-oriented serving
+arXiv:2401.17644; also released as Burst{GPT} workload study
 (2024)
 \end{botherref}
 \endbibitem
 
-%%% 47
-\bibitem[\protect\citeauthoryear{others}{2026}]{sloaware2026}
-\begin{botherref}
-et al.:
-{SLO}-Aware Scheduling without Output-Length Prediction.
-arXiv preprint
-(2026)
-\end{botherref}
-\endbibitem
-
-%%% 48
+%%% 52
 \bibitem[\protect\citeauthoryear{Agrawal et~al.}{2024}]{vidur}
 \begin{botherref}
-\oauthor{\bsnm{Agrawal}, \binits{A.}}, et al.:
-{Vidur}: A Large-Scale Simulation Framework for {LLM} Inference
+\oauthor{\bsnm{Agrawal}, \binits{A.}},
+\oauthor{\bsnm{Kedia}, \binits{N.}},
+\oauthor{\bsnm{Mohan}, \binits{J.}},
+\oauthor{\bsnm{Panwar}, \binits{A.}},
+\oauthor{\bsnm{Kwatra}, \binits{N.}},
+\oauthor{\bsnm{Gulavani}, \binits{B.S.}},
+\oauthor{\bsnm{Ramjee}, \binits{R.}},
+\oauthor{\bsnm{Tumanov}, \binits{A.}}:
+{Vidur}: A Large-Scale Simulation Framework for {LLM} Inference.
+arXiv:2405.05465
 (2024)
 \end{botherref}
 \endbibitem
 
-%%% 49
-\bibitem[\protect\citeauthoryear{Zheng et~al.}{2023}]{sharegpt}
-\begin{bchapter}
-\bauthor{\bsnm{Zheng}, \binits{L.}}, \betal:
-\bctitle{Judging {LLM}-as-a-judge with {MT-Bench} and chatbot arena}.
-In: \bbtitle{NeurIPS}
-(\byear{2023})
-\end{bchapter}
+%%% 53
+\bibitem[\protect\citeauthoryear{Wu et~al.}{2023}]{autogen}
+\begin{botherref}
+\oauthor{\bsnm{Wu}, \binits{Q.}},
+\oauthor{\bsnm{Bansal}, \binits{G.}},
+\oauthor{\bsnm{Zhang}, \binits{J.}},
+\oauthor{\bsnm{Wu}, \binits{Y.}},
+\oauthor{\bsnm{Li}, \binits{B.}},
+\oauthor{\bsnm{Zhu}, \binits{E.}},
+\oauthor{\bsnm{Jiang}, \binits{L.}},
+\oauthor{\bsnm{Zhang}, \binits{X.}},
+\oauthor{\bsnm{Zhang}, \binits{S.}},
+\oauthor{\bsnm{Liu}, \binits{J.}},
+\oauthor{\bsnm{Awadallah}, \binits{A.H.}},
+\oauthor{\bsnm{White}, \binits{R.W.}},
+\oauthor{\bsnm{Burger}, \binits{D.}},
+\oauthor{\bsnm{Wang}, \binits{C.}}:
+{AutoGen}: Enabling Next-Gen {LLM} Applications via Multi-Agent Conversation.
+arXiv:2308.08155
+(2023)
+\end{botherref}
+\endbibitem
+
+%%% 54
+\bibitem[\protect\citeauthoryear{{LangChain}}{2024}]{langgraph}
+\begin{botherref}
+\oauthor{\bsnm{{LangChain}}}:
+{LangGraph}: Build Resilient Language Agents as Graphs.
+\url{https://github.com/langchain-ai/langgraph}
+(2024)
+\end{botherref}
+\endbibitem
+
+%%% 55
+\bibitem[\protect\citeauthoryear{Yang et~al.}{2024}]{qwen25}
+\begin{botherref}
+\oauthor{\bsnm{Yang}, \binits{A.}},
+\oauthor{\bsnm{Yang}, \binits{B.}},
+\oauthor{\bsnm{Hui}, \binits{B.}},
+\oauthor{\bsnm{Zheng}, \binits{B.}},
+\oauthor{\bsnm{Yu}, \binits{B.}},
+\oauthor{\bsnm{Zhou}, \binits{C.}},
+\oauthor{\bsnm{Li}, \binits{C.}},
+\oauthor{\bsnm{Li}, \binits{C.}},
+\oauthor{\bsnm{Liu}, \binits{D.}},
+\oauthor{\bsnm{Huang}, \binits{F.}},
+\oauthor{\bsnm{Dong}, \binits{G.}},
+\oauthor{\bsnm{Wei}, \binits{H.}},
+\oauthor{\bsnm{Lin}, \binits{H.}},
+\oauthor{\bsnm{Tang}, \binits{J.}},
+\oauthor{\bsnm{Wang}, \binits{J.}},
+\oauthor{\bsnm{Yang}, \binits{J.}},
+\oauthor{\bsnm{Tu}, \binits{J.}},
+\oauthor{\bsnm{Zhang}, \binits{J.}},
+\oauthor{\bsnm{Ma}, \binits{J.}},
+\oauthor{\bsnm{Yang}, \binits{J.}},
+\oauthor{\bsnm{Xu}, \binits{J.}},
+\oauthor{\bsnm{Zhou}, \binits{J.}},
+\oauthor{\bsnm{Lin}, \binits{J.}}, et al.:
+{Qwen2.5} Technical Report.
+arXiv:2412.15115
+(2024)
+\end{botherref}
 \endbibitem
 
 \end{thebibliography}

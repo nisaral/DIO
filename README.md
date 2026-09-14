@@ -26,25 +26,35 @@ It exists because the usual answer, N vLLM processes behind Nginx or Envoy with
 Round-Robin, treats every replica as interchangeable while queue depth, KV-cache
 pressure, and transient per-replica slowdowns diverge in practice.
 
-> **Paper:** *DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission for
-> Multi-Instance LLM Serving over Stock vLLM* — arXiv preprint (link on
-> announcement), under review at *Cluster Computing* (Springer).
+> **Paper:** *DIO: Hybrid Cost Routing, Session Affinity, and Calibration-Robust Admission for
+> Multi-Instance LLM Serving over Stock vLLM* — revised for a practice-oriented
+> journal submission. Artifact DOI: https://doi.org/10.5281/zenodo.22085398
 
 ---
 
-## Start here
+## Start here (v0.4.0)
 
 ```bash
 git clone https://github.com/nisaral/DIO.git
 cd DIO/dio-serve
 pip install -e .
-dio demo                 # no GPU needed
-dio serve -b http://127.0.0.1:8000 -b http://127.0.0.1:8001
+
+# 1. Auto-discover local engines (Ollama, vLLM, SGLang) & create dio.yaml:
+dio init
+
+# 2. Start the gateway:
+dio serve
+
+# Or run zero-GPU instant demo:
+dio demo
 ```
 
-Point any OpenAI client at `http://localhost:8085/v1`.
+- Point **OpenAI SDK / LangChain** at `http://localhost:8085/v1`
+- Point **Ollama CLI / OpenWebUI** at `http://localhost:8085/api` (or `OLLAMA_HOST=http://localhost:8085`)
+- Connect **Cursor / Claude Desktop / VS Code** via MCP: `dio mcp`
 
 Full docs → **[dio-serve/README.md](dio-serve/README.md)** ·
+Config-as-Code → **[dio.example.yaml](dio.example.yaml)** ·
 Architecture → **[docs/ARCHITECTURE.md](dio-serve/docs/ARCHITECTURE.md)** ·
 API → **[docs/API.md](dio-serve/docs/API.md)**
 
@@ -192,19 +202,17 @@ Cite the paper, not the software, once the preprint is announced:
 
 ```bibtex
 @misc{dio2026,
-  title  = {DIO: Hybrid Cost Routing, Session Affinity, and Sound Admission
+  title  = {DIO: Hybrid Cost Routing, Session Affinity, and Calibration-Robust Admission
             for Multi-Instance LLM Serving over Stock vLLM},
   author = {Nisar, Keyush and Parikh, Krishil and Maisheri, Krisha and
             Gawade, Aruna and Rathod, Nilesh T. and Florence A, Angelin},
   year   = {2026},
-  eprint = {XXXX.XXXXX},
-  archivePrefix = {arXiv},
-  primaryClass  = {cs.DC},
-  note   = {Under review, Cluster Computing}
+  doi    = {10.5281/zenodo.22085398},
+  url    = {https://github.com/nisaral/DIO},
+  note   = {Software and experimental artifact release}
 }
 ```
 
 ## License
 
 Apache-2.0 — see [`dio-serve/LICENSE`](dio-serve/LICENSE).
-

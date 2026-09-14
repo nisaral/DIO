@@ -188,6 +188,7 @@ def start_vllm(
     max_model_len: int,
     gpu_mem_util: float,
     name: str,
+    enable_prefix_caching: bool = True,
 ) -> None:
     cmd = [
         PY, "-m", "vllm.entrypoints.openai.api_server",
@@ -197,6 +198,11 @@ def start_vllm(
         "--max-model-len", str(max_model_len),
         "--gpu-memory-utilization", str(gpu_mem_util),
     ]
+    # Without this vLLM never exports vllm:prefix_cache_hits/_queries, so the
+    # gateway's prefix_hit_rate is pinned at 0.0 and the c_p term in the joint
+    # cost is dead. Prefix caching must be ON for any affinity/hybrid claim.
+    if enable_prefix_caching:
+        cmd.append("--enable-prefix-caching")
     session.start(name, cmd, env={"CUDA_VISIBLE_DEVICES": str(gpu)})
 
 
@@ -358,7 +364,11 @@ def multi_seed_matrix(
                 admission_off=True,
             )
             if not wait_url(url + "/healthz", timeout=90):
-                rows.append({"seed": seed, "error": "dio_start_failed"})
+                rows.append({"seed": seed, "error": "dio_start_failed", "strategy": strat})
+                log(
+                    f"  {strat} seed={seed}: ERROR dio_start_failed "
+                    f"(healthz timeout — check logs/{label}_{strat}_s{seed}.log)"
+                )
                 if session.handles:
                     kill_proc(session.handles.pop())
                 continue
@@ -567,8 +577,16 @@ def parse_args():
     p.add_argument("--max-tokens", type=int, default=32)
     p.add_argument("--max-tokens-long", type=int, default=128)
 
-    p.add_argument("--strategies-a", default="nlms,rls,round_robin,least_loaded")
-    p.add_argument("--strategies-c", default="nlms,rls,round_robin")
+    p.add_argument(
+        "--strategies-a",
+        default="nlms,rls,round_robin,least_loaded",
+        help="comma list; include ewma for recent-latency baseline",
+    )
+    p.add_argument(
+        "--strategies-c",
+        default="nlms,rls,round_robin",
+        help="comma list; include ewma for recent-latency baseline under delay skew",
+    )
     p.add_argument("--strategies-long", default="nlms,round_robin")
 
     p.add_argument("--skip-w2", action="store_true")
