@@ -6,9 +6,9 @@
 
 <p align="center">
   <a href="https://github.com/nisaral/DIO/actions/workflows/ci.yml"><img src="https://github.com/nisaral/DIO/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
+  <img src="https://img.shields.io/badge/version-0.4.1-blue.svg" alt="Version 0.4.1" />
   <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-brightgreen.svg" alt="Python 3.9-3.12" />
-  <img src="https://img.shields.io/badge/tests-71%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-113%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
   <a href="https://doi.org/10.5281/zenodo.22085398"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22085398-blue.svg" alt="Artifact DOI" /></a>
 </p>
@@ -89,9 +89,26 @@ curl http://127.0.0.1:8085/v1/chat/completions \
 `/health` reports `degraded` when a backend is out of rotation; `/debug/metrics`
 exposes the learned slopes, affinity hit rate and admission counters.
 
+### What it looks like
+
+`dio demo` runs eight agent sessions over three mock engines, throttles one of them
+mid-run, then replays the same workload through three routers:
+
+| router | mean ms after the throttle | engine switches / session |
+|---|---|---|
+| round-robin (Nginx default) | 1994 | 10.9 |
+| sticky round-robin (`ip_hash`) | 1453 | 0.0 |
+| **DIO** | **1328** | **1.0** |
+
+DIO moves traffic off the engine that degraded while keeping prefix affinity: it
+takes most of the stickiness win without pinning half the fleet to a sick
+backend. Mock engines, so this is a behaviour demo rather than a hardware
+benchmark - full output in
+[`docs/launch/evidence/swarm-demo-postfix.txt`](docs/launch/evidence/swarm-demo-postfix.txt).
+
 ---
 
-## Start here (v0.4.0)
+## Start here (v0.4.1)
 
 ```bash
 git clone https://github.com/nisaral/DIO.git

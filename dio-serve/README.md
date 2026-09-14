@@ -2,7 +2,7 @@
   <img src="docs/assets/logo.jpg" alt="DIO logo" width="150"/>
 </p>
 
-<h1 align="center">DIO Serve (v0.4.0)</h1>
+<h1 align="center">DIO Serve (v0.4.1)</h1>
 
 <p align="center">
   <strong>Predictive NLMS Orchestrator & Universal LLM Gateway</strong><br/>
@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.1-blue.svg" alt="Version 0.4.0" />
+  <img src="https://img.shields.io/badge/version-0.4.1-blue.svg" alt="Version 0.4.1" />
   <img src="https://img.shields.io/badge/python-3.9+-brightgreen.svg" alt="Python 3.9+" />
-  <img src="https://img.shields.io/badge/tests-112%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-113%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
 </p>
 
@@ -57,7 +57,7 @@ Instead of naive Round-Robin (Nginx/Envoy) that ignores GPU divergence, thermal 
 
 ---
 
-## Highlights in v0.4.0
+## Highlights in v0.4.1
 
 - 🤖 **MCP Server for AI-IDEs (`dio mcp`)**: Seamlessly connects DIO to Claude Desktop, Cursor, VS Code, and Windsurf over JSON-RPC 2.0 stdio. AI assistants can inspect running models, query cluster health, preview latency and queue delays via learned NLMS filters, and route inferences.
 - ⚙️ **Config-as-Code (`dio.yaml`)**: Define multi-backend pools, model routing rules, and scheduler knobs in a single YAML file.
@@ -294,7 +294,7 @@ Package DIO as a **Model Context Protocol (MCP)** server so AI assistants (Curso
 | `dio mcp` | `dio mcp [-g http://127.0.0.1:8085]` | Run DIO as an MCP server over stdio for AI-IDE integration |
 | `dio demo` | `dio demo [-t 20] [-p 8085]` | Zero-GPU live demo with mock backends and traffic generation |
 | `dio bench-smoke` | `dio bench-smoke [-n 40] [-c 4]` | Compare NLMS vs Round-Robin on synthetic heterogeneous workers |
-| `dio version` | `dio version` | Show current package version (`0.4.0`) |
+| `dio version` | `dio version` | Show current package version (`0.4.1`) |
 
 ---
 
