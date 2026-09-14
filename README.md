@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/nisaral/DIO/actions/workflows/ci.yml"><img src="https://github.com/nisaral/DIO/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <img src="https://img.shields.io/badge/version-0.4.1-blue.svg" alt="Version 0.4.1" />
+  <img src="https://img.shields.io/badge/version-0.4.2-blue.svg" alt="Version 0.4.2" />
   <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-brightgreen.svg" alt="Python 3.9-3.12" />
   <img src="https://img.shields.io/badge/tests-113%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
@@ -112,7 +112,7 @@ benchmark - full output in
 
 ---
 
-## Start here (v0.4.1)
+## Start here (v0.4.2)
 
 ```bash
 git clone https://github.com/nisaral/DIO.git

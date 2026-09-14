@@ -69,7 +69,7 @@ What it is not: not a model, not a quantizer, not a vLLM fork. It never patches
 the engine - it uses the HTTP API and the metrics endpoint you already expose. If
 you run a single GPU with light traffic you do not need it; plain vLLM is fine.
 
-Status is v0.4.1, beta, Apache-2.0, Python 3.9+. The honest gaps: auth is opt-in
+Status is v0.4.2, beta, Apache-2.0, Python 3.9+. The honest gaps: auth is opt-in
 and off by default (DIO_API_KEY plus security.data_plane_auth for /v1/* and
 /api/*), there are no tenant quotas (keep /debug/* private), and admission is
 calibration-robust rather
@@ -101,7 +101,7 @@ measurements were set up - including the parts that did not work.
 **Title**
 
 ```
-DIO: an OpenAI- and Ollama-compatible gateway that learns each backend's latency online and sheds overload (Apache-2.0, v0.4.1 beta)
+DIO: an OpenAI- and Ollama-compatible gateway that learns each backend's latency online and sheds overload (Apache-2.0, v0.4.2 beta)
 ```
 
 **Body**
@@ -165,7 +165,7 @@ adapter and the MCP server. License is Apache-2.0.
 
 **Honest status**
 
-This is a v0.4.1 beta. Auth is opt-in and off by default, and there are no tenant
+This is a v0.4.2 beta. Auth is opt-in and off by default, and there are no tenant
 quotas yet, so keep the
 /debug/* endpoints on a private network. The admission gate is calibration-robust
 rather than formally sound - it is percentile gating, not a proof of SLO
@@ -250,7 +250,7 @@ whether it is interesting before touching your real setup.
 
 **Things to know before you deploy it**
 
-- It is a v0.4.1 beta, Apache-2.0.
+- It is a v0.4.2 beta, Apache-2.0.
 - Authentication is opt-in and off by default, and there is no multi-tenant quota
   yet. Put it behind your reverse proxy for anything reachable, and keep the
   /debug/* endpoints off the
@@ -284,7 +284,7 @@ because quote-posting your own link is noise.
 ```
 One endpoint. Several GPUs. The router learns which one is actually fast.
 
-DIO: predictive LLM gateway — NLMS latency learning + SLO admission in front of vLLM/Ollama/SGLang/TGI. OpenAI + Ollama APIs. MCP server for your IDE. Apache-2.0, v0.4.1 beta.
+DIO: predictive LLM gateway — NLMS latency learning + SLO admission in front of vLLM/Ollama/SGLang/TGI. OpenAI + Ollama APIs. MCP server for your IDE. Apache-2.0, v0.4.2 beta.
 
 github.com/nisaral/DIO
 ```
@@ -304,7 +304,7 @@ github.com/nisaral/DIO
 **Body**
 
 ```
-We just published v0.4.1 of DIO, an open-source control plane for teams running
+We just published v0.4.2 of DIO, an open-source control plane for teams running
 more than one LLM inference server.
 
 The problem it addresses is mundane and expensive: once you have several vLLM,

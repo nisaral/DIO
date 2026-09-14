@@ -37,7 +37,7 @@ Goal: the repo *looks* like a product before anyone is told about it.
 3. Pin the repo on the `nisaral` profile (Profile -> Customize your pins).
 4. Add the one-line positioning at the top of the README, taken from
    `docs/launch/REPO_METADATA.md`.
-5. Cut a tagged release (`v0.4.1` is already published):
+5. Cut a tagged release (`v0.4.2` is already published):
    - Tag it on the current `main`.
    - Tick "This is a pre-release" until the pre-flight gates are green.
    - Paste release notes from the existing `RELEASE_NOTES.md` / `CHANGELOG.md`.
@@ -137,7 +137,7 @@ Directory-site visitors bounce without screenshots. Before Week 2 you need:
 | Play | Why it matters |
 |---|---|
 | Publish a measured comparison against Nginx round-robin in the README, with the script that produced it | The only content that earns stars long after launch day is a reproducible number. |
-| Ship `v0.4.1` with the top 5 launch issues fixed, and reply in the original threads | Proves the project is alive. "Dead repo" is the number one reason people do not star. |
+| Ship `v0.4.2` with the top 5 launch issues fixed, and reply in the original threads | Proves the project is alive. "Dead repo" is the number one reason people do not star. |
 | Add `good first issue` labels and a `CONTRIBUTING.md` | Turns lurkers into contributors, and contributor PRs are themselves distribution. |
 | Write a "How DIO routes" deep dive | HN and Reddit reward second-order technical content from the same author. Link the repo once, at the bottom. |
 | Re-run the launch loop at `v0.5.0` | Each release is a legitimate new Show HN. Do not do this more than once a quarter. |
