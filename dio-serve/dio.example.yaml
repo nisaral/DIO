@@ -1,0 +1,50 @@
+# DIO Configuration — Distributed Inference Orchestrator (v0.4.0)
+# Docs: https://github.com/nisaral/DIO
+
+# Backends pool: configure your local and remote inference engines.
+backends:
+  # 1. Primary GPU (vLLM instance on port 8000)
+  - id: local-gpu
+    url: http://localhost:8000
+    tier: large
+    engine: vllm
+    models:
+      - meta-llama/Llama-3.2-3B-Instruct
+
+  # 2. Ollama instance (port 11434, local GPU/CPU)
+  - id: ollama-local
+    url: http://localhost:11434
+    tier: small
+    engine: ollama
+    models:
+      - llama3
+      - codellama
+      - mistral
+
+  # 3. Secondary GPU or cloud server (uncomment to activate)
+  # - id: cloud-a100
+  #   url: http://10.0.1.5:8000
+  #   tier: large
+  #   engine: vllm
+  #   total_vram_mb: 81920
+  #   models:
+  #     - meta-llama/Llama-3.1-70B-Instruct
+
+# Predictive latency scheduler settings
+scheduler:
+  strategy: nlms        # Options: nlms | rls | ewma | static | round_robin | least_loaded
+  nlms_mode: dual       # dual: fast µ (0.1) for bursts + slow µ (0.01) for thermal drift
+  engine_metrics: true  # Non-invasive scraping of vLLM /metrics for KV-cache pressure
+  cache_bonus_ms: 200   # Affinity bonus for session/prefix reuse in multi-turn chat
+
+# Admission control to prevent queue overload and protect SLOs
+admission:
+  mode: empirical       # Options: empirical (observed-percentile gate) | rank_only | absolute
+  slo_ms: 30000         # Maximum acceptable end-to-end latency threshold (ms)
+  percentile: 95        # Percentile gate for empirical mode
+
+# Server listen settings
+server:
+  host: 0.0.0.0
+  port: 8085
+  timeout: 300          # Request timeout in seconds

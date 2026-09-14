@@ -66,8 +66,8 @@ sum is independently novel.
 5. Remove or appendix the legacy single-seed Locust pilot.
 6. Rename “sound admission” to “calibration-robust admission” unless a formal safety
    theorem is supplied. “Sound” overstates the current evidence.
-7. Make the data statement point to a versioned archival release (Zenodo DOI), not
-   only a mutable GitHub branch.
+7. Make the data statement point to the versioned archival release DOI
+   `10.5281/zenodo.22085398`, not only a mutable GitHub branch.
 8. Add an operator-facing deployment subsection: failure handling, health probing,
    scrape failure fallback, per-model isolation, gateway replication, and what state
    is lost on restart. This directly fits “Practice and Experience.”

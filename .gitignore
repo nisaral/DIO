@@ -45,6 +45,8 @@ dio-serve/results_validation/
 terminals/
 mcps/
 .env
+artifact_release/
+release/
 *.csv
 !DIO/benchmarks/heterogeneity_profiles.json
 

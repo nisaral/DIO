@@ -569,14 +569,21 @@ class Scheduler:
         *,
         tier: str = "small",
         tokens: Optional[int] = None,
+        allowed_backends: Optional[List[str]] = None,
     ) -> Tuple[str, RoutingDecision]:
         """
         Select backend. Raises AdmissionError if no safe worker.
         Formal rule: reject if no feasible worker or min_w S_w > SLO.
+
+        Args:
+            allowed_backends: If set, only consider these backend IDs (multi-model routing).
         """
         tokens = tokens if tokens is not None else max(1, len(prompt) // 4)
         with self._lock:
             ids = [wid for wid, p in self.predictors.items() if p.healthy]
+            # Multi-model routing: restrict to backends serving the requested model
+            if allowed_backends is not None:
+                ids = [wid for wid in ids if wid in allowed_backends]
             if not ids:
                 self.admission.rejected_no_worker += 1
                 raise AdmissionError("no healthy backends registered")

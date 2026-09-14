@@ -23,8 +23,8 @@ compatibility case study, not as an unsupported performance comparison.
 
 The authors declare no external funding and no competing interests. The manuscript
 is not under consideration elsewhere. Source code and experimental artifacts are
-available at https://github.com/nisaral/DIO; a versioned archival release will be
-deposited in Zenodo and cited by DOI before publication.
+available at https://github.com/nisaral/DIO. The versioned archival release is
+available at https://doi.org/10.5281/zenodo.22085398.
 
 Thank you for your consideration.
 

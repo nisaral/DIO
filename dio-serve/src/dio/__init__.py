@@ -9,9 +9,17 @@ Non-invasive control plane that sits in front of vLLM / SGLang / TGI / Ollama
   • Hybrid joint cost: NLMS ranking + optional vLLM /metrics (KV, queue, prefix)
   • Session/prefix affinity for multi-turn workloads
   • Admission decoupled from absolute ŷ (empirical / rank_only / absolute)
+  • Multi-model routing: dio.yaml maps model names → backend pools
+  • Config-as-code: dio.yaml for one-file stack definition
 
 Quick start
 -----------
+CLI (config file, auto-discovered)::
+
+    dio init
+    # edit dio.yaml
+    dio serve
+
 CLI (wrap two already-running vLLM servers)::
 
     pip install -e .
@@ -29,6 +37,13 @@ Python API::
 
 from dio.backends import Backend, BackendPool
 from dio.config import DIOConfig
+from dio.config_file import (
+    detect_local_backends,
+    discover_config,
+    generate_detected_config,
+    generate_example_config,
+    load_config_file,
+)
 from dio.engine_metrics import EngineSnapshot, scrape_metrics_url
 from dio.gateway import DIOGateway
 from dio.scheduler import (
@@ -39,7 +54,7 @@ from dio.scheduler import (
     Scheduler,
 )
 
-__version__ = "0.2.1"
+__version__ = "0.4.0"
 __all__ = [
     "Backend",
     "BackendPool",
@@ -52,5 +67,11 @@ __all__ = [
     "AblationFlags",
     "EngineSnapshot",
     "scrape_metrics_url",
+    "load_config_file",
+    "discover_config",
+    "generate_example_config",
+    "detect_local_backends",
+    "generate_detected_config",
     "__version__",
 ]
+

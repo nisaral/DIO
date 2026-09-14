@@ -23,12 +23,8 @@ git push origin HEAD --tags
 gh release create v0.3.0-rc1 .\artifact_release\dio-0.3.0-rc1.zip --title "DIO 0.3.0-rc1" --notes-file RELEASE_NOTES.md
 ```
 
-## Publish on Zenodo
+## Published Zenodo record
 
-1. Enable the GitHub repository in Zenodo and select the `v0.3.0-rc1` release.
-2. Confirm metadata imported from `.zenodo.json` and attach the release archive.
-3. Publish, copy the assigned DOI into the manuscript and citation files, and make
-   a small follow-up release if required.
+DOI: `10.5281/zenodo.22085398`
 
-The current environment has no valid GitHub or Zenodo credential, so no external
-push or DOI minting is performed automatically.
+Record: https://doi.org/10.5281/zenodo.22085398

@@ -8,6 +8,8 @@ OpenAI SDK ``base_url`` at DIO; DIO picks a backend and forwards the request.
 # NOTE: do NOT use ``from __future__ import annotations`` here — FastAPI needs
 # live type objects (e.g. Request) to inject the ASGI request correctly.
 
+import asyncio
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional, Union
@@ -37,6 +39,27 @@ def _extract_prompt(body: Dict[str, Any]) -> str:
             parts.append(f"{m.get('role', 'user')}: {c}")
         return "\n".join(parts)
     return str(body.get("prompt") or "")
+
+
+def _ollama_options_to_openai(options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Map Ollama options (e.g. num_predict, temperature) to OpenAI-compatible params."""
+    if not options or not isinstance(options, dict):
+        return {}
+    mapped: Dict[str, Any] = {}
+    if "temperature" in options:
+        mapped["temperature"] = float(options["temperature"])
+    if "top_p" in options:
+        mapped["top_p"] = float(options["top_p"])
+    if "num_predict" in options:
+        mapped["max_tokens"] = int(options["num_predict"])
+    if "stop" in options:
+        mapped["stop"] = options["stop"]
+    if "presence_penalty" in options:
+        mapped["presence_penalty"] = float(options["presence_penalty"])
+    if "frequency_penalty" in options:
+        mapped["frequency_penalty"] = float(options["frequency_penalty"])
+    return mapped
+
 
 
 def _estimate_tokens_heuristic(prompt: str, body: Dict[str, Any]) -> int:
@@ -101,6 +124,7 @@ class DIOGateway:
         self,
         backends: Optional[List[Backend]] = None,
         config: Optional[DIOConfig] = None,
+        model_map: Optional[Dict[str, List[str]]] = None,
         **config_overrides: Any,
     ) -> None:
         self.config = config or DIOConfig(**config_overrides)
@@ -110,6 +134,8 @@ class DIOGateway:
             abl.single_timescale = True
 
         self.pool = BackendPool(backends or [])
+        # Multi-model routing: model_name -> [backend_ids]
+        self.model_map: Dict[str, List[str]] = model_map or {}
         self.scheduler = Scheduler(
             strategy=cfg.strategy,
             dual=(cfg.nlms_mode == "dual" and not abl.single_timescale),
@@ -207,7 +233,7 @@ class DIOGateway:
                     task.cancel()
                     try:
                         await task
-                    except Exception:
+                    except (Exception, asyncio.CancelledError):
                         pass
             if self._client is not None:
                 await self._client.aclose()
@@ -226,8 +252,17 @@ class DIOGateway:
 
         @app.get("/v1/models")
         async def list_models():
-            # Aggregate models from first healthy backend, or synthetic list
+            # Aggregate models from configured model_map + backend probe
             data = []
+            seen = set()
+            for m in self.model_map.keys():
+                if m not in seen:
+                    seen.add(m)
+                    data.append({
+                        "id": m,
+                        "object": "model",
+                        "owned_by": "dio/config",
+                    })
             client = self._client or httpx.AsyncClient()
             for b in self.pool.list():
                 try:
@@ -235,18 +270,24 @@ class DIOGateway:
                     if r.status_code == 200:
                         j = r.json()
                         for m in j.get("data") or []:
-                            m = dict(m)
-                            m["id"] = m.get("id") or b.id
-                            m["owned_by"] = f"dio/{b.id}"
-                            data.append(m)
+                            mid = m.get("id") or b.id
+                            if mid not in seen:
+                                seen.add(mid)
+                                item = dict(m)
+                                item["id"] = mid
+                                item["owned_by"] = f"dio/{b.id}"
+                                data.append(item)
                 except Exception:
-                    data.append(
-                        {
-                            "id": b.model or b.id,
-                            "object": "model",
-                            "owned_by": f"dio/{b.id}",
-                        }
-                    )
+                    mid = b.model or b.id
+                    if mid and mid not in seen:
+                        seen.add(mid)
+                        data.append(
+                            {
+                                "id": mid,
+                                "object": "model",
+                                "owned_by": f"dio/{b.id}",
+                            }
+                        )
             if not data:
                 data = [{"id": "dio-default", "object": "model", "owned_by": "dio"}]
             return {"object": "list", "data": data}
@@ -255,16 +296,189 @@ class DIOGateway:
         async def chat_completions(body: Dict[str, Any] = Body(...)):
             # Body(...) avoids Request-injection quirks across FastAPI versions.
             tier = "small"
+            # Multi-model routing: restrict backends to those serving the requested model
+            model_hint = body.get("model") or ""
+            allowed = self._resolve_model_backends(model_hint)
             if body.get("stream"):
-                return await self._proxy_stream(body, path="chat", tier=tier)
-            return await self._proxy_json(body, path="chat", tier=tier)
+                return await self._proxy_stream(body, path="chat", tier=tier, allowed_backends=allowed)
+            return await self._proxy_json(body, path="chat", tier=tier, allowed_backends=allowed)
 
         @app.api_route("/v1/completions", methods=["POST"])
         async def completions(body: Dict[str, Any] = Body(...)):
             tier = "small"
+            model_hint = body.get("model") or ""
+            allowed = self._resolve_model_backends(model_hint)
             if body.get("stream"):
-                return await self._proxy_stream(body, path="completions", tier=tier)
-            return await self._proxy_json(body, path="completions", tier=tier)
+                return await self._proxy_stream(body, path="completions", tier=tier, allowed_backends=allowed)
+            return await self._proxy_json(body, path="completions", tier=tier, allowed_backends=allowed)
+
+        # Ollama Native Adapter endpoints (/api/*)
+        @app.get("/api/version")
+        async def ollama_version():
+            from dio import __version__
+            return {"version": __version__}
+
+        @app.get("/api/tags")
+        async def ollama_tags():
+            """Ollama-compatible model listing."""
+            models_list = []
+            seen = set()
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            for m in self.model_map.keys():
+                if m not in seen:
+                    seen.add(m)
+                    models_list.append({
+                        "name": m,
+                        "model": m,
+                        "modified_at": now_iso,
+                        "size": 4000000000,
+                        "digest": f"sha256:{abs(hash(m)):012x}",
+                        "details": {
+                            "parent_model": "",
+                            "format": "gguf",
+                            "family": "llama",
+                            "families": ["llama"],
+                            "parameter_size": "8B",
+                            "quantization_level": "Q4_K_M",
+                        },
+                    })
+            for b in self.pool.list():
+                m = b.model or b.id
+                if m and m not in seen:
+                    seen.add(m)
+                    models_list.append({
+                        "name": m,
+                        "model": m,
+                        "modified_at": now_iso,
+                        "size": 4000000000,
+                        "digest": f"sha256:{abs(hash(m)):012x}",
+                        "details": {
+                            "parent_model": "",
+                            "format": "gguf",
+                            "family": "llama",
+                            "families": ["llama"],
+                            "parameter_size": "8B",
+                            "quantization_level": "Q4_K_M",
+                        },
+                    })
+            if not models_list:
+                models_list = [{
+                    "name": "dio-default",
+                    "model": "dio-default",
+                    "modified_at": now_iso,
+                    "size": 0,
+                    "digest": "sha256:000000000000",
+                    "details": {"format": "gguf", "family": "llama"},
+                }]
+            return {"models": models_list}
+
+        @app.api_route("/api/show", methods=["POST"])
+        async def ollama_show(body: Dict[str, Any] = Body(...)):
+            model = body.get("model") or body.get("name") or "dio-default"
+            return {
+                "modelfile": f"# Modelfile for {model}\nFROM {model}\nPARAMETER temperature 0.7",
+                "parameters": "temperature 0.7",
+                "template": "{{ .Prompt }}",
+                "details": {
+                    "parent_model": "",
+                    "format": "gguf",
+                    "family": "llama",
+                    "families": ["llama"],
+                    "parameter_size": "8B",
+                    "quantization_level": "Q4_K_M",
+                },
+            }
+
+        @app.api_route("/api/chat", methods=["POST"])
+        async def ollama_chat(body: Dict[str, Any] = Body(...)):
+            """Ollama /api/chat translation endpoint."""
+            tier = "small"
+            model_name = body.get("model") or ""
+            allowed = self._resolve_model_backends(model_name)
+
+            openai_body: Dict[str, Any] = {
+                "model": model_name,
+                "messages": body.get("messages") or [],
+            }
+            if "options" in body:
+                openai_body.update(_ollama_options_to_openai(body.get("options")))
+
+            stream = body.get("stream", True)
+            if stream:
+                openai_body["stream"] = True
+                return await self._proxy_ollama_stream(
+                    openai_body, path="chat", tier=tier, is_chat=True, allowed_backends=allowed
+                )
+
+            resp = await self._proxy_json(openai_body, path="chat", tier=tier, allowed_backends=allowed)
+            if resp.status_code >= 400:
+                return resp
+
+            raw_body = resp.body.decode("utf-8") if hasattr(resp, "body") else "{}"
+            data = json.loads(raw_body)
+            choices = data.get("choices") or []
+            msg = {"role": "assistant", "content": ""}
+            if choices and "message" in choices[0]:
+                msg = choices[0]["message"]
+
+            e2e_ms = float(resp.headers.get("X-DIO-E2E-Ms", 10.0))
+            usage = data.get("usage") or {}
+            ollama_resp = {
+                "model": model_name or "dio-default",
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "message": msg,
+                "done": True,
+                "total_duration": int(e2e_ms * 1_000_000),
+                "load_duration": 1_000_000,
+                "prompt_eval_count": usage.get("prompt_tokens", 0),
+                "eval_count": usage.get("completion_tokens", 0),
+            }
+            return JSONResponse(ollama_resp)
+
+        @app.api_route("/api/generate", methods=["POST"])
+        async def ollama_generate(body: Dict[str, Any] = Body(...)):
+            """Ollama /api/generate translation endpoint."""
+            tier = "small"
+            model_name = body.get("model") or ""
+            allowed = self._resolve_model_backends(model_name)
+
+            openai_body: Dict[str, Any] = {
+                "model": model_name,
+                "prompt": body.get("prompt") or "",
+            }
+            if "options" in body:
+                openai_body.update(_ollama_options_to_openai(body.get("options")))
+
+            stream = body.get("stream", True)
+            if stream:
+                openai_body["stream"] = True
+                return await self._proxy_ollama_stream(
+                    openai_body, path="completions", tier=tier, is_chat=False, allowed_backends=allowed
+                )
+
+            resp = await self._proxy_json(openai_body, path="completions", tier=tier, allowed_backends=allowed)
+            if resp.status_code >= 400:
+                return resp
+
+            raw_body = resp.body.decode("utf-8") if hasattr(resp, "body") else "{}"
+            data = json.loads(raw_body)
+            choices = data.get("choices") or []
+            text = choices[0].get("text", "") if choices else ""
+
+            e2e_ms = float(resp.headers.get("X-DIO-E2E-Ms", 10.0))
+            usage = data.get("usage") or {}
+            ollama_resp = {
+                "model": model_name or "dio-default",
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "response": text,
+                "done": True,
+                "total_duration": int(e2e_ms * 1_000_000),
+                "load_duration": 1_000_000,
+                "prompt_eval_count": usage.get("prompt_tokens", 0),
+                "eval_count": usage.get("completion_tokens", 0),
+            }
+            return JSONResponse(ollama_resp)
+
 
         # Research / ops endpoints
         @app.get("/debug/metrics")
@@ -350,6 +564,28 @@ class DIOGateway:
             )
         return self._client
 
+    def _resolve_model_backends(self, model_name: str) -> Optional[List[str]]:
+        """
+        Multi-model routing: return backend IDs that serve ``model_name``.
+
+        If no model_map is configured or model is a generic default, returns None
+        (= all backends eligible, legacy behavior).
+        If model_map is configured and model is not found, returns [] so the
+        scheduler safely raises AdmissionError instead of misrouting.
+        """
+        if not self.model_map or not model_name or model_name in ("default", "dio-default"):
+            return None
+        # Exact match
+        if model_name in self.model_map:
+            return self.model_map[model_name]
+        # Case-insensitive / partial match (e.g. "llama3" matches "meta-llama/Llama-3.2-3B-Instruct")
+        lower = model_name.lower()
+        for key, backends in self.model_map.items():
+            if lower in key.lower() or key.lower() in lower:
+                return backends
+        # Explicit model constraints exist, but no backend serves this model
+        return []
+
     async def _metrics_loop(self) -> None:
         """
         Non-invasive hybrid telemetry (contribution A): poll each backend's
@@ -399,14 +635,14 @@ class DIOGateway:
             await asyncio.sleep(max(2.0, self.config.health_interval_s))
 
     async def _proxy_json(
-        self, body: Dict[str, Any], path: str, tier: str
+        self, body: Dict[str, Any], path: str, tier: str, allowed_backends: Optional[List[str]] = None
     ) -> Union[JSONResponse, Response]:
         prompt = _extract_prompt(body)
         tokens = self.token_counter.count(prompt, body)
         client = self._http()
 
         try:
-            worker_id, decision = self.scheduler.pick(prompt, tier=tier, tokens=tokens)
+            worker_id, decision = self.scheduler.pick(prompt, tier=tier, tokens=tokens, allowed_backends=allowed_backends)
         except AdmissionError as e:
             return JSONResponse(
                 status_code=503,
@@ -500,14 +736,14 @@ class DIOGateway:
         )
 
     async def _proxy_stream(
-        self, body: Dict[str, Any], path: str, tier: str
+        self, body: Dict[str, Any], path: str, tier: str, allowed_backends: Optional[List[str]] = None
     ) -> StreamingResponse:
         prompt = _extract_prompt(body)
         tokens = self.token_counter.count(prompt, body)
         client = self._http()
 
         try:
-            worker_id, decision = self.scheduler.pick(prompt, tier=tier, tokens=tokens)
+            worker_id, decision = self.scheduler.pick(prompt, tier=tier, tokens=tokens, allowed_backends=allowed_backends)
         except AdmissionError as e:
             async def err_gen():
                 yield f'data: {{"error": "{e}"}}\n\n'
@@ -530,6 +766,8 @@ class DIOGateway:
         async def gen():
             try:
                 async with client.stream("POST", url, json=payload, timeout=self.config.request_timeout_s) as resp:
+                    if resp.status_code >= 500:
+                        self.scheduler.set_healthy(worker_id, False)
                     async for chunk in resp.aiter_bytes():
                         yield chunk
             finally:
@@ -544,6 +782,138 @@ class DIOGateway:
                 "Cache-Control": "no-cache",
             },
         )
+
+    async def _proxy_ollama_stream(
+        self,
+        body: Dict[str, Any],
+        path: str,
+        tier: str,
+        is_chat: bool,
+        allowed_backends: Optional[List[str]] = None,
+    ) -> StreamingResponse:
+        """
+        Stream handler for Ollama native clients.
+
+        Translates upstream OpenAI SSE chunks (data: {...}\n\n) into Ollama's
+        newline-delimited JSON (ndjson) format on the fly.
+        """
+        model_name = body.get("model") or "dio-default"
+        prompt = _extract_prompt(body)
+        tokens = self.token_counter.count(prompt, body)
+        client = self._http()
+
+        try:
+            worker_id, decision = self.scheduler.pick(
+                prompt, tier=tier, tokens=tokens, allowed_backends=allowed_backends
+            )
+        except AdmissionError as e:
+            async def err_gen():
+                err_dict = {"error": str(e), "done": True}
+                yield (json.dumps(err_dict) + "\n").encode("utf-8")
+
+            return StreamingResponse(
+                err_gen(),
+                status_code=503,
+                media_type="application/x-ndjson",
+                headers={"Retry-After": str(e.retry_after_sec)},
+            )
+
+        b = self.pool.get(worker_id)
+        url = b.chat_url() if path == "chat" else b.completions_url()
+        payload = dict(body)
+        payload["stream"] = True
+        if b.model:
+            payload["model"] = b.model
+
+        t0 = time.perf_counter()
+
+        async def gen():
+            buffer = ""
+            gen_tokens = 0
+            try:
+                async with client.stream(
+                    "POST", url, json=payload, timeout=self.config.request_timeout_s
+                ) as resp:
+                    if resp.status_code >= 500:
+                        self.scheduler.set_healthy(worker_id, False)
+
+                    async for chunk_bytes in resp.aiter_bytes():
+                        buffer += chunk_bytes.decode("utf-8", errors="replace")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            if not line or not line.startswith("data:"):
+                                continue
+                            data_str = line[5:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                choices = chunk.get("choices") or []
+                                if not choices:
+                                    continue
+                                choice = choices[0]
+                                if is_chat:
+                                    delta = choice.get("delta") or {}
+                                    delta_text = delta.get("content") or ""
+                                    if delta_text:
+                                        gen_tokens += 1
+                                        ollama_chunk = {
+                                            "model": model_name,
+                                            "created_at": time.strftime(
+                                                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                                            ),
+                                            "message": {
+                                                "role": "assistant",
+                                                "content": delta_text,
+                                            },
+                                            "done": False,
+                                        }
+                                        yield (json.dumps(ollama_chunk) + "\n").encode("utf-8")
+                                else:
+                                    delta_text = choice.get("text") or ""
+                                    if delta_text:
+                                        gen_tokens += 1
+                                        ollama_chunk = {
+                                            "model": model_name,
+                                            "created_at": time.strftime(
+                                                "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                                            ),
+                                            "response": delta_text,
+                                            "done": False,
+                                        }
+                                        yield (json.dumps(ollama_chunk) + "\n").encode("utf-8")
+                            except Exception:
+                                continue
+
+                e2e_ms = (time.perf_counter() - t0) * 1000.0
+                total_duration_ns = int(e2e_ms * 1_000_000)
+                final_chunk: Dict[str, Any] = {
+                    "model": model_name,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "done": True,
+                    "total_duration": total_duration_ns,
+                    "prompt_eval_count": tokens,
+                    "eval_count": gen_tokens,
+                }
+                if is_chat:
+                    final_chunk["message"] = {"role": "assistant", "content": ""}
+                else:
+                    final_chunk["response"] = ""
+                yield (json.dumps(final_chunk) + "\n").encode("utf-8")
+            finally:
+                e2e_ms = (time.perf_counter() - t0) * 1000.0
+                self.scheduler.feedback(worker_id, e2e_ms, tokens + gen_tokens)
+
+        return StreamingResponse(
+            gen(),
+            media_type="application/x-ndjson",
+            headers={
+                "X-DIO-Backend": worker_id,
+                "Cache-Control": "no-cache",
+            },
+        )
+
 
     def run(self, host: Optional[str] = None, port: Optional[int] = None, **uvicorn_kwargs: Any) -> None:
         import uvicorn

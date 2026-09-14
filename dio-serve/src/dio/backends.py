@@ -24,6 +24,7 @@ optional non-OpenAI paths (e.g. TGI ``/generate``) via ``Backend.api_style``.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -269,7 +270,7 @@ class MockBackendServer:
         from typing import Any, Dict
 
         from fastapi import Body, FastAPI
-        from fastapi.responses import JSONResponse
+        from fastapi.responses import JSONResponse, StreamingResponse
 
         app = FastAPI(title=f"DIO Mock Backend ({self.name})")
 
@@ -290,6 +291,56 @@ class MockBackendServer:
             content = messages[-1]["content"] if messages else ""
             max_tokens = int(body.get("max_tokens") or 64)
             tokens_in = max(1, len(str(content)) // 4)
+            model_name = body.get("model") or "mock-model"
+
+            if body.get("stream"):
+                async def chat_stream():
+                    cid = f"chatcmpl-mock-{int(time.time()*1000)}"
+                    created = int(time.time())
+                    # Initial TTFT delay
+                    await asyncio.sleep(max(0.01, (40 * self.latency_mult) / 1000.0))
+                    # Role chunk
+                    init_chunk = {
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model_name,
+                        "choices": [
+                            {"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}
+                        ],
+                    }
+                    yield f"data: {json.dumps(init_chunk)}\n\n"
+
+                    text = f"[{self.name}] echo: {str(content)[:80]}"
+                    words = text.split(" ")
+                    for i, word in enumerate(words):
+                        chunk_text = word + (" " if i < len(words) - 1 else "")
+                        chunk = {
+                            "id": cid,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_name,
+                            "choices": [
+                                {"index": 0, "delta": {"content": chunk_text}, "finish_reason": None}
+                            ],
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        await asyncio.sleep(max(0.005, (self.decode_ms * self.latency_mult) / 1000.0))
+
+                    stop_chunk = {
+                        "id": cid,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": model_name,
+                        "choices": [
+                            {"index": 0, "delta": {}, "finish_reason": "stop"}
+                        ],
+                    }
+                    yield f"data: {json.dumps(stop_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(chat_stream(), media_type="text/event-stream")
+
             sleep_ms = (80 + self.decode_ms * max_tokens) * self.latency_mult
             await asyncio.sleep(sleep_ms / 1000.0)
             text = f"[{self.name}] echo: {str(content)[:80]}"
@@ -298,7 +349,7 @@ class MockBackendServer:
                     "id": f"chatcmpl-mock-{int(time.time()*1000)}",
                     "object": "chat.completion",
                     "created": int(time.time()),
-                    "model": body.get("model") or "mock-model",
+                    "model": model_name,
                     "choices": [
                         {
                             "index": 0,
@@ -318,6 +369,43 @@ class MockBackendServer:
         async def completions(body: Dict[str, Any] = Body(...)):
             prompt = body.get("prompt") or ""
             max_tokens = int(body.get("max_tokens") or 64)
+            model_name = body.get("model") or "mock-model"
+
+            if body.get("stream"):
+                async def comp_stream():
+                    cid = f"cmpl-mock-{int(time.time()*1000)}"
+                    created = int(time.time())
+                    await asyncio.sleep(max(0.01, (40 * self.latency_mult) / 1000.0))
+                    text = f"[{self.name}] {str(prompt)[:40]}"
+                    words = text.split(" ")
+                    for i, word in enumerate(words):
+                        chunk_text = word + (" " if i < len(words) - 1 else "")
+                        chunk = {
+                            "id": cid,
+                            "object": "text_completion",
+                            "created": created,
+                            "model": model_name,
+                            "choices": [
+                                {"text": chunk_text, "index": 0, "finish_reason": None}
+                            ],
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        await asyncio.sleep(max(0.005, (self.decode_ms * self.latency_mult) / 1000.0))
+
+                    stop_chunk = {
+                        "id": cid,
+                        "object": "text_completion",
+                        "created": created,
+                        "model": model_name,
+                        "choices": [
+                            {"text": "", "index": 0, "finish_reason": "stop"}
+                        ],
+                    }
+                    yield f"data: {json.dumps(stop_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(comp_stream(), media_type="text/event-stream")
+
             sleep_ms = (80 + self.decode_ms * max_tokens) * self.latency_mult
             await asyncio.sleep(sleep_ms / 1000.0)
             return JSONResponse(
@@ -325,7 +413,7 @@ class MockBackendServer:
                     "id": f"cmpl-mock-{int(time.time()*1000)}",
                     "object": "text_completion",
                     "created": int(time.time()),
-                    "model": body.get("model") or "mock-model",
+                    "model": model_name,
                     "choices": [
                         {
                             "text": f"[{self.name}] {str(prompt)[:40]}",
