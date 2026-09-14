@@ -436,9 +436,17 @@ class MockBackendServer:
 
                 return StreamingResponse(chat_stream(), media_type="text/event-stream")
 
-            sleep_ms = (80 + self.decode_ms * max_tokens) * self.latency_mult
+            # Cap the *simulated* decode work (see /v1/completions): a legal but
+            # absurd max_tokens must not park the mock for days -- real engines
+            # stop at max_model_len and report finish_reason "length".
+            sleep_ms = (80 + self.decode_ms * min(max_tokens, 4096)) * self.latency_mult
             await asyncio.sleep(sleep_ms / 1000.0)
             text = f"[{self.name}] echo: {str(content)[:80]}"
+            words = text.split(" ")
+            truncated = len(words) > max_tokens
+            if truncated:
+                text = " ".join(words[:max_tokens])
+            generated = min(max_tokens, len(words))
             return JSONResponse(
                 {
                     "id": f"chatcmpl-mock-{int(time.time()*1000)}",
@@ -449,13 +457,13 @@ class MockBackendServer:
                         {
                             "index": 0,
                             "message": {"role": "assistant", "content": text},
-                            "finish_reason": "stop",
+                            "finish_reason": "length" if truncated else "stop",
                         }
                     ],
                     "usage": {
                         "prompt_tokens": tokens_in,
-                        "completion_tokens": max_tokens,
-                        "total_tokens": tokens_in + max_tokens,
+                        "completion_tokens": generated,
+                        "total_tokens": tokens_in + generated,
                     },
                 }
             )

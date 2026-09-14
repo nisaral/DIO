@@ -46,10 +46,33 @@ Bugs found and fixed (each with a regression test, see `CHANGELOG.md`):
 
 ## Round 2 - verification agents, post-fix build
 
-Same stack, restarted on the fixed build; two agents re-tested the specific
-claims (token parity, error envelopes, budget headers, no metric poisoning,
-header trust under a 60-way burst, disconnect recovery). Snapshot:
+Same stack, restarted on the fixed build; two fresh agents re-tested the claims
+independently rather than trusting the changelog. Snapshot:
 [live-swarm-metrics-postfix.json](live-swarm-metrics-postfix.json).
+
+| claim | verdict | evidence |
+|---|---|---|
+| Ollama `prompt_eval_count` matches between `stream: true` and `false` | confirmed | 4/4, 168/168, 1552/1552, 25/25 across four prompt sizes; the estimator would have said 6 and 105 |
+| Ollama `eval_count` matches | confirmed after a follow-up | the mock's JSON path still reported `max_tokens`; fixed, now 3 == 3 |
+| malformed JSON is a 400 with the OpenAI envelope | confirmed | `{"error":{"message":"15: JSON decode error","type":"invalid_request_error","code":"invalid_body"}}` |
+| `max_tokens: 1e9` (float) says *integer*, not *positive* | confirmed | `'max_tokens' must be an integer (got 1000000000.0)` |
+| budget headers on JSON and streams | confirmed | `x-dio-budget-ms: 5000`, `x-dio-over-budget: 0/1`, `x-dio-predicted-ms: 109.2` |
+| tool calls + `done_reason` follow the engine | confirmed | `pytest tests/test_gateway_contract.py` 7 passed; live `num_predict: 2` -> `done_reason: "length"`, `eval_count: 2` |
+| one absurd budget no longer poisons the model | confirmed | `prediction.mae_ms` stayed at 3578 ms (was 12,446,080 ms), `mape_pct` 842 % (was 5,676,503 %), `dio.decision.tokens` = 32768 while the forwarded body kept `max_tokens` |
+| 72-way burst stays honest | confirmed | 72/72 HTTP 200, p50 1251 ms / p95 3242 ms, `admitted` +72 exactly, `failed_total 0` |
+| `X-DIO-Backend` is trustworthy | confirmed | 10/10 headers matched the engine's own `[gpu-x]` echo and `dio.backend_id` |
+| a client abort mid-stream does not hurt the next request | confirmed | `curl --max-time 0.4` cut the stream; next request 200 in 1.21 s, `/health` ok, 3/3 backends healthy |
+
+Honest asterisks from this round, left in the open on purpose:
+
+- the empirical admission gate did not reject anything in the burst because the
+  burst never approached the SLO (p99 3.3 s vs 5 s), so `rejected_slo: 0` there is
+  a weak signal rather than a passing test (issue #23 asks for a strict mode);
+- one backend's fit degraded under churn (`intercept` collapsed to ~0.1 ms while
+  its MAE exceeded its own mean latency) even though no statistic was poisoned --
+  the learner is still noisy under heavy concurrency;
+- `slo` admission remains a *reporting* feature in practice: overload is now
+  visible via `X-DIO-Over-Budget`, but the default mode still answers 200s.
 
 ## Reproducing
 

@@ -182,7 +182,10 @@ async def test_ollama_streaming_reports_engine_usage_like_json():
     # is the engine's number, not the fallback.
     assert non_streaming["prompt_eval_count"] == 1
     assert final["prompt_eval_count"] == 1
-    assert final["eval_count"] >= 1
+    # The mock now reports what it generated on both paths, so the whole
+    # accounting block matches -- this is the parity the good-first-issue asked
+    # for, not just the prompt half.
+    assert non_streaming["eval_count"] == final["eval_count"] == 3
 
 
 @pytest.mark.asyncio

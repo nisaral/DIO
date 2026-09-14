@@ -252,7 +252,11 @@ async def test_absurd_max_tokens_cannot_poison_the_prediction():
     assert decision["tokens"] == 256
     assert decision["exec_ms"] < 1e6
     m = gw.scheduler.metrics()
-    assert m["prediction"]["mape_pct"] < 1000.0
+    # Pre-fix this one request left mae_ms in the tens of millions and mape in
+    # the millions of percent (see docs/launch/evidence); the point of the clamp
+    # is that a single sample stays a prediction error, not a poisoned statistic.
+    assert m["prediction"]["mae_ms"] < 1e5
+    assert m["prediction"]["mape_pct"] < 1e5
 
 
 @pytest.mark.asyncio
