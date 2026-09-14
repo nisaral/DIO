@@ -40,6 +40,10 @@ pressure, and transient per-replica slowdowns diverge in practice.
 > Multi-Instance LLM Serving over Stock vLLM* — revised for a practice-oriented
 > journal submission. Artifact DOI: https://doi.org/10.5281/zenodo.22085398
 
+<p align="center">
+  <img src="dio-serve/docs/assets/architecture.svg" alt="Clients reach one HTTP gateway that learns each engine's latency, routes by cost, keeps prefix affinity and gates on an SLO; stock vLLM, SGLang, TGI, llama.cpp and Ollama engines sit behind it" width="900"/>
+</p>
+
 ---
 
 ## Why not just Nginx round-robin?

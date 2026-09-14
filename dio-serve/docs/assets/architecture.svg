@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1060" height="640" viewBox="0 0 1060 640" role="img" aria-label="DIO gateway architecture">
+<defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#4a6fa5"/>
+  </marker>
+  <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#b8802f"/>
+  </marker>
+</defs>
+<style>
+  .t { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .h { font-size: 14px; font-weight: 600; fill: #16324f; }
+  .b { font-size: 12.5px; font-weight: 600; fill: #1f2937; }
+  .d { font-size: 11.5px; fill: #4b5563; }
+  .s { font-size: 11px; fill: #6b7280; }
+</style>
+<rect x="0" y="0" width="1060" height="640" fill="#ffffff"/>
+<rect x="40" y="24" width="880" height="52" rx="10" fill="#eaf2ff" stroke="#b3c9ee" stroke-width="1.4"/>
+<text class="t b" x="480" y="44" text-anchor="middle">Clients</text>
+<text class="t s" x="480" y="62" text-anchor="middle">OpenAI SDK / curl · Ollama client · LangChain · coding agents over MCP</text>
+<line x1="480" y1="78" x2="480" y2="100" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="40" y="104" width="880" height="352" rx="12" fill="#f6f8fb" stroke="#c9d4e6" stroke-width="1.4"/>
+<text class="t h" x="62" y="130">dio-serve gateway — one Python process, plain HTTP, no engine patches</text>
+<rect x="70" y="146" width="820" height="48" rx="8" fill="#ffffff" stroke="#a8bcd9" stroke-width="1.4"/>
+<text class="t b" x="88" y="166">Router — cost model</text>
+<text class="t d" x="88" y="183">scores every engine with its learned cost curve s_w*N + b_w plus a queue-wait term; strategies: nlms (default), ewma, rls, least_loaded, round_robin</text>
+<rect x="70" y="204" width="820" height="48" rx="8" fill="#ffffff" stroke="#a8bcd9" stroke-width="1.4"/>
+<text class="t b" x="88" y="224">Learner — dual-timescale NLMS</text>
+<text class="t d" x="88" y="241">one O(1) update per response; contended samples are trust-region clipped, uncontended ones taken at face value</text>
+<rect x="70" y="262" width="820" height="48" rx="8" fill="#ffffff" stroke="#a8bcd9" stroke-width="1.4"/>
+<text class="t b" x="88" y="282">Affinity — content prefix to engine</text>
+<text class="t d" x="88" y="299">LRU map (2048 slots) keeps multi-turn sessions on the engine whose prefix cache is already warm</text>
+<rect x="70" y="320" width="820" height="48" rx="8" fill="#ffffff" stroke="#a8bcd9" stroke-width="1.4"/>
+<text class="t b" x="88" y="340">Admission — SLO gate</text>
+<text class="t d" x="88" y="357">empirical (ranking) or strict (absolute tail) rejects with 503 + an honest Retry-After; counters on /debug/metrics</text>
+<rect x="70" y="378" width="820" height="48" rx="8" fill="#ffffff" stroke="#a8bcd9" stroke-width="1.4"/>
+<text class="t b" x="88" y="398">Interfaces</text>
+<text class="t d" x="88" y="415">dio.yaml config-as-code · dio init/serve/demo CLI · MCP tools (models, predict, route, cluster status)</text>
+<line x1="480" y1="456" x2="480" y2="489" stroke="#4a6fa5" stroke-width="1.6"/>
+<line x1="116" y1="490" x2="844" y2="490" stroke="#4a6fa5" stroke-width="1.6"/>
+<line x1="116" y1="490" x2="116" y2="508" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="298" y1="490" x2="298" y2="508" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="480" y1="490" x2="480" y2="508" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="662" y1="490" x2="662" y2="508" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<line x1="844" y1="490" x2="844" y2="508" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="40" y="512" width="152" height="56" rx="8" fill="#eefaf1" stroke="#b3ddc2" stroke-width="1.4"/>
+<text class="t b" x="116" y="536" text-anchor="middle">vLLM</text>
+<text class="t s" x="116" y="554" text-anchor="middle">OpenAI API</text>
+<rect x="222" y="512" width="152" height="56" rx="8" fill="#eefaf1" stroke="#b3ddc2" stroke-width="1.4"/>
+<text class="t b" x="298" y="536" text-anchor="middle">SGLang</text>
+<text class="t s" x="298" y="554" text-anchor="middle">OpenAI API</text>
+<rect x="404" y="512" width="152" height="56" rx="8" fill="#eefaf1" stroke="#b3ddc2" stroke-width="1.4"/>
+<text class="t b" x="480" y="536" text-anchor="middle">TGI</text>
+<text class="t s" x="480" y="554" text-anchor="middle">OpenAI API</text>
+<rect x="586" y="512" width="152" height="56" rx="8" fill="#eefaf1" stroke="#b3ddc2" stroke-width="1.4"/>
+<text class="t b" x="662" y="536" text-anchor="middle">llama.cpp</text>
+<text class="t s" x="662" y="554" text-anchor="middle">OpenAI API</text>
+<rect x="768" y="512" width="152" height="56" rx="8" fill="#eefaf1" stroke="#b3ddc2" stroke-width="1.4"/>
+<text class="t b" x="844" y="536" text-anchor="middle">Ollama</text>
+<text class="t s" x="844" y="554" text-anchor="middle">Ollama API</text>
+<path d="M920,540 L1000,540 L1000,228 L896,228" fill="none" stroke="#b8802f" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#arb)"/>
+<text class="t s" transform="translate(1014,470) rotate(-90)" fill="#b8802f">every response returns its end-to-end latency</text>
+<text class="t s" x="480" y="602" text-anchor="middle">Engines stay stock: no forks, no custom kernels, no gRPC sidecar, no background training loop.</text>
+<text class="t s" x="480" y="622" text-anchor="middle">The optional telemetry input is the engines’ own read-only Prometheus /metrics (KV-cache use, queue depth).</text>
+</svg>

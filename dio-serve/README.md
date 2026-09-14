@@ -26,6 +26,10 @@
   <a href="docs/ARCHITECTURE.md">Architecture</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Clients reach one HTTP gateway that learns each engine's latency, routes by cost, keeps prefix affinity and gates on an SLO; stock vLLM, SGLang, TGI, llama.cpp and Ollama engines sit behind it" width="900"/>
+</p>
+
 ---
 
 ## What is DIO?
