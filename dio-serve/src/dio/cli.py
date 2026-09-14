@@ -103,7 +103,7 @@ def serve(
     admission_mode: str = typer.Option(
         "empirical",
         "--admission-mode",
-        help="absolute|empirical|rank_only (ŷ ranking vs observed-percentile gate)",
+        help="absolute|empirical|strict|rank_only (ŷ ranking vs observed-percentile gate)",
     ),
     tokenizer: str = typer.Option(
         "",

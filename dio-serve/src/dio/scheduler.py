@@ -137,7 +137,26 @@ class DualTimescaleNLMS:
         frozen: bool = False,
         tier: str = "small",
         total_vram_mb: float = 24000.0,
+        robust: bool = True,
+        err_clip: float = 2.0,
+        step_frac: float = 0.05,
+        slope_max: float = 200.0,
+        intercept_max: float = 1e6,
     ) -> None:
+        # Robust-update knobs (see DIOConfig.learner_robust). Kept per-predictor so
+        # the scheduler can be re-registered with different bounds without any
+        # module-level state.
+        self.robust = bool(robust)
+        self.err_clip = float(err_clip)
+        self.step_frac = float(step_frac)
+        self.slope_max = float(slope_max)
+        self.intercept_max = float(intercept_max)
+        self.clipped_updates = 0
+        # Recent raw e2e samples, used only to scale the clipping (see
+        # _robust_scale). Queueing only ever *adds* latency, so the low
+        # quartile of this window is the least queue-contaminated proxy for
+        # the service time the model is supposed to be fitting.
+        self.recent: Deque[float] = deque(maxlen=32)
         self.mu_fast = mu_fast
         self.mu_slow = mu_slow
         self.mu_bias = mu_bias
@@ -174,6 +193,19 @@ class DualTimescaleNLMS:
             base = self.effective_slope() * max(1, tokens) + self.intercept
             return base, self.avg_latency if self.avg_latency > 0 else base
 
+    def _robust_scale(self, pred: float) -> float:
+        """Reference magnitude for clipping one sample's influence.
+
+        Cold start has nothing to compare against, so fall back to the
+        model's own prediction. Once there is a window, use its low quartile:
+        under concurrency the *fast* samples are the ones that reflect service
+        time, and the tail is what the queue added.
+        """
+        if len(self.recent) >= 8:
+            xs = sorted(self.recent)
+            return max(xs[int(0.25 * (len(xs) - 1))], 1.0)
+        return max(pred, 1.0)
+
     def update(self, actual_ms: float, tokens: int) -> Dict[str, float]:
         tokens = max(1, tokens)
         with self._lock:
@@ -187,17 +219,46 @@ class DualTimescaleNLMS:
             self.update_count += 1
 
             if not self.frozen:
-                grad = err / float(tokens)
-                self.fast_slope += self.mu_fast * grad
+                # mae/mape above keep the raw error on purpose: an outlier should
+                # stay reported, not be fitted away. Only the *update* is clipped.
+                # The scale is the model's own prediction (falling back to the
+                # typical recent latency), never the sample itself -- scaling the
+                # clip by actual_ms would let the largest outliers through, which
+                # is exactly the sample that used to destroy the fit.
+                update_err = err
+                if self.robust:
+                    limit = self.err_clip * self._robust_scale(pred)
+                    if update_err > limit:
+                        update_err = limit
+                    elif update_err < -limit:
+                        update_err = -limit
+                    if update_err != err:
+                        self.clipped_updates += 1
+                grad = update_err / float(tokens)
+                fast_step = self.mu_fast * grad
+                if self.robust:
+                    # Trust region on the *prediction*: one sample may not move
+                    # the estimate for this request size by more than step_frac of
+                    # itself. Bounding the slope against its own current value
+                    # instead would stall legitimate learning on short prompts,
+                    # where the same slope change is a much smaller latency change.
+                    fast_cap = max(self.step_frac * pred / float(tokens), 1e-9)
+                    fast_step = max(-fast_cap, min(fast_cap, fast_step))
+                self.fast_slope += fast_step
                 if self.dual:
-                    self.slow_slope += self.mu_slow * grad
+                    slow_step = self.mu_slow * grad
+                    if self.robust:
+                        slow_cap = max(self.step_frac * pred / float(tokens), 1e-9)
+                        slow_step = max(-slow_cap, min(slow_cap, slow_step))
+                    self.slow_slope += slow_step
                 else:
                     self.slow_slope = self.fast_slope
-                self.intercept += self.mu_bias * err
-                self.fast_slope = max(0.1, self.fast_slope)
-                self.slow_slope = max(0.1, self.slow_slope)
-                self.intercept = max(0.1, self.intercept)
+                self.intercept += self.mu_bias * update_err
+                self.fast_slope = max(0.1, min(self.slope_max, self.fast_slope))
+                self.slow_slope = max(0.1, min(self.slope_max, self.slow_slope))
+                self.intercept = max(0.1, min(self.intercept_max, self.intercept))
 
+            self.recent.append(actual_ms)
             if self.avg_latency <= 0:
                 self.avg_latency = actual_ms
             else:
@@ -221,6 +282,10 @@ class DualTimescaleNLMS:
                 "intercept": self.intercept,
                 "avg_latency_ms": self.avg_latency,
                 "updates": self.update_count,
+                # A non-zero clipped_updates means the fit is being fed samples it
+                # cannot represent; trust it less. Silent before this existed.
+                "clipped_updates": self.clipped_updates,
+                "robust": self.robust,
                 "mode": self.mode(),
                 "mae_ms": self.sum_abs / n if self.update_count else 0.0,
                 "mape_pct": (self.sum_rel / n) * 100.0 if self.update_count else 0.0,
@@ -333,6 +398,11 @@ class Scheduler:
         pred_history_size: int = 5000,
         affinity_cache_size: int = 2048,
         health_interval_s: float = 5.0,
+        learner_robust: bool = True,
+        learner_err_clip: float = 2.0,
+        learner_step_frac: float = 0.05,
+        learner_slope_max: float = 200.0,
+        learner_intercept_max: float = 1e6,
     ) -> None:
         self.strategy = strategy.lower().replace("-", "_")
         self.dual = dual
@@ -355,6 +425,13 @@ class Scheduler:
         self.engine_prefix_hit_bonus_ms = engine_prefix_hit_bonus_ms
         self.use_engine_metrics = use_engine_metrics
         self._mu = (mu_fast, mu_slow, mu_bias, blend, initial_slope, initial_intercept)
+        self._learner = {
+            "robust": bool(learner_robust),
+            "err_clip": float(learner_err_clip),
+            "step_frac": float(learner_step_frac),
+            "slope_max": float(learner_slope_max),
+            "intercept_max": float(learner_intercept_max),
+        }
         self.static_slope = static_slope
         self.static_intercept = static_intercept
 
@@ -381,6 +458,10 @@ class Scheduler:
         # affinity stats (for paper B)
         self.affinity_decisions = 0
         self.affinity_hits = 0
+        # Evictions are the early-warning signal for a collapsing hit rate: a
+        # rising count with a flat hit rate means the workload has more distinct
+        # prefixes than the LRU holds, not that routing is failing.
+        self.affinity_evictions = 0
         # worker_id -> consecutive engine failures (see note_failure)
         self._fail_streak: Dict[str, int] = {}
         # deques: O(1) append + auto-drop for tight control-plane loops
@@ -418,9 +499,25 @@ class Scheduler:
         as long as some backend is still the clear best option -- that is why
         ``rejected_slo`` can stay at 0 while ``empirical_p_ms > slo_ms``.
         ``rejected_slo_suppressed`` counts exactly those admissions.
+
+        ``strict`` is the same percentile test with the relative-advantage
+        clause removed: shed whenever the observed tail exceeds the SLO, even if
+        one backend is still clearly the best option.
         """
         if self.admission_off or self.admission_mode in ("rank_only", "ranking", "none"):
             return False, "rank_only"
+
+        if self.admission_mode in ("strict", "shed", "overflow"):
+            # An admission contract rather than a ranking gate: over-budget tail
+            # means shed, even when a clearly-better backend exists. Without this
+            # a slow-but-unequal pool answers 200s that all miss the SLO and
+            # rejected_slo stays at zero, which reads as "the gate works".
+            if len(self.recent_e2e) < 8:
+                return False, "strict_warmup"
+            p = self._percentile(list(self.recent_e2e), self.admission_percentile)
+            if p > self.slo_ms:
+                return True, f"strict_p{self.admission_percentile:.0f}={p:.0f}>SLO"
+            return False, "strict_ok"
 
         if self.admission_mode in ("empirical", "observed", "percentile"):
             # Prefer observed latency distribution; cold-start: do not reject on ŷ alone.
@@ -473,6 +570,11 @@ class Scheduler:
                 frozen=frozen,
                 tier=tier,
                 total_vram_mb=total_vram_mb,
+                robust=self._learner["robust"],
+                err_clip=self._learner["err_clip"],
+                step_frac=self._learner["step_frac"],
+                slope_max=self._learner["slope_max"],
+                intercept_max=self._learner["intercept_max"],
             )
             if free_vram_mb is not None:
                 self.predictors[worker_id].free_vram_mb = free_vram_mb
@@ -561,8 +663,13 @@ class Scheduler:
         tier: str,
         prompt: str,
         use_rls: bool,
+        pkey: Optional[int] = None,
     ) -> Tuple[Optional[float], Optional[RoutingDecision], bool]:
-        """Returns (score, breakdown, blocked)."""
+        """Returns (score, breakdown, blocked).
+
+        ``pkey`` is the prompt-key computed once by ``pick``; without it the
+        prefix is re-hashed inside every per-backend evaluation.
+        """
         abl = self.ablation
         free = pred.free_vram_mb
         eng = self.engine_snap.get(worker_id) or {}
@@ -613,7 +720,7 @@ class Scheduler:
         cache_bonus = 0.0
         affinity_hit = False
         if not abl.disable_cache:
-            h = self._prefix_hash(prompt)
+            h = self._prefix_hash(prompt) if pkey is None else pkey
             if self.prefix_cache.get(h) == worker_id:
                 cache_bonus = self.cache_bonus_ms
                 affinity_hit = True
@@ -763,14 +870,20 @@ class Scheduler:
             best_score = float("inf")
             best_dec: Optional[RoutingDecision] = None
             any_candidate = False
+            all_scores: List[float] = []
+            # One hash for the whole request (see _score).
+            pkey = self._prefix_hash(prompt)
 
+            # Single pass: _score is pure, so the ranking pass and the
+            # admission pass share one evaluation per backend instead of two.
             for wid in ids:
                 score, dec, blocked = self._score(
-                    wid, self.predictors[wid], tokens, tier, prompt, use_rls
+                    wid, self.predictors[wid], tokens, tier, prompt, use_rls, pkey
                 )
                 if blocked or score is None or dec is None:
                     continue
                 any_candidate = True
+                all_scores.append(float(score))
                 if score < best_score:
                     best_score = score
                     best_id = wid
@@ -788,14 +901,7 @@ class Scheduler:
                     "no feasible backend", retry_after_sec=self.recovery_hint_s
                 )
 
-            # Collect all non-blocked scores for relative admission checks
-            all_scores: List[float] = []
-            for wid in ids:
-                sc, _, blocked = self._score(
-                    wid, self.predictors[wid], tokens, tier, prompt, use_rls
-                )
-                if not blocked and sc is not None:
-                    all_scores.append(float(sc))
+            # all_scores was collected in the ranking pass above.
 
             # Diagnostic: absolute-ŷ gate vs active mode (paper honesty)
             absolute_would_reject = best_score > self.slo_ms
@@ -817,11 +923,11 @@ class Scheduler:
                 )
 
             self.predictors[best_id].pending += 1
-            pkey = self._prefix_hash(prompt)
             self.prefix_cache[pkey] = best_id
             self.prefix_cache.move_to_end(pkey)
             while len(self.prefix_cache) > self.affinity_cache_size:
                 self.prefix_cache.popitem(last=False)
+                self.affinity_evictions += 1
             self.admission.admitted += 1
             # Affinity stats (session/prefix stickiness)
             self.affinity_decisions += 1
@@ -916,6 +1022,9 @@ class Scheduler:
                     "decisions": self.affinity_decisions,
                     "hits": self.affinity_hits,
                     "hit_rate": self.affinity_hits / aff_n if self.affinity_decisions else 0.0,
+                    "evictions": self.affinity_evictions,
+                    "cache_size": len(self.prefix_cache),
+                    "capacity": self.affinity_cache_size,
                 },
                 "admission": self.admission.snapshot(
                     self.slo_ms,
@@ -941,5 +1050,6 @@ class Scheduler:
             self.decision_log.clear()
             self.affinity_decisions = 0
             self.affinity_hits = 0
+            self.affinity_evictions = 0
             self.prefix_cache.clear()
             self._fail_streak.clear()

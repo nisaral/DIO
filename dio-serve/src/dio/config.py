@@ -28,8 +28,13 @@ class DIOConfig(BaseSettings):
     # absolute = reject if min ŷ-cost > slo (legacy; ŷ MAPE-sensitive)
     # empirical = reject using rolling observed latency percentile (preferred)
     # rank_only = VRAM/tier hard blocks only; NLMS used purely for ranking
-    admission_mode: Literal["absolute", "empirical", "rank_only"] = "empirical"
-    admission_percentile: float = 95.0  # for empirical mode
+    # strict = reject whenever the observed tail exceeds slo_ms, even when a
+    #          clearly-better backend exists. "empirical" is a ranking gate
+    #          first (it only sheds when the whole pool looks saturated), so a
+    #          pool that is slow but unequal keeps answering 200s; use "strict"
+    #          when the SLO is a real admission contract.
+    admission_mode: Literal["absolute", "empirical", "strict", "rank_only"] = "empirical"
+    admission_percentile: float = 95.0  # for empirical / strict modes
     recent_latency_window: int = 64
 
     # Cost coefficients (paper defaults)
@@ -62,6 +67,19 @@ class DIOConfig(BaseSettings):
     initial_intercept: float = 150.0
     static_slope: float = 1.0
     static_intercept: float = 50.0
+    # Robust NLMS update. A latency sample dominated by queueing rather than
+    # service time is a fair mae/mape sample and a bad gradient: one 72-way
+    # burst used to drag an intercept toward zero and inflate a slope until the
+    # fit was worse than the mean it replaced. With this on, the error fed to
+    # the *update* is clipped to +/-learner_err_clip*prediction, the per-sample
+    # slope step is capped at learner_step_frac of the current slope, and
+    # slope/intercept are bounded. mae/mape keep using the raw error, so the
+    # outlier stays reported instead of being hidden by the clipping.
+    learner_robust: bool = True
+    learner_err_clip: float = 2.0
+    learner_step_frac: float = 0.05
+    learner_slope_max: float = 200.0
+    learner_intercept_max: float = 1e6
 
     # Token feature for NLMS (prefer HF tokenizer when available)
     tokenizer_name: Optional[str] = None  # e.g. Qwen/Qwen2.5-3B-Instruct
@@ -82,6 +100,14 @@ class DIOConfig(BaseSettings):
     # sample used to make the NLMS prediction ~10**9 ms and leave a permanent
     # crater in the mae/mape observability aggregates. 0 disables the clamp.
     token_feature_cap: int = 32768
+    # Hard ceiling on a raw data-plane request body, enforced from Content-Length
+    # before the JSON is parsed. 8 MiB is far above any real prompt and far below
+    # what it takes to OOM the gateway; 0 disables.
+    body_size_cap_bytes: int = 8 * 1024 * 1024
+    # Ceiling on the extracted prompt (messages plus prompt text) in characters.
+    # The tokenizer/feature path is the first thing to feel a multi-megabyte
+    # prompt, and an engine bills GPU-seconds for the tokens that follow. 0 disables.
+    prompt_chars_cap: int = 1_000_000
 
     # Security
     # When set, the admin surface (/debug/*) requires this key. DIO is a control
@@ -90,6 +116,11 @@ class DIOConfig(BaseSettings):
     # open-debug behavior (a loud warning is logged when binding non-loopback).
     api_key: Optional[str] = None
     protect_debug: bool = True
+    # When True (and api_key is set) the data plane -- /v1/* and /api/* -- also
+    # requires the key. Off by default and deliberately so: DIO is a control
+    # plane, not an auth layer, and most deployments terminate auth in front of
+    # it. Turn it on when DIO is the only thing listening on the port.
+    data_plane_auth: bool = False
 
     # Observability
     log_decisions: bool = True

@@ -9,6 +9,7 @@ OpenAI SDK ``base_url`` at DIO; DIO picks a backend and forwards the request.
 # live type objects (e.g. Request) to inject the ASGI request correctly.
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -188,6 +189,25 @@ def _validate_openai_body(body: Any, path: str, max_tokens_cap: int = 0) -> Opti
     return None
 
 
+def _prompt_within_cap(
+    body: Dict[str, Any], cap: int, ollama_style: bool = False
+) -> Optional[JSONResponse]:
+    """413 when the extracted prompt exceeds ``cap`` characters.
+
+    ``max_tokens_cap`` bounds how much the engine is asked to *generate*; this
+    bounds how much it is asked to *read*. Both are billing controls.
+    """
+    if not cap:
+        return None
+    n = len(_extract_prompt(body))
+    if n <= cap:
+        return None
+    message = f"prompt is {n} characters, which exceeds the configured cap of {cap}"
+    if ollama_style:
+        return JSONResponse(status_code=413, content={"error": message})
+    return _openai_error(message, 413, "invalid_request_error", "request_too_large")
+
+
 def _estimate_tokens_heuristic(prompt: str, body: Dict[str, Any]) -> int:
     # Legacy byte heuristic (inflates MAPE when tokenizer differs).
     out = int(body.get("max_tokens") or body.get("max_completion_tokens") or 64)
@@ -199,6 +219,24 @@ def _estimate_tokens_heuristic(prompt: str, body: Dict[str, Any]) -> int:
 def _is_admin_path(path: str) -> bool:
     """Exact /debug or a /debug/ subtree -- not any path merely starting with it."""
     return path == "/debug" or path.startswith("/debug/")
+
+
+def _is_data_plane_path(path: str) -> bool:
+    """Inference surface: the OpenAI (/v1/*) and Ollama (/api/*) routes."""
+    return path.startswith("/v1/") or path.startswith("/api/")
+
+
+def _model_digest(name: str) -> str:
+    """Deterministic model digest.
+
+    The Ollama tag listing used ``abs(hash(name))``, which is salted per process
+    (PYTHONHASHSEED): the same gateway reported a different digest for the same
+    model after every restart, which makes the listing useless for change
+    detection. blake2b is stable across processes and runs.
+    """
+    return "sha256:" + hashlib.blake2b(
+        name.encode("utf-8", "replace"), digest_size=32
+    ).hexdigest()
 
 
 def _supplied_api_key(request: Request) -> Optional[str]:
@@ -329,6 +367,11 @@ class DIOGateway:
             initial_intercept=cfg.initial_intercept,
             static_slope=cfg.static_slope,
             static_intercept=cfg.static_intercept,
+            learner_robust=cfg.learner_robust,
+            learner_err_clip=cfg.learner_err_clip,
+            learner_step_frac=cfg.learner_step_frac,
+            learner_slope_max=cfg.learner_slope_max,
+            learner_intercept_max=cfg.learner_intercept_max,
             health_interval_s=cfg.health_interval_s,
             decision_log_size=cfg.decision_log_size,
             pred_history_size=cfg.pred_history_size,
@@ -393,32 +436,62 @@ class DIOGateway:
         )
 
         @app.middleware("http")
-        async def _admin_guard(request: Request, call_next):
-            """Gate the admin surface with a shared key when one is configured.
+        async def _request_guard(request: Request, call_next):
+            """Shared-key auth, and an early exit for an oversized body.
 
             ``/debug/*`` can reset counters, fake VRAM pressure and register new
             backend URLs, so an open admin port is a traffic-hijack vector rather
-            than merely an information leak.
+            than merely an information leak. Setting ``data_plane_auth`` extends
+            the same key to /v1/* and /api/*, which is what you want when DIO is
+            the only thing listening on the port and there is no reverse proxy in
+            front of it. It stays off by default because DIO is a control plane,
+            not an auth layer.
             """
             key = self.config.api_key
-            if (
-                key
-                and self.config.protect_debug
-                and _is_admin_path(request.url.path)
-            ):
+            path = request.url.path
+            guard_admin = bool(
+                key and self.config.protect_debug and _is_admin_path(path)
+            )
+            guard_data = bool(
+                key and self.config.data_plane_auth and _is_data_plane_path(path)
+            )
+            if guard_admin or guard_data:
                 supplied = _supplied_api_key(request)
                 if not supplied or not hmac.compare_digest(supplied, key):
+                    scope = "admin" if guard_admin else "inference"
                     return JSONResponse(
                         status_code=401,
                         content={
                             "error": {
-                                "message": "admin API key required",
+                                "message": f"{scope} API key required",
                                 "type": "dio_unauthorized",
                                 "code": "unauthorized",
                             }
                         },
                         headers={"WWW-Authenticate": "Bearer"},
                     )
+            # Refuse an oversized body from its declared length, before the JSON
+            # is buffered and parsed. Real clients send Content-Length; a chunked
+            # upload skips this check and is still caught by prompt_chars_cap.
+            cap = self.config.body_size_cap_bytes
+            declared = request.headers.get("content-length")
+            if (
+                cap
+                and request.method in ("POST", "PUT", "PATCH")
+                and declared
+                and declared.isdigit()
+                and int(declared) > cap
+            ):
+                size = int(declared)
+                message = (
+                    f"request body is {size} bytes, which exceeds the configured "
+                    f"cap of {cap} bytes"
+                )
+                if _is_data_plane_path(path):
+                    return _openai_error(
+                        message, 413, "invalid_request_error", "request_too_large"
+                    )
+                return JSONResponse(status_code=413, content={"error": message})
             return await call_next(request)
 
         @app.on_event("startup")
@@ -495,44 +568,18 @@ class DIOGateway:
 
         @app.get("/v1/models")
         async def list_models():
-            # Aggregate models from configured model_map + backend probe
+            # Listing is derived from the routing table (see _collect_model_names),
+            # so every id returned here is one this gateway will actually route.
+            table = await self._collect_model_names()
             data = []
-            seen = set()
-            for m in self.model_map.keys():
-                if m not in seen:
-                    seen.add(m)
-                    data.append({
-                        "id": m,
+            for name, ids in table.items():
+                data.append(
+                    {
+                        "id": name,
                         "object": "model",
-                        "owned_by": "dio/config",
-                    })
-            client = self._http()
-            for b in self.pool.list():
-                try:
-                    r = await client.get(
-                        b.models_url(), timeout=3.0, headers=b.auth_headers()
-                    )
-                    if r.status_code == 200:
-                        j = r.json()
-                        for m in j.get("data") or []:
-                            mid = m.get("id") or b.id
-                            if mid not in seen:
-                                seen.add(mid)
-                                item = dict(m)
-                                item["id"] = mid
-                                item["owned_by"] = f"dio/{b.id}"
-                                data.append(item)
-                except Exception:
-                    mid = b.model or b.id
-                    if mid and mid not in seen:
-                        seen.add(mid)
-                        data.append(
-                            {
-                                "id": mid,
-                                "object": "model",
-                                "owned_by": f"dio/{b.id}",
-                            }
-                        )
+                        "owned_by": f"dio/{ids[0]}" if len(ids) == 1 else "dio/config",
+                    }
+                )
             if not data:
                 data = [{"id": "dio-default", "object": "model", "owned_by": "dio"}]
             return {"object": "list", "data": data}
@@ -543,6 +590,9 @@ class DIOGateway:
             problem = _validate_openai_body(body, "chat", self.config.max_tokens_cap)
             if problem:
                 return _openai_error(problem, 400, "invalid_request_error", "invalid_body")
+            too_large = _prompt_within_cap(body, self.config.prompt_chars_cap)
+            if too_large is not None:
+                return too_large
             tier = "small"
             # Multi-model routing: restrict backends to those serving the requested model
             model_hint = body.get("model") or ""
@@ -566,6 +616,9 @@ class DIOGateway:
             problem = _validate_openai_body(body, "completions", self.config.max_tokens_cap)
             if problem:
                 return _openai_error(problem, 400, "invalid_request_error", "invalid_body")
+            too_large = _prompt_within_cap(body, self.config.prompt_chars_cap)
+            if too_large is not None:
+                return too_large
             tier = "small"
             model_hint = body.get("model") or ""
             allowed = self._resolve_model_backends(model_hint)
@@ -588,56 +641,46 @@ class DIOGateway:
 
         @app.get("/api/tags")
         async def ollama_tags():
-            """Ollama-compatible model listing."""
-            models_list = []
-            seen = set()
+            """Ollama-compatible model listing.
+
+            Built from the same table as /v1/models (see _collect_model_names):
+            an Ollama client and an OpenAI client must not be told different
+            things about what this gateway serves. The digest is a deterministic
+            hash of the name -- the old ``abs(hash(name))`` was salted per
+            process, so it changed on every restart.
+            """
+            table = await self._collect_model_names()
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            for m in self.model_map.keys():
-                if m not in seen:
-                    seen.add(m)
-                    models_list.append({
-                        "name": m,
-                        "model": m,
-                        "modified_at": now_iso,
-                        "size": 4000000000,
-                        "digest": f"sha256:{abs(hash(m)):012x}",
-                        "details": {
-                            "parent_model": "",
-                            "format": "gguf",
-                            "family": "llama",
-                            "families": ["llama"],
-                            "parameter_size": "8B",
-                            "quantization_level": "Q4_K_M",
-                        },
-                    })
-            for b in self.pool.list():
-                m = b.model or b.id
-                if m and m not in seen:
-                    seen.add(m)
-                    models_list.append({
-                        "name": m,
-                        "model": m,
-                        "modified_at": now_iso,
-                        "size": 4000000000,
-                        "digest": f"sha256:{abs(hash(m)):012x}",
-                        "details": {
-                            "parent_model": "",
-                            "format": "gguf",
-                            "family": "llama",
-                            "families": ["llama"],
-                            "parameter_size": "8B",
-                            "quantization_level": "Q4_K_M",
-                        },
-                    })
-            if not models_list:
-                models_list = [{
-                    "name": "dio-default",
-                    "model": "dio-default",
+
+            def _tag(name: str) -> Dict[str, Any]:
+                return {
+                    "name": name,
+                    "model": name,
                     "modified_at": now_iso,
-                    "size": 0,
-                    "digest": "sha256:000000000000",
-                    "details": {"format": "gguf", "family": "llama"},
-                }]
+                    "size": 4000000000,
+                    "digest": _model_digest(name),
+                    "details": {
+                        "parent_model": "",
+                        "format": "gguf",
+                        "family": "llama",
+                        "families": ["llama"],
+                        "parameter_size": "8B",
+                        "quantization_level": "Q4_K_M",
+                    },
+                }
+
+            models_list = [_tag(name) for name in table]
+            if not models_list:
+                models_list = [
+                    {
+                        "name": "dio-default",
+                        "model": "dio-default",
+                        "modified_at": now_iso,
+                        "size": 0,
+                        "digest": _model_digest("dio-default"),
+                        "details": {"format": "gguf", "family": "llama"},
+                    }
+                ]
             return {"models": models_list}
 
         @app.api_route("/api/show", methods=["POST"])
@@ -663,6 +706,11 @@ class DIOGateway:
             problem = _validate_openai_body(body, "chat", self.config.max_tokens_cap)
             if problem:
                 return JSONResponse(status_code=400, content={"error": problem})
+            too_large = _prompt_within_cap(
+                body, self.config.prompt_chars_cap, ollama_style=True
+            )
+            if too_large is not None:
+                return too_large
             tier = "small"
             model_name = body.get("model") or ""
             allowed = self._resolve_model_backends(model_name)
@@ -719,6 +767,11 @@ class DIOGateway:
             problem = _validate_openai_body(body, "completions", self.config.max_tokens_cap)
             if problem:
                 return JSONResponse(status_code=400, content={"error": problem})
+            too_large = _prompt_within_cap(
+                body, self.config.prompt_chars_cap, ollama_style=True
+            )
+            if too_large is not None:
+                return too_large
             tier = "small"
             model_name = body.get("model") or ""
             allowed = self._resolve_model_backends(model_name)
@@ -899,6 +952,51 @@ class DIOGateway:
         cap = self.config.token_feature_cap
         return min(tokens, cap) if cap and cap > 0 else tokens
 
+    def _model_aliases(self) -> Dict[str, List[str]]:
+        """Model name -> backend ids, from the config and the backends themselves.
+
+        ``model_map`` is the operator's declaration. A backend's own ``model``
+        field is an implicit alias, because that is the name the engine reports
+        on /v1/models. Routing, /v1/models and /api/tags all read this one table,
+        so the gateway cannot advertise a name that then 404s at routing time.
+        """
+        pool_ids = {b.id for b in self.pool.list()}
+        table: Dict[str, List[str]] = {}
+        for name, ids in self.model_map.items():
+            kept = [i for i in ids if i in pool_ids]
+            table[name] = kept or list(ids)
+        for b in self.pool.list():
+            if b.model:
+                ids = table.setdefault(b.model, [])
+                if b.id not in ids:
+                    ids.append(b.id)
+        return table
+
+    async def _collect_model_names(self) -> Dict[str, List[str]]:
+        """The alias table plus whatever the backends report on their own
+        /v1/models. A probe failure is not fatal: the configured names still
+        answer, which is what the gateway can actually route.
+        """
+        table = self._model_aliases()
+        client = self._http()
+        for b in self.pool.list():
+            try:
+                r = await client.get(
+                    b.models_url(), timeout=3.0, headers=b.auth_headers()
+                )
+                if r.status_code != 200:
+                    continue
+                for m in r.json().get("data") or []:
+                    mid = m.get("id") or b.model or b.id
+                    if not mid:
+                        continue
+                    ids = table.setdefault(str(mid), [])
+                    if b.id not in ids:
+                        ids.append(b.id)
+            except Exception:
+                continue
+        return table
+
     def _http(self) -> httpx.AsyncClient:
         """Lazy client so TestClient / early requests work without waiting on startup."""
         if self._client is None:
@@ -912,16 +1010,22 @@ class DIOGateway:
         """
         Multi-model routing: return backend IDs that serve ``model_name``.
 
-        If no model_map is configured or model is a generic default, returns None
-        (= all backends eligible, legacy behavior).
-        If model_map is configured and model is not found, returns [] so the
+        If nothing is known about any model (no model_map, no backend declares a
+        ``model``) or the name is a generic default, returns None (= all backends
+        eligible, legacy behavior).
+        If model names are known and this one is not among them, returns [] so the
         scheduler safely raises AdmissionError instead of misrouting.
+
+        Reads ``_model_aliases`` so that everything this gateway advertises on
+        /v1/models and /api/tags is routable, and everything routable is
+        advertised.
         """
-        if not self.model_map or not model_name or model_name in ("default", "dio-default"):
+        table = self._model_aliases()
+        if not table or not model_name or model_name in ("default", "dio-default"):
             return None
         # Exact match
-        if model_name in self.model_map:
-            return self.model_map[model_name]
+        if model_name in table:
+            return table[model_name]
         # Case-insensitive match on the model id or its last path segment.
         # NOTE: an unanchored substring test (``lower in key``) would route a
         # request for one model to a backend serving a *different* one, and
@@ -930,12 +1034,12 @@ class DIOGateway:
         lower = model_name.lower().strip()
         if len(lower) < 3:
             return []
-        for key, backends in self.model_map.items():
+        for key, backends in table.items():
             k = key.lower()
             if lower == k or k.rsplit("/", 1)[-1] == lower:
                 return backends
         # Prefix match on the last path segment: "mistral" -> "mistral-7b-instruct".
-        for key, backends in self.model_map.items():
+        for key, backends in table.items():
             tail = key.lower().rsplit("/", 1)[-1]
             if tail.startswith(lower) or lower.startswith(tail):
                 return backends

@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
   <img src="https://img.shields.io/badge/python-3.9+-brightgreen.svg" alt="Python 3.9+" />
-  <img src="https://img.shields.io/badge/tests-101%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-112%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
 </p>
 
@@ -363,29 +363,64 @@ gw.run()
 
 ---
 
-## Known gaps (honest list)
+## Hardening round — what dogfooding found, and what changed
 
-These are real, scoped and mostly tracked as
-[good first issues](https://github.com/nisaral/DIO/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22):
+A swarm of agents was pointed at a live DIO gateway (a laptop, two mock engines,
+real HTTP), and the list below is what it actually hit. Each item is now fixed and
+covered by a regression test in `tests/test_gap_fixes.py`; the issue numbers are
+kept so the history stays readable.
 
-- **Admission is a ranking gate, and a reporting gate, more than a shedder.** In the
-  default `empirical` mode a request is only rejected when the observed tail exceeds
-  `slo_ms` *and* no backend is a clear winner, so a saturated-but-unequal pool keeps
-  answering 200s. Overload is now at least visible (`X-DIO-Over-Budget`,
-  `rejected_slo_suppressed`); a strict mode is issue #23.
-- **Session affinity degrades under prefix churn.** The LRU holds 2048 prefixes, keyed
-  on the first 256 characters; with many distinct prompts a live swarm measured
-  `affinity.hit_rate` at 0.24-0.34. That is the workload, not a routing failure, but the
-  counters to see it (evictions) are issue #21.
-- **The learner is noisy under heavy concurrency.** In a 72-way burst one backend's
-  intercept collapsed towards zero while its MAE exceeded its own mean latency. Nothing
-  is poisoned (the clamp fixed that) but the fit is not trustworthy under churn.
-- **Model naming is inconsistent** between `/v1/models`, `/api/tags` and routing, and a
-  gateway with no `model_map` forwards any `model` string it is given (issue #20).
-- **No request-size cap** on body bytes or prompt length (issue #22); `max_tokens_cap`
-  guards only the completion budget and defaults to off.
-- **No authN on `/v1/*` and `/api/*`.** DIO is a control plane, not an auth layer:
-  `DIO_API_KEY` guards the admin surface only. Put it behind your own proxy.
+- **Admission could be a ranking gate instead of a shedder.** In the default
+  `empirical` mode a request was only rejected when the observed tail exceeded
+  `slo_ms` *and* no backend was a clear winner, so a saturated-but-unequal pool
+  kept answering 200s. `admission.mode: strict` now sheds on the observed tail
+  alone, and the admissions `empirical` deliberately allows are counted as
+  `rejected_slo_suppressed` and flagged with `X-DIO-Over-Budget` (#23).
+- **Session affinity could degrade silently.** The LRU still holds
+  `affinity_cache_size` prefixes (2048 by default), and a live swarm measured a
+  0.24-0.34 hit rate under prefix churn with no way to tell why.
+  `/debug/affinity` now reports `evictions`, `cache_size` and `capacity`, so a
+  collapsing hit rate is attributable to the workload rather than to routing
+  (#21).
+- **A burst could wreck the latency model.** One 72-way burst used to drag an
+  intercept towards zero and inflate a slope until the fit was worse than the mean
+  it replaced. The update is now robust (`learner_robust`, on by default): the
+  error fed to the *update* is clipped against the low quartile of recent samples
+  — queueing only ever adds latency, so the fast samples are the ones that reflect
+  service time — and the per-sample step is bounded against the prediction. On a
+  burst/interleave replay that moved the slope from 168 to 2.6 and the prediction
+  for a normal request from 14.8 s to 0.44 s, against an honest 0.25 s. `mae` and
+  `mape` still use the raw error, and `clipped_updates` reports how often the
+  guard fired instead of hiding it.
+- **Model lists disagreed with each other and with routing.** `/v1/models`,
+  `/api/tags` and `_resolve_model_backends` now read one table built from
+  `model_map`, each backend's own `model`, and the engine probe — so everything
+  advertised is routable and everything routable is advertised (#20). The Ollama
+  tag digest is stable across restarts too; it used to be `abs(hash(name))`, which
+  is salted per process.
+- **No request-size cap.** `max_tokens_cap` guarded only the completion budget.
+  `server.body_size_cap_bytes` (8 MiB default) rejects an oversized body from its
+  declared `Content-Length` before the JSON is parsed, and
+  `server.prompt_chars_cap` (1M default) caps the extracted prompt. Both answer
+  413 (#22).
+- **The data plane could not be authenticated.** Setting `DIO_API_KEY` guarded
+  `/debug/*` only. `security.data_plane_auth: true` now extends the same key to
+  `/v1/*` and `/api/*`, with health probes left open for load balancers. It is off
+  by default because DIO is a control plane and most deployments terminate auth in
+  front of it — either way, do not expose it directly to the internet.
+
+**Still open, honestly:**
+
+- Affinity is a prefix LRU, not a session store. Distinct-prefix workloads will
+  still evict it; the new counters make that measurable, they do not remove it.
+- A gateway with no `model_map` and no backend `model` still forwards whatever
+  `model` string it is given, which is the documented passthrough behaviour.
+- Absolute prediction error on real engines is large — routing uses relative
+  costs, and `mae_ms`/`mape_pct` are diagnostics, not a promise.
+- CI runs against `MockBackendServer`, not a real vLLM/SGLang/TGI deployment, so
+  the hybrid `/metrics` inputs are exercised with fixtures.
+- Routing state is per-process: scaling out means either sticky LBs or accepting
+  independent schedulers per replica.
 
 ## Verification & Testing
 
@@ -394,7 +429,7 @@ DIO is thoroughly tested with comprehensive unit and integration suites:
 ```bash
 pytest tests/ -v
 ```
-*101 tests passing across config parsing and validation, multi-model routing, SSE
+*112 tests passing across config parsing and validation, multi-model routing, SSE
 streaming (including mid-stream failure and admission-rejection regressions), the
 Ollama adapter, admin auth, and the MCP server. `ruff check src tests` is clean.*
 

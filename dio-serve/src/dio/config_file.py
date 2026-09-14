@@ -243,6 +243,8 @@ def load_config_file(
         config_kwargs["cache_bonus_ms"] = float(sched["cache_bonus_ms"])
     if sched.get("affinity_cache_size") is not None:
         config_kwargs["affinity_cache_size"] = int(sched["affinity_cache_size"])
+    if sched.get("learner_robust") is not None:
+        config_kwargs["learner_robust"] = bool(sched["learner_robust"])
 
     # Admission settings
     if admission.get("mode"):
@@ -267,6 +269,19 @@ def load_config_file(
         config_kwargs["port"] = int(server["port"])
     if server.get("timeout") is not None:
         config_kwargs["request_timeout_s"] = float(server["timeout"])
+    if server.get("body_size_cap_bytes") is not None:
+        config_kwargs["body_size_cap_bytes"] = int(server["body_size_cap_bytes"])
+    if server.get("prompt_chars_cap") is not None:
+        config_kwargs["prompt_chars_cap"] = int(server["prompt_chars_cap"])
+
+    # Security (see DIOConfig): DIO is a control plane, not an auth layer.
+    security = data.get("security") or {}
+    if security.get("api_key"):
+        config_kwargs["api_key"] = security["api_key"]
+    if security.get("protect_debug") is not None:
+        config_kwargs["protect_debug"] = bool(security["protect_debug"])
+    if security.get("data_plane_auth") is not None:
+        config_kwargs["data_plane_auth"] = bool(security["data_plane_auth"])
 
     # Tokenizer
     if sched.get("tokenizer"):
@@ -327,9 +342,9 @@ scheduler:
   affinity_cache_size: 2048  # how many session prefixes stay pinned in the LRU
 
 admission:
-  mode: empirical       # empirical | rank_only | absolute
+  mode: empirical       # empirical | strict | rank_only | absolute
   slo_ms: 30000         # max acceptable e2e latency (ms)
-  percentile: 95        # for empirical mode
+  percentile: 95        # for empirical / strict mode
 
 server:
   host: 0.0.0.0
@@ -450,9 +465,9 @@ def generate_detected_config(discovered: List[Dict[str, Any]]) -> str:
         "  affinity_cache_size: 2048  # pinned session prefixes in the LRU",
         "",
         "admission:",
-        "  mode: empirical       # empirical | rank_only | absolute",
+        "  mode: empirical       # empirical | strict | rank_only | absolute",
         "  slo_ms: 30000         # max acceptable e2e latency (ms)",
-        "  percentile: 95        # for empirical mode",
+        "  percentile: 95        # for empirical / strict mode",
         "",
         "server:",
         "  host: 0.0.0.0",

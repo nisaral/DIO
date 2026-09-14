@@ -39,12 +39,24 @@ scheduler:
 
 # Admission control to prevent queue overload and protect SLOs
 admission:
-  mode: empirical       # Options: empirical (observed-percentile gate) | rank_only | absolute
+  mode: empirical       # Options: empirical (observed-percentile gate) | strict | rank_only | absolute
+                        # empirical only sheds when the pool looks uniformly saturated;
+                        # strict sheds whenever the observed tail exceeds slo_ms.
   slo_ms: 30000         # Maximum acceptable end-to-end latency threshold (ms)
-  percentile: 95        # Percentile gate for empirical mode
+  percentile: 95        # Percentile gate for empirical / strict mode
 
 # Server listen settings
 server:
   host: 0.0.0.0
   port: 8085
   timeout: 300          # Request timeout in seconds
+  body_size_cap_bytes: 8388608   # 413 above this declared body size (0 disables)
+  prompt_chars_cap: 1000000      # 413 above this extracted-prompt length (0 disables)
+
+# Security. DIO is a control plane, not an auth layer: terminate auth in front of
+# it, or set api_key here. data_plane_auth extends the key to /v1/* and /api/*
+# (only do that when DIO itself is the thing listening on the port).
+security:
+  # api_key: change-me          # or set DIO_API_KEY in the environment
+  protect_debug: true           # /debug/* requires the key when api_key is set
+  data_plane_auth: false        # also require it on /v1/* and /api/*
