@@ -276,19 +276,24 @@ Adds <project> to <section>.
 
 Duplicate this into your own notes and fill it in as you go.
 
+**Executed 2026-09-14.** Five submissions are open; three targets turned out to be
+unavailable to outsiders, and each one is recorded with the reason so nobody
+re-spends the time.
+
 | Target | PR / submission URL | Opened | Status | Notes |
 |---|---|---|---|---|
-| punkpeye/awesome-mcp-servers | | | | |
-| awesome-selfhosted | | | | |
-| tensorchord/Awesome-LLMOps | | | | |
-| InftyAI/Awesome-LLMOps | | | | |
-| MCP Registry | | | | |
+| punkpeye/awesome-mcp-servers | https://github.com/punkpeye/awesome-mcp-servers/pull/14384 | 2026-09-14 | Open, blocked | Their bot now requires a Glama listing plus a score badge before merge, which needs a GitHub login at https://glama.ai/mcp/servers |
+| tensorchord/Awesome-LLMOps | https://github.com/tensorchord/Awesome-LLMOps/pull/825 | 2026-09-14 | Open | Appended to the Large Model Serving table |
+| InftyAI/Awesome-LLMOps | https://github.com/InftyAI/Awesome-LLMOps/pull/558 | 2026-09-14 | Open | LLM Router section, after `bifrost` |
+| steven2358/awesome-generative-ai | https://github.com/steven2358/awesome-generative-ai/pull/1376 | 2026-09-14 | Open | Local LLM Deployment |
+| kyrolabs/awesome-langchain | https://github.com/kyrolabs/awesome-langchain/pull/518 | 2026-09-14 | Open | Tools > Services |
+| wong2/awesome-mcp-servers | not submittable | 2026-09-14 | Dead end | Repo policy is `collaborators_only`, so PRs from outside are refused by the API |
+| awesome-selfhosted | not submitted | 2026-09-14 | Deferred | They require the first release to be older than 4 months; earliest resubmission 2026-12-07. Entries moved to `awesome-selfhosted-data` (one YAML per app), not the README tree |
+| MCP Registry | | | | Publish via `mcp-publisher login github` (interactive) or an OIDC workflow |
 | PulseMCP | | | | |
 | Smithery | | | | |
-| Hannibal046/Awesome-LLM | | | | |
-| kyrolabs/awesome-langchain | | | | |
-| steven2358/awesome-generative-ai | | | | |
-| ml-tooling/best-of-ml-python | | | | |
+| Hannibal046/Awesome-LLM | not submitted | 2026-09-14 | Candidate | Its `## LLM Inference` section lists engines rather than routers, and the repo is stale (last push 2025-07) |
+| ml-tooling/best-of-ml-python | | | | Has a star threshold, so submit after the launch |
 | AlternativeTo | | | | |
 | LibHunt | | | | |
 | OpenAlternative | | | | |

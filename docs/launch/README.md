@@ -21,7 +21,7 @@ code, the READMEs, `pyproject.toml`, or `.github/`.
 2. **Run `gh_repo_setup.ps1 -DryRun`**, confirm the diff it reports, then run it
    for real. Details and rationale for every value are in `REPO_METADATA.md`.
 3. **Apply the manual metadata** the script cannot do: social preview image,
-   pinned repo, `v0.4.0` pre-release, README demo GIF.
+   pinned repo, the `v0.4.1` release, README demo GIF.
 4. **Follow the Day 1 / Week 1 schedule** in the playbook. Open a terminal with
    `dio demo` and the test suite before the first post, and stay in the comments
    for six hours per post.

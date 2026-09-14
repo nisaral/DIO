@@ -37,8 +37,8 @@ Goal: the repo *looks* like a product before anyone is told about it.
 3. Pin the repo on the `nisaral` profile (Profile -> Customize your pins).
 4. Add the one-line positioning at the top of the README, taken from
    `docs/launch/REPO_METADATA.md`.
-5. Cut a tagged **pre-release** `v0.4.0`:
-   - Tag `v0.4.0` on the current `main`.
+5. Cut a tagged release (`v0.4.1` is already published):
+   - Tag it on the current `main`.
    - Tick "This is a pre-release" until the pre-flight gates are green.
    - Paste release notes from the existing `RELEASE_NOTES.md` / `CHANGELOG.md`.
    - Attach nothing you have not verified. A release with a broken asset is worse
@@ -171,7 +171,7 @@ framing into the wrong room.
 - **Posting a benchmark without the script that produced it.** The first comment
   will be "how did you measure this".
 - **Claiming production readiness while the docs say "keep `/debug/*` private" and
-  there is no auth.** Say beta. Say what is missing. HN rewards that honesty.
+  auth is opt-in and off by default.** Say beta. Say what is missing. HN rewards that honesty.
 - **Ignoring the comments.** A buried reply from the author is worse than no post.
 - **Rewriting the post after it takes off.** Typo edits only.
 

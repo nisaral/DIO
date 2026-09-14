@@ -69,8 +69,10 @@ What it is not: not a model, not a quantizer, not a vLLM fork. It never patches
 the engine - it uses the HTTP API and the metrics endpoint you already expose. If
 you run a single GPU with light traffic you do not need it; plain vLLM is fine.
 
-Status is v0.4.0, beta, Apache-2.0, Python 3.9+. The honest gaps: no auth or
-tenant quotas (keep /debug/* private), and admission is calibration-robust rather
+Status is v0.4.1, beta, Apache-2.0, Python 3.9+. The honest gaps: auth is opt-in
+and off by default (DIO_API_KEY plus security.data_plane_auth for /v1/* and
+/api/*), there are no tenant quotas (keep /debug/* private), and admission is
+calibration-robust rather
 than formally sound. Both are documented.
 
 On evidence, being explicit: the numbers in the repo are our own runs, not a
@@ -99,7 +101,7 @@ measurements were set up - including the parts that did not work.
 **Title**
 
 ```
-DIO: an OpenAI- and Ollama-compatible gateway that learns each backend's latency online and sheds overload (Apache-2.0, v0.4.0 beta)
+DIO: an OpenAI- and Ollama-compatible gateway that learns each backend's latency online and sheds overload (Apache-2.0, v0.4.1 beta)
 ```
 
 **Body**
@@ -157,13 +159,14 @@ classic baselines.
 
 **What is in the repo**
 
-The scheduler and gateway are a small Python package (3.9+). There are 89 tests
+The scheduler and gateway are a small Python package (3.9+). There are 113 tests
 covering config parsing, multi-model routing, SSE + NDJSON streaming, the Ollama
 adapter and the MCP server. License is Apache-2.0.
 
 **Honest status**
 
-This is a v0.4.0 beta. There is no auth and no tenant quotas yet, so keep the
+This is a v0.4.1 beta. Auth is opt-in and off by default, and there are no tenant
+quotas yet, so keep the
 /debug/* endpoints on a private network. The admission gate is calibration-robust
 rather than formally sound - it is percentile gating, not a proof of SLO
 adherence. All of that is written down in the docs rather than hidden.
@@ -247,9 +250,10 @@ whether it is interesting before touching your real setup.
 
 **Things to know before you deploy it**
 
-- It is a v0.4.0 beta, Apache-2.0.
-- There is no authentication or multi-tenant quota yet. Put it behind your
-  reverse proxy for anything reachable, and keep the /debug/* endpoints off the
+- It is a v0.4.1 beta, Apache-2.0.
+- Authentication is opt-in and off by default, and there is no multi-tenant quota
+  yet. Put it behind your reverse proxy for anything reachable, and keep the
+  /debug/* endpoints off the
   public network.
 - Run one pool per model family if the models have very different latency
   profiles; mixing a long-context model and a tiny model in one learner is not
@@ -280,7 +284,7 @@ because quote-posting your own link is noise.
 ```
 One endpoint. Several GPUs. The router learns which one is actually fast.
 
-DIO: predictive LLM gateway — NLMS latency learning + SLO admission in front of vLLM/Ollama/SGLang/TGI. OpenAI + Ollama APIs. MCP server for your IDE. Apache-2.0, v0.4.0 beta.
+DIO: predictive LLM gateway — NLMS latency learning + SLO admission in front of vLLM/Ollama/SGLang/TGI. OpenAI + Ollama APIs. MCP server for your IDE. Apache-2.0, v0.4.1 beta.
 
 github.com/nisaral/DIO
 ```
@@ -300,7 +304,7 @@ github.com/nisaral/DIO
 **Body**
 
 ```
-We just published v0.4.0 of DIO, an open-source control plane for teams running
+We just published v0.4.1 of DIO, an open-source control plane for teams running
 more than one LLM inference server.
 
 The problem it addresses is mundane and expensive: once you have several vLLM,
@@ -334,8 +338,9 @@ of the evaluation numbers - we are explicit that they are our own runs rather
 than an independent benchmark, and the committed reanalysis lists its own
 caveats.
 
-It is a beta: there is no authentication or multi-tenant quota yet, and the
-admission gate is percentile-based rather than formally verified. Both are
+It is a beta: authentication is opt-in and off by default, there is no multi-tenant
+quota yet, and the admission gate is percentile-based rather than formally
+verified. Both are
 documented rather than glossed over, and feedback from teams running
 heterogeneous GPU fleets is exactly what we want next.
 
@@ -414,7 +419,7 @@ no-GPU path.
 
 ## What it is not, and what is missing
 
-Be explicit: not a model, not a quantizer, not a vLLM fork; no auth yet; keep
+Be explicit: not a model, not a quantizer, not a vLLM fork; auth is opt-in and off by default; keep
 /debug/* private; admission is calibration-robust, not formally sound. This
 section is why technical readers will trust the rest of the post.
 
@@ -453,12 +458,12 @@ Keep this open while the threads are live. Every item is checkable in the repo.
 | Admission returns 503 + Retry-After | `dio-serve/docs/PRODUCTION.md`; README |
 | MCP server with 4 tools over JSON-RPC 2.0 stdio | `dio-serve/src/dio/mcp.py`; `dio-serve/tests/test_mcp.py` |
 | Strategies: nlms, rls, ewma, static, round_robin, least_loaded | `dio-serve/src/dio/config.py`; `dio.example.yaml` |
-| 89 tests | count of `def test_` across `dio-serve/tests/` |
+| 113 tests | count of `def test_` across `dio-serve/tests/` |
 | Apache-2.0 | `dio-serve/LICENSE`; `pyproject.toml` |
 | Python 3.9+ | `pyproject.toml` (`requires-python`) |
 | Artifact DOI | `CITATION.cff`, `.zenodo.json` |
 | 40.9% p99 improvement vs round-robin, n=10, 95% CI [762, 1969] ms, dz 1.34, 8/10 wins | `dio-serve/results_reanalysis/REPORT.md` (authors' own paired-bootstrap reanalysis) |
-| No auth / no tenant quotas; keep `/debug/*` private | `dio-serve/docs/PRODUCTION.md` |
+| Auth is opt-in and off by default; no tenant quotas; keep `/debug/*` private | `dio-serve/docs/PRODUCTION.md` |
 | Admission is calibration-robust, not formally sound | `RELEASE_NOTES.md` (v0.3.0-rc1 entry) |
 
 **Answers to the three questions you will get every time**
