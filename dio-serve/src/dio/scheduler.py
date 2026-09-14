@@ -152,11 +152,24 @@ class DualTimescaleNLMS:
         self.slope_max = float(slope_max)
         self.intercept_max = float(intercept_max)
         self.clipped_updates = 0
+        # Consecutive clipped samples. Isolated outliers must be ignored, a
+        # sustained one-sided error is a different thing entirely: the engine
+        # really did get slower (throttling, a co-tenant, a cold KV cache) and
+        # refusing to believe it would pin traffic to a backend that is now the
+        # worst option. The tolerance below widens with the streak.
+        self.clip_streak = 0
+        self.contended_updates = 0
         # Recent raw e2e samples, used only to scale the clipping (see
         # _robust_scale). Queueing only ever *adds* latency, so the low
         # quartile of this window is the least queue-contaminated proxy for
         # the service time the model is supposed to be fitting.
         self.recent: Deque[float] = deque(maxlen=32)
+        # In-flight count at the moment each admitted request was picked. Read
+        # back FIFO by feedback: completion order is not guaranteed to match
+        # admission order, but the value only has to answer "was this request
+        # queued behind others", and a bounded deque keeps it from growing if a
+        # client disappears and no feedback ever arrives.
+        self.inflight_log: Deque[int] = deque(maxlen=1024)
         self.mu_fast = mu_fast
         self.mu_slow = mu_slow
         self.mu_bias = mu_bias
@@ -206,7 +219,20 @@ class DualTimescaleNLMS:
             return max(xs[int(0.25 * (len(xs) - 1))], 1.0)
         return max(pred, 1.0)
 
-    def update(self, actual_ms: float, tokens: int) -> Dict[str, float]:
+    def update(
+        self, actual_ms: float, tokens: int, inflight: int = 1
+    ) -> Dict[str, float]:
+        """Learn from one request.
+
+        ``inflight`` is how many requests were outstanding on this backend at the
+        moment the sample was *admitted*. That is what separates the two kinds of large
+        error: a *contended* sample is inflated by the queue, which the cost
+        function already models as a wait term -- fitting it into the service
+        time would count the queue twice, so it is clipped. An *uncontended*
+        sample is the engine being slow for real (a throttle, a co-tenant, a
+        cold KV cache) and is taken at face value, so the router can leave a
+        backend that has genuinely degraded.
+        """
         tokens = max(1, tokens)
         with self._lock:
             pred = self.effective_slope() * tokens + self.intercept
@@ -226,30 +252,48 @@ class DualTimescaleNLMS:
                 # clip by actual_ms would let the largest outliers through, which
                 # is exactly the sample that used to destroy the fit.
                 update_err = err
-                if self.robust:
-                    limit = self.err_clip * self._robust_scale(pred)
+                # Only a contended sample needs the guard. Cap the trust region and
+                # widen it with the streak, so "one odd sample" cannot move the
+                # model much while "this backend has been slow for several samples"
+                # is believed within about seven samples either way.
+                trusted = not self.robust or inflight <= 1
+                widen = 1.0
+                if not trusted:
+                    self.contended_updates += 1
+                    widen = float(2 ** min(self.clip_streak, 6))
+                    base = self.err_clip * self._robust_scale(pred)
+                    limit = base * widen
                     if update_err > limit:
                         update_err = limit
                     elif update_err < -limit:
                         update_err = -limit
                     if update_err != err:
                         self.clipped_updates += 1
+                        self.clip_streak += 1
+                    elif abs(err) <= base:
+                        # Comfortably inside the tolerance: the model is not being
+                        # contradicted, so the streak really is over.
+                        self.clip_streak = 0
+                else:
+                    self.clip_streak = 0
                 grad = update_err / float(tokens)
+                step_cap = float("inf")
+                if not trusted:
+                    # Trust region on the *prediction*, not on the slope value: a
+                    # contended sample may not move the estimate for this request
+                    # size by more than step_frac of itself (times the widening).
+                    # An uncontended sample is taken at full step, exactly as the
+                    # unguarded learner would: this guard must not slow down the
+                    # model noticing that a backend really got slower.
+                    step_cap = max(
+                        self.step_frac * widen * pred / float(tokens), 1e-9
+                    )
                 fast_step = self.mu_fast * grad
-                if self.robust:
-                    # Trust region on the *prediction*: one sample may not move
-                    # the estimate for this request size by more than step_frac of
-                    # itself. Bounding the slope against its own current value
-                    # instead would stall legitimate learning on short prompts,
-                    # where the same slope change is a much smaller latency change.
-                    fast_cap = max(self.step_frac * pred / float(tokens), 1e-9)
-                    fast_step = max(-fast_cap, min(fast_cap, fast_step))
+                fast_step = max(-step_cap, min(step_cap, fast_step))
                 self.fast_slope += fast_step
                 if self.dual:
                     slow_step = self.mu_slow * grad
-                    if self.robust:
-                        slow_cap = max(self.step_frac * pred / float(tokens), 1e-9)
-                        slow_step = max(-slow_cap, min(slow_cap, slow_step))
+                    slow_step = max(-step_cap, min(step_cap, slow_step))
                     self.slow_slope += slow_step
                 else:
                     self.slow_slope = self.fast_slope
@@ -285,6 +329,7 @@ class DualTimescaleNLMS:
                 # A non-zero clipped_updates means the fit is being fed samples it
                 # cannot represent; trust it less. Silent before this existed.
                 "clipped_updates": self.clipped_updates,
+                "contended_updates": self.contended_updates,
                 "robust": self.robust,
                 "mode": self.mode(),
                 "mae_ms": self.sum_abs / n if self.update_count else 0.0,
@@ -804,7 +849,7 @@ class Scheduler:
                 self.rr_index = (self.rr_index + 1) % len(ids)
                 wid = ids[self.rr_index]
                 pred = self.predictors[wid]
-                pred.pending += 1
+                self._mark_admitted(pred)
                 dec = RoutingDecision(wid, 0, 0, 0, 0, 0, 0, tokens, self.strategy)
                 self.admission.admitted += 1
                 self._log_decision(dec)
@@ -812,7 +857,7 @@ class Scheduler:
 
             if self.strategy in ("least_loaded", "leastloaded", "least_load"):
                 wid = min(ids, key=lambda i: self.predictors[i].pending)
-                self.predictors[wid].pending += 1
+                self._mark_admitted(self.predictors[wid])
                 dec = RoutingDecision(wid, 0, 0, 0, 0, 0, 0, tokens, self.strategy)
                 self.admission.admitted += 1
                 self._log_decision(dec)
@@ -834,7 +879,7 @@ class Scheduler:
                     best_dec = RoutingDecision(
                         wid, ewma, wait, 0.0, 0.0, 0.0, score, tokens, self.strategy
                     )
-                    pred.pending += 1
+                    self._mark_admitted(pred)
                     self.admission.admitted += 1
                     self._log_decision(best_dec)
                     self.last_decision = best_dec
@@ -859,7 +904,7 @@ class Scheduler:
                     raise AdmissionError(
                         "no feasible backend", retry_after_sec=self.recovery_hint_s
                     )
-                self.predictors[best_id].pending += 1
+                self._mark_admitted(self.predictors[best_id])
                 self.admission.admitted += 1
                 self._log_decision(best_dec)
                 self.last_decision = best_dec
@@ -922,7 +967,7 @@ class Scheduler:
                     retry_after_sec=retry,
                 )
 
-            self.predictors[best_id].pending += 1
+            self._mark_admitted(self.predictors[best_id])
             self.prefix_cache[pkey] = best_id
             self.prefix_cache.move_to_end(pkey)
             while len(self.prefix_cache) > self.affinity_cache_size:
@@ -939,6 +984,11 @@ class Scheduler:
 
     def _log_decision(self, dec: RoutingDecision) -> None:
         self.decision_log.append(dec.as_dict())
+
+    def _mark_admitted(self, pred: DualTimescaleNLMS) -> None:
+        """Account for one admitted request: in flight, and when it arrived."""
+        pred.pending += 1
+        pred.inflight_log.append(pred.pending)
 
     def release(self, worker_id: str) -> None:
         with self._lock:
@@ -962,9 +1012,17 @@ class Scheduler:
         a run where requests failed.
         """
         with self._lock:
+            inflight = 1
+            if worker_id in self.predictors:
+                # In-flight depth when this request was *admitted*: the one signal
+                # that tells queueing apart from a slow engine. Popped on failure
+                # too, so a dead request cannot desynchronise the log.
+                log = self.predictors[worker_id].inflight_log
+                if log:
+                    inflight = log.popleft()
             if success:
                 if worker_id in self.predictors:
-                    info = self.predictors[worker_id].update(e2e_ms, tokens)
+                    info = self.predictors[worker_id].update(e2e_ms, tokens, inflight)
                     if worker_id in self.rls:
                         self.rls[worker_id].update(e2e_ms, tokens)
                     if worker_id in self.ewma_e2e:
