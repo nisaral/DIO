@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 import time
 from typing import List, Optional
@@ -20,6 +21,32 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+
+def _setup_logging(level: int = logging.INFO) -> None:
+    """Configure DIO's own logger, leaving the host application's logging alone.
+
+    stdout stays reserved for command output; logs go to stderr. httpx/httpcore are
+    pinned to WARNING because their INFO level logs one line per upstream request.
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(name)s] %(levelname)s %(message)s")
+    )
+    dio_log = logging.getLogger("dio")
+    if not dio_log.handlers:
+        dio_log.addHandler(handler)
+    dio_log.setLevel(level)
+    # Avoid duplicate records when the embedding application also configures root.
+    dio_log.propagate = False
+    for noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+@app.callback()
+def _bootstrap() -> None:
+    """Set up CLI logging before any command body runs."""
+    _setup_logging()
 
 
 def _parse_backends(values: List[str], tiers: List[str], vrams: List[float]) -> list:
@@ -114,7 +141,7 @@ def serve(
           -d '{"model":"default","messages":[{"role":"user","content":"hi"}]}'
     """
     from dio import DIOConfig, DIOGateway
-    from dio.config_file import discover_config, load_config_file
+    from dio.config_file import ConfigError, discover_config, load_config_file
 
     # Priority: --config > auto-discover dio.yaml > CLI --backend flags
     model_map = {}
@@ -129,16 +156,20 @@ def serve(
                 backends = file_backends
             cfg = file_cfg
             # Override with explicit CLI flags if they differ from defaults
-            if host != "0.0.0.0":
+            if host != "0.0.0.0" or cfg.host == "":
                 cfg.host = host
             if port != 8085:
                 cfg.port = port
+        except ConfigError as e:
+            console.print(f"[red]Invalid config:[/red] {e}")
+            raise typer.Exit(2) from None
         except FileNotFoundError:
             if not backend:
                 console.print("[red]No backends specified and no dio.yaml found.[/red]")
                 console.print("  Use: dio serve -b http://localhost:8000")
                 console.print("  Or:  dio init  (to create a config file)")
-                raise typer.Exit(1)
+                # typer.Exit is control flow, not a wrapped error.
+                raise typer.Exit(1) from None
             backends = _parse_backends(backend, tier, vram)
             cfg = DIOConfig(
                 host=host, port=port, strategy=strategy, nlms_mode=nlms_mode,
@@ -178,12 +209,14 @@ def serve(
             mt.add_row(m, ", ".join(bids))
         console.print(mt)
 
+    # 0.0.0.0 is a bind address, not a destination: hand the user a URL that works.
+    client_host = "127.0.0.1" if cfg.host in ("0.0.0.0", "::", "") else cfg.host
     console.print(
         Panel.fit(
             f"[bold]strategy[/bold]={cfg.strategy}  [bold]nlms[/bold]={cfg.nlms_mode}  "
             f"[bold]slo[/bold]={cfg.slo_ms}ms  [bold]listen[/bold]={cfg.host}:{cfg.port}\n"
-            f"OpenAI base_url -> [cyan]http://{cfg.host}:{cfg.port}/v1[/cyan]\n"
-            f"Ollama base_url -> [cyan]http://{cfg.host}:{cfg.port}/api[/cyan]",
+            f"OpenAI base_url -> [cyan]http://{client_host}:{cfg.port}/v1[/cyan]\n"
+            f"Ollama base_url -> [cyan]http://{client_host}:{cfg.port}/api[/cyan]",
             title="DIO Serve",
         )
     )
@@ -217,6 +250,7 @@ def demo(
             nlms_mode="dual",
             slo_ms=30000,
             admission_off=True,
+            host="127.0.0.1",
             port=port,
         )
         import uvicorn
@@ -284,6 +318,7 @@ def bench_smoke(
             strategy=strategy,  # type: ignore
             admission_off=True,
             slo_ms=60000,
+            host="127.0.0.1",
             port=18085,
         )
         import uvicorn
@@ -419,13 +454,16 @@ def config_show(
     ),
 ) -> None:
     """Show resolved configuration from dio.yaml (or specify a path)."""
-    from dio.config_file import discover_config, load_config_file
+    from dio.config_file import ConfigError, discover_config, load_config_file
 
     try:
         backends, cfg, model_map = load_config_file(config_file)
+    except ConfigError as e:
+        console.print(f"[red]Invalid config:[/red] {e}")
+        raise typer.Exit(2) from None
     except FileNotFoundError:
         console.print("[yellow]No dio.yaml found.[/yellow] Run [cyan]dio init[/cyan] to create one.")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     found = config_file or discover_config()
     console.print(f"Config: [cyan]{found}[/cyan]\n")

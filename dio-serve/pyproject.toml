@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dio-serve"
-version = "0.4.0"
+dynamic = ["version"]
 description = "DIO: predictive NLMS orchestrator that wraps vLLM, Ollama, SGLang, and OpenAI engines - zero engine patches"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -37,7 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "ruff>=0.3"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.23", "ruff>=0.3"]
 bench = ["matplotlib>=3.7", "numpy>=1.24"]
 nvml = ["pynvml>=11.5"]
 
@@ -51,8 +51,33 @@ Issues = "https://github.com/nisaral/DIO/issues"
 dio = "dio.cli:app"
 dio-serve = "dio.cli:app"
 
+[tool.setuptools.dynamic]
+# Single source of truth: dio/_version.py
+version = { attr = "dio._version.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 dio = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+addopts = "-ra"
+
+[tool.ruff]
+# The package supports Python >= 3.9, so lint against the lowest supported version.
+target-version = "py39"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "RUF"]
+ignore = [
+  "E501",   # long lines in help text, tables and URLs
+  "B008",   # typer.Option(...) in a default is the required Click/Typer idiom
+  "RUF002", # docstrings intentionally use the cost-model symbols (y-hat, sigma, mu)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]

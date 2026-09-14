@@ -5,8 +5,18 @@
 <h1 align="center">DIO — a non-invasive control plane for multi-instance LLM serving</h1>
 
 <p align="center">
+  <a href="https://github.com/nisaral/DIO/actions/workflows/ci.yml"><img src="https://github.com/nisaral/DIO/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
+  <img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-brightgreen.svg" alt="Python 3.9-3.12" />
+  <img src="https://img.shields.io/badge/tests-71%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
+  <a href="https://doi.org/10.5281/zenodo.22085398"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22085398-blue.svg" alt="Artifact DOI" /></a>
+</p>
+
+<p align="center">
   <strong>Wrap stock vLLM. Learn latency online. Route smart. Admit safely.</strong><br/>
-  Research artifact + installable <code>pip</code> gateway
+  Research artifact + installable <code>pip</code> gateway &mdash;
+  <strong>no engine patches, no forked vLLM, no custom kernels.</strong>
 </p>
 
 <p align="center">
@@ -29,6 +39,55 @@ pressure, and transient per-replica slowdowns diverge in practice.
 > **Paper:** *DIO: Hybrid Cost Routing, Session Affinity, and Calibration-Robust Admission for
 > Multi-Instance LLM Serving over Stock vLLM* — revised for a practice-oriented
 > journal submission. Artifact DOI: https://doi.org/10.5281/zenodo.22085398
+
+---
+
+## Why not just Nginx round-robin?
+
+Because your replicas are not interchangeable. Round-robin assumes every backend
+has the same queue depth and the same free KV cache; on a real fleet that stops
+being true the moment one GPU picks up a co-tenant, hits a thermal limit, or gets
+handed a long context. DIO makes a different bet:
+
+| | Nginx / Envoy round-robin | DIO |
+|---|---|---|
+| Backend choice | next in the ring | minimum predicted joint cost |
+| Predicts | nothing | per-engine `ŷ_w = s_w·N + b_w`, learned from every response |
+| Session affinity | none, or `ip_hash` | content-prefix affinity, so the KV/prefix cache stays warm |
+| Overload | unbounded queue → latency cliff | SLO admission: `503` + an honest `Retry-After` |
+| Engine telemetry | ignored | optional read-only vLLM `/metrics` fusion |
+| Drift | waits for a human | re-learns in O(1) per request, no training step |
+
+It is **not** an edge proxy: DIO speaks the OpenAI and Ollama HTTP APIs and should
+sit behind an authenticating reverse proxy in production. It replaces the
+*upstream-selection* layer, not Nginx itself.
+
+---
+
+## Try it in 60 seconds (no GPU)
+
+```bash
+pip install -e dio-serve     # Python 3.9+
+dio demo                     # mock fleet incl. a GPU that gets throttled mid-run
+```
+
+Or containerised, in front of a real engine:
+
+```bash
+cd dio-serve && docker compose up    # Ollama + DIO on :8085
+```
+
+Then point any OpenAI / Ollama client at it:
+
+```bash
+curl http://127.0.0.1:8085/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"default","messages":[{"role":"user","content":"hello"}]}'
+# -> X-DIO-Backend: gpu-a   (which engine served it)
+```
+
+`/health` reports `degraded` when a backend is out of rotation; `/debug/metrics`
+exposes the learned slopes, affinity hit rate and admission counters.
 
 ---
 
@@ -144,6 +203,61 @@ heterogeneous peers.
 
 ---
 
+## Dogfooding: one gateway, a swarm of agents
+
+The router was exercised the way it will actually be used: several agents holding
+their own multi-turn sessions against a **live** gateway
+(`examples/swarm_live_stack.py`), over OpenAI JSON, OpenAI SSE and Ollama ndjson at
+the same time -- ~700 requests, including 80-way and 300-way bursts.
+
+`examples/agent_swarm_demo.py` replays that workload offline, three ways, while the
+fastest engine is throttled 8x part-way through (`--agents 8`):
+
+| router | engine switches / session | mean latency (after the throttle) | session affinity |
+|---|---|---|---|
+| round-robin (per request, Nginx default) | 10.8 | 1990 ms | -- |
+| sticky round-robin (`ip_hash`-style) | 0.0 | 1438 ms | -- |
+| **DIO** | **1.2** | **1298 ms** | **86%** |
+
+Read that honestly. The whole-run p95/p99 is dominated by whatever was in flight
+when the engine degraded, so the *mean* and the *traffic share* are the columns that
+carry information; DIO keeps sessions pinned (1.2 switches vs 10.8) and still holds
+the best post-throttle mean. It also *keeps* sending some work to a degraded engine
+when the affinity bonus outweighs the latency gap -- a deliberate trade, because a
+warm prefix cache is worth real milliseconds, not a bug. The engines are local
+behaviour mocks, so none of this is a hardware performance claim.
+
+Using it for real is also how most of the bugs in
+[`CHANGELOG.md`](CHANGELOG.md#unreleased---production-hardening) were found, e.g.:
+
+- streaming requests were sent to token-gated engines **without the engine's API
+  key**, so every stream 401'd while the JSON path worked;
+- failed requests were counted as successes, so `goodput_fraction` reported `1.00`
+  on a run where half the requests failed;
+- `POST /debug/backends` accepted any `base_url`, which made the admin plane an
+  **SSRF primitive** (`http://169.254.169.254/...` now returns 400);
+- `max_tokens: 10**9` was forwarded unbounded and held an engine until the client
+  gave up, while negative `max_tokens` and empty `messages` were accepted.
+
+A second round -- four agents on one live gateway, ~1000 requests over OpenAI JSON,
+OpenAI SSE, Ollama ndjson, plus 80/200/500-way storms -- found the rest:
+
+- Ollama streaming reported *estimated* token counts while the JSON path reported the
+  engine's, so the same prompt produced two different answers depending on `stream`;
+  the gateway now requests `stream_options.include_usage` (and retries once without it
+  for engines that reject the field);
+- one absurd `max_tokens` made the learned prediction ~10^9 ms and left a permanent
+  crater in `mae`/`mape`; the routing feature is now clamped (`token_feature_cap`),
+  never the forwarded request;
+- streamed **tool calls were dropped** and `done_reason` was hardcoded to `stop`;
+- an unknown `model` returned 200 and was served anyway -- now 404 `model_not_found`;
+- unparseable JSON returned a framework **422** -- now OpenAI's 400 envelope;
+- in a 500-wide storm at p95 ~29 s against a 5 s budget, **nothing** ever told the
+  client it was over budget (no 503, no header). Every response now carries
+  `X-DIO-Budget-Ms` / `X-DIO-Over-Budget` (and `X-DIO-Predicted-Ms` on streams).
+
+---
+
 ## Reproducing the paper
 
 All in [`dio-serve/scripts/`](dio-serve/scripts/):
@@ -212,6 +326,17 @@ Cite the paper, not the software, once the preprint is announced:
   note   = {Software and experimental artifact release}
 }
 ```
+
+## Get involved
+
+- ⭐ **Star this repo** if a predictive, non-invasive gateway is useful to you — it is
+  how the next person running a vLLM/Ollama fleet finds it.
+- 🐛 **Bug reports** with a reproduction go straight into the regression suite:
+  [Issues](https://github.com/nisaral/DIO/issues).
+- 🔧 **Contributing:** start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- 💬 **Design questions:** [Discussions](https://github.com/nisaral/DIO/discussions).
+
+---
 
 ## License
 

@@ -1,0 +1,30 @@
+# Build context hygiene for the DIO gateway image.
+.git
+.gitignore
+.github
+
+# Local virtualenvs / caches
+.venv
+**/.venv
+.venv_mock
+**/.venv_mock
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+**/*.egg-info
+
+# Test artifacts / smoke-test noise
+results_*
+scripts/cloud/prodstack_smoke
+**/*.log
+**/*.zip
+artifact_release
+release
+
+# Not needed in the image
+tests
+Dockerfile
+.dockerignore
+docker-compose.yml

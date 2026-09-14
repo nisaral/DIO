@@ -1,0 +1,106 @@
+name: Feature request
+description: Suggest a capability DIO does not have yet
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. DIO is deliberately small and keeps new dependencies out
+        of its core, so the fastest way to get a feature accepted is to describe the
+        concrete use case and the config you would want to write.
+
+        Note that `dio-serve/` (Python) is the shipping product and where all new feature
+        work goes. The `DIO/` Go control plane is frozen - see CONTRIBUTING.md.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I searched existing issues and discussions and this is not already proposed.
+          required: true
+        - label: This is a feature request, not a security report (those go to SECURITY.md).
+          required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: |
+        What are you actually trying to do? Describe the workload, not just the API you
+        want. Concrete numbers help - number of backends, request rates, SLOs, engine mix.
+      placeholder: |
+        We run 4 vLLM replicas behind DIO and want to drain a node for maintenance without
+        dropping in-flight requests.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_config
+    attributes:
+      label: Proposed config or API
+      description: |
+        Show what the feature would look like from the user's side - a dio.yaml fragment,
+        a CLI flag, an HTTP route, or a Python snippet.
+      render: yaml
+      placeholder: |
+        backends:
+          - id: gpu0
+            base_url: http://10.0.0.1:8000
+            drain: true
+    validations:
+      required: true
+
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: Expected behaviour
+      description: What should DIO do differently once this exists?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: |
+        What do you do today instead? Would `Backend.api_style="custom"`, a LiteLLM proxy
+        in front, or a config change cover it? This often turns out to be the answer.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which part of the project does this touch?
+      options:
+        - dio-serve scheduler / routing / admission
+        - dio-serve gateway HTTP surface (OpenAI or Ollama routes)
+        - dio-serve config file or CLI
+        - dio-serve engine adapter (new api_style)
+        - dio-serve MCP server
+        - Observability / metrics
+        - Documentation
+        - DIO/ Go control plane (frozen - bug fixes only)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: contribution
+    attributes:
+      label: Willingness to contribute
+      description: |
+        Are you able to open a PR for this? If so, say which part you would take on -
+        we are happy to help scope it. If not, that is fine too.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      placeholder: Links to comparable implementations, papers, or upstream issues.
+    validations:
+      required: false

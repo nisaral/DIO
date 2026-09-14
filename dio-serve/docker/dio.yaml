@@ -1,0 +1,43 @@
+# DIO Configuration - container profile (Distributed Inference Orchestrator v0.4.0)
+# Docs: https://github.com/nisaral/DIO
+#
+# This file is baked into the Docker image and mounted by docker-compose.yml.
+# It targets the in-network Ollama service (http://ollama:11434), which is why
+# the hostname is "ollama" rather than "localhost". Mount your own file over
+# /app/dio.yaml to point DIO at vLLM / SGLang / TGI instead.
+
+backends:
+  # Ollama engine running in the compose network (no GPU required).
+  - id: ollama
+    url: http://ollama:11434
+    tier: small
+    engine: ollama
+    models:
+      - llama3.2:1b
+
+  # GPU path - uncomment and point at your vLLM service/container.
+  # - id: vllm-gpu0
+  #   url: http://vllm:8000
+  #   tier: large
+  #   engine: vllm
+  #   total_vram_mb: 24576
+  #   models:
+  #     - meta-llama/Llama-3.2-3B-Instruct
+
+# Predictive latency scheduler (NLMS = fast mu for bursts + slow mu for drift).
+scheduler:
+  strategy: nlms
+  nlms_mode: dual
+  engine_metrics: false   # Ollama exposes no Prometheus /metrics endpoint
+  cache_bonus_ms: 200     # Multi-turn chat / prefix-cache affinity bonus
+
+# Admission control: reject work that cannot meet the SLO instead of queuing.
+admission:
+  mode: empirical
+  slo_ms: 30000
+  percentile: 95
+
+server:
+  host: 0.0.0.0            # required inside a container - front it with auth!
+  port: 8085
+  timeout: 300

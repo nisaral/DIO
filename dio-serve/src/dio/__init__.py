@@ -38,6 +38,7 @@ Python API::
 from dio.backends import Backend, BackendPool
 from dio.config import DIOConfig
 from dio.config_file import (
+    ConfigError,
     detect_local_backends,
     discover_config,
     generate_detected_config,
@@ -57,23 +58,24 @@ from dio.scheduler import (
 
 __version__ = "0.4.0"
 __all__ = [
+    "AblationFlags",
+    "AdmissionStats",
     "Backend",
     "BackendPool",
+    "ConfigError",
     "DIOConfig",
     "DIOGateway",
     "DIOMCPServer",
-    "Scheduler",
     "DualTimescaleNLMS",
-    "RoutingDecision",
-    "AdmissionStats",
-    "AblationFlags",
     "EngineSnapshot",
-    "scrape_metrics_url",
-    "load_config_file",
-    "discover_config",
-    "generate_example_config",
-    "detect_local_backends",
-    "generate_detected_config",
+    "RoutingDecision",
+    "Scheduler",
     "__version__",
+    "detect_local_backends",
+    "discover_config",
+    "generate_detected_config",
+    "generate_example_config",
+    "load_config_file",
+    "scrape_metrics_url",
 ]
 

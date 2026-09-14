@@ -43,6 +43,10 @@ from dio.config import DIOConfig
 
 log = logging.getLogger("dio.config_file")
 
+
+class ConfigError(ValueError):
+    """dio.yaml is readable YAML but not a usable DIO configuration."""
+
 # Supported file names (searched in order)
 _CONFIG_NAMES = ["dio.yaml", "dio.yml", "dio.json", ".dio.yaml", ".dio.yml"]
 
@@ -62,12 +66,19 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     except ImportError:
         pass
 
-    # Minimal YAML-subset parser for simple configs (no nested objects)
-    # Enough for basic key: value and - list items
+    # Minimal YAML-subset parser for simple configs (no nested objects).
+    # It cannot represent the nested backend list that DIO actually needs, so
+    # refuse rather than start up with a silently wrong (empty) topology.
     log.warning(
         "PyYAML not installed; using minimal parser. Install with: pip install pyyaml"
     )
-    return _minimal_yaml_parse(text)
+    parsed = _minimal_yaml_parse(text)
+    if "backends" not in parsed:
+        raise ConfigError(
+            "PyYAML is required to read this config; the built-in fallback parser "
+            "cannot represent nested backend lists. Install it with: pip install pyyaml"
+        )
+    return parsed
 
 
 def _minimal_yaml_parse(text: str) -> Dict[str, Any]:
@@ -176,12 +187,22 @@ def load_config_file(
 
     log.info("Loading config from %s", p)
     data = _load_yaml(p)
+    if not isinstance(data, dict):
+        raise ConfigError(
+            f"{p}: expected a mapping at the top level but found "
+            f"{type(data).__name__}. See dio.example.yaml for the expected shape."
+        )
 
     # Parse backends
     backends: List[Backend] = []
     model_map: Dict[str, List[str]] = {}
 
     raw_backends = data.get("backends") or data.get("backend") or []
+    if raw_backends and not isinstance(raw_backends, (list, dict)):
+        raise ConfigError(
+            f"{p}: 'backends' must be a list of backend entries, "
+            f"got {type(raw_backends).__name__}."
+        )
     if isinstance(raw_backends, dict):
         # Support { id: url } shorthand
         raw_backends = [{"id": k, "url": v} for k, v in raw_backends.items()]
@@ -190,7 +211,11 @@ def load_config_file(
         if isinstance(raw, str):
             # Plain URL string
             raw = {"url": raw, "id": f"b{i}"}
-        b = _parse_backend(raw, i)
+        try:
+            b = _parse_backend(raw, i)
+        except ValueError as e:
+            # A typo'd URL is a config problem the user can fix, not a traceback.
+            raise ConfigError(f"{p}: {e}") from None
         backends.append(b)
 
         # Build model → backend mapping
@@ -216,6 +241,8 @@ def load_config_file(
         config_kwargs["ablation"] = sched["ablation"]
     if sched.get("cache_bonus_ms") is not None:
         config_kwargs["cache_bonus_ms"] = float(sched["cache_bonus_ms"])
+    if sched.get("affinity_cache_size") is not None:
+        config_kwargs["affinity_cache_size"] = int(sched["affinity_cache_size"])
 
     # Admission settings
     if admission.get("mode"):
@@ -297,6 +324,7 @@ scheduler:
   nlms_mode: dual       # dual | single
   engine_metrics: true  # scrape vLLM /metrics for KV-cache-aware routing
   cache_bonus_ms: 200   # session affinity bonus for multi-turn
+  affinity_cache_size: 2048  # how many session prefixes stay pinned in the LRU
 
 admission:
   mode: empirical       # empirical | rank_only | absolute
@@ -419,6 +447,7 @@ def generate_detected_config(discovered: List[Dict[str, Any]]) -> str:
         "  nlms_mode: dual       # dual | single",
         "  engine_metrics: true  # scrape vLLM /metrics for KV-cache-aware routing",
         "  cache_bonus_ms: 200   # session affinity bonus for multi-turn",
+        "  affinity_cache_size: 2048  # pinned session prefixes in the LRU",
         "",
         "admission:",
         "  mode: empirical       # empirical | rank_only | absolute",

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-import pytest
+from typing import ClassVar, Dict
 from unittest.mock import patch
+
+import pytest
 
 from dio.mcp import DIOMCPServer
 
@@ -165,7 +167,10 @@ async def test_mcp_tools_with_mocked_gateway():
     async def mock_post(url, *args, **kwargs):
         class MockPostResp:
             status_code = 200
-            headers = {"X-DIO-Backend": "b0", "X-DIO-E2E-Ms": "42.5"}
+            headers: ClassVar[Dict[str, str]] = {
+                "X-DIO-Backend": "b0",
+                "X-DIO-E2E-Ms": "42.5",
+            }
             text = ""
 
             def json(self):

@@ -1,6 +1,7 @@
 """Unit tests for multi-model routing across heterogeneous backends."""
 
 import pytest
+
 from dio.backends import Backend
 from dio.gateway import DIOGateway
 from dio.scheduler import AdmissionError, Scheduler
@@ -33,11 +34,11 @@ def test_scheduler_respects_allowed_backends():
     s.register("b2", tier="small")
 
     # Constrain to b1
-    wid, dec = s.pick("hello world", allowed_backends=["b1"])
+    wid, _dec = s.pick("hello world", allowed_backends=["b1"])
     assert wid == "b1"
 
     # Constrain to b0 or b2
-    wid, dec = s.pick("hello world", allowed_backends=["b0", "b2"])
+    wid, _dec = s.pick("hello world", allowed_backends=["b0", "b2"])
     assert wid in ("b0", "b2")
 
     # Constrain to empty list -> should raise AdmissionError

@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "0.3.0-rc1",
+  [string]$Version = "0.4.0",
   [string]$Out = "release"
 )
 $ErrorActionPreference = "Stop"
@@ -7,15 +7,19 @@ $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $target = Join-Path $root "$Out\dio-$Version"
 if (Test-Path $target) { Remove-Item -Recurse -Force $target }
 New-Item -ItemType Directory -Force $target | Out-Null
+# Missing entries are tolerated - the copy loop below skips them (community
+# files such as LICENSE / CONTRIBUTING.md / SECURITY.md may not exist yet).
 $paths = @(
   "dio-serve\src", "dio-serve\tests", "dio-serve\scripts",
   "dio-serve\docs", "dio-serve\pyproject.toml", "dio-serve\README.md",
-  "dio-serve\LICENSE", "dio-serve\results_reanalysis",
+  "dio-serve\LICENSE", "dio-serve\dio.example.yaml", "dio-serve\Dockerfile",
+  "dio-serve\.dockerignore", "dio-serve\docker-compose.yml", "dio-serve\docker",
+  "dio-serve\results_reanalysis",
   "dio-serve\results_regime_d\summary.json",
   "dio-serve\results_gpu_abc_n10\summary.json",
   "dio-serve\results_workshop_final\summary.json",
-  ".zenodo.json", "CITATION.cff",
-  "paper_drafts_latex\CCPE_RESUBMISSION_MEMO.md"
+  "LICENSE", "CONTRIBUTING.md", "SECURITY.md",
+  ".zenodo.json", "CITATION.cff"
 )
 foreach ($p in $paths) {
   $src = Join-Path $root $p

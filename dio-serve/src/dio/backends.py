@@ -29,6 +29,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -41,6 +42,37 @@ ApiStyle = Literal[
     "tgi_generate",     # HuggingFace TGI /generate
     "custom",           # use chat_path / completions_path
 ]
+
+
+# Hosts that must never be reached by the gateway's own HTTP client. The admin
+# plane can hot-register a backend, so an unvalidated ``base_url`` is an SSRF
+# primitive: point DIO at cloud metadata and it will fetch that URL with its own
+# network position. Only plain http(s) to a named host is ever forwarded.
+_BLOCKED_BACKEND_HOSTS = frozenset(
+    {"169.254.169.254", "fd00:ec2::254", "metadata.google.internal"}
+)
+
+
+def validate_backend_url(base_url: str, backend_id: str = "?") -> str:
+    """Return a vetted backend URL, or raise ValueError explaining the problem."""
+    if not isinstance(base_url, str) or not base_url.strip():
+        raise ValueError(f"backend {backend_id!r}: base_url must be a non-empty URL")
+    url = base_url.strip()
+    if any(ch.isspace() for ch in url):
+        raise ValueError(f"backend {backend_id!r}: base_url contains whitespace: {url!r}")
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        raise ValueError(
+            f"backend {backend_id!r}: base_url must start with http:// or https:// "
+            f"(got {parts.scheme or 'no scheme'!r})"
+        )
+    if not parts.hostname:
+        raise ValueError(f"backend {backend_id!r}: base_url has no host: {url!r}")
+    if parts.hostname in _BLOCKED_BACKEND_HOSTS:
+        raise ValueError(
+            f"backend {backend_id!r}: refusing to forward to metadata host {parts.hostname!r}"
+        )
+    return url
 
 
 @dataclass
@@ -80,6 +112,9 @@ class Backend:
     models_path: str = "/v1/models"
     metrics_path: str = "/metrics"  # vLLM Prometheus (non-invasive)
     timeout_s: Optional[float] = None  # override global timeout
+
+    def __post_init__(self) -> None:
+        self.base_url = validate_backend_url(self.base_url, self.id)
 
     def _url(self, path: str) -> str:
         return self.base_url.rstrip("/") + (path if path.startswith("/") else "/" + path)
@@ -123,24 +158,63 @@ def openai_chat_to_tgi_generate(body: Dict[str, Any]) -> Dict[str, Any]:
         prompt = "\n".join(parts) + "\nassistant:"
     else:
         prompt = str(body.get("prompt") or "")
-    max_new = int(body.get("max_tokens") or body.get("max_new_tokens") or 64)
-    return {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_new,
-            "temperature": float(body.get("temperature") or 0.7),
-            "do_sample": True,
-        },
+    # NOTE: "or" would treat an explicit 0 (greedy decoding, max_tokens=0 meaning
+    # "engine default") as absent and silently substitute sampling defaults.
+    max_new = body.get("max_tokens")
+    if max_new is None:
+        max_new = body.get("max_new_tokens")
+    params: Dict[str, Any] = {
+        "max_new_tokens": int(max_new) if max_new is not None else 64,
+        "do_sample": True,
     }
+    temperature = body.get("temperature")
+    if temperature is not None:
+        temperature = float(temperature)
+        params["temperature"] = temperature
+        # temperature == 0 means greedy; TGI only samples when do_sample is true.
+        params["do_sample"] = temperature > 0.0
+    else:
+        params["temperature"] = 0.7
+    for src, dst in (
+        ("top_p", "top_p"),
+        ("presence_penalty", "repetition_penalty"),
+        ("frequency_penalty", "frequency_penalty"),
+    ):
+        if body.get(src) is not None:
+            params[dst] = float(body[src])
+    if body.get("stop") is not None:
+        stop = body["stop"]
+        params["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
+    return {"inputs": prompt, "parameters": params}
 
 
-def tgi_generate_to_openai_chat(raw: Dict[str, Any], model: str) -> Dict[str, Any]:
-    """Normalize TGI response into OpenAI chat.completion shape for clients."""
+def tgi_generate_to_openai_chat(
+    raw: Dict[str, Any],
+    model: str,
+    prompt_tokens: int = 0,
+) -> Dict[str, Any]:
+    """Normalize TGI response into OpenAI chat.completion shape for clients.
+
+    TGI does not report an OpenAI-style ``usage`` block, so token counts are
+    filled in here: ``prompt_tokens`` from the caller (which knows the prompt),
+    ``completion_tokens`` from TGI's own ``details.generated_tokens`` when the
+    server reports it, else a len/4 heuristic. Reporting ``prompt_tokens: 0``
+    made cost dashboards and SDK token accounting wrong.
+    """
     text = ""
+    details: Dict[str, Any] = {}
     if isinstance(raw, list) and raw:
         text = raw[0].get("generated_text") or ""
+        if isinstance(raw[0].get("details"), dict):
+            details = raw[0]["details"]
     elif isinstance(raw, dict):
         text = raw.get("generated_text") or raw.get("text") or ""
+        if isinstance(raw.get("details"), dict):
+            details = raw["details"]
+    completion_tokens = details.get("generated_tokens")
+    if not isinstance(completion_tokens, int) or completion_tokens <= 0:
+        completion_tokens = max(1, len(text) // 4)
+    prompt_n = int(prompt_tokens) if isinstance(prompt_tokens, int) and prompt_tokens > 0 else 0
     return {
         "id": f"chatcmpl-tgi-{int(time.time()*1000)}",
         "object": "chat.completion",
@@ -154,9 +228,9 @@ def tgi_generate_to_openai_chat(raw: Dict[str, Any], model: str) -> Dict[str, An
             }
         ],
         "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": max(1, len(text) // 4),
-            "total_tokens": max(1, len(text) // 4),
+            "prompt_tokens": prompt_n,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_n + completion_tokens,
         },
     }
 
@@ -172,7 +246,7 @@ class BackendPool:
     def add(self, backend: Backend) -> None:
         self.backends[backend.id] = backend
         log.info(
-            "Registered backend %s → %s (tier=%s style=%s)",
+            "Registered backend %s -> %s (tier=%s style=%s)",
             backend.id,
             backend.base_url,
             backend.tier,
@@ -267,7 +341,6 @@ class MockBackendServer:
         return f"http://{self.host}:{self.port}"
 
     def _app(self):
-        from typing import Any, Dict
 
         from fastapi import Body, FastAPI
         from fastapi.responses import JSONResponse, StreamingResponse
@@ -312,7 +385,12 @@ class MockBackendServer:
                     yield f"data: {json.dumps(init_chunk)}\n\n"
 
                     text = f"[{self.name}] echo: {str(content)[:80]}"
-                    words = text.split(" ")
+                    words = text.split(" ")[:max_tokens]
+                    # A real engine reports the tokens it produced and why it
+                    # stopped; reporting max_tokens as completion_tokens made the
+                    # streamed and non-streamed paths disagree by design.
+                    truncated = len(text.split(" ")) > max_tokens
+                    finish = "length" if truncated else "stop"
                     for i, word in enumerate(words):
                         chunk_text = word + (" " if i < len(words) - 1 else "")
                         chunk = {
@@ -333,10 +411,27 @@ class MockBackendServer:
                         "created": created,
                         "model": model_name,
                         "choices": [
-                            {"index": 0, "delta": {}, "finish_reason": "stop"}
+                            {"index": 0, "delta": {}, "finish_reason": finish}
                         ],
                     }
                     yield f"data: {json.dumps(stop_chunk)}\n\n"
+                    # OpenAI stream_options.include_usage: a trailing chunk with
+                    # empty choices carries the engine's accounting, so a
+                    # translating gateway can report real tokens for streams too.
+                    if (body.get("stream_options") or {}).get("include_usage"):
+                        usage_chunk = {
+                            "id": cid,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model_name,
+                            "choices": [],
+                            "usage": {
+                                "prompt_tokens": tokens_in,
+                                "completion_tokens": len(words),
+                                "total_tokens": tokens_in + len(words),
+                            },
+                        }
+                        yield f"data: {json.dumps(usage_chunk)}\n\n"
                     yield "data: [DONE]\n\n"
 
                 return StreamingResponse(chat_stream(), media_type="text/event-stream")
@@ -377,7 +472,9 @@ class MockBackendServer:
                     created = int(time.time())
                     await asyncio.sleep(max(0.01, (40 * self.latency_mult) / 1000.0))
                     text = f"[{self.name}] {str(prompt)[:40]}"
-                    words = text.split(" ")
+                    words = text.split(" ")[:max_tokens]
+                    truncated = len(text.split(" ")) > max_tokens
+                    finish = "length" if truncated else "stop"
                     for i, word in enumerate(words):
                         chunk_text = word + (" " if i < len(words) - 1 else "")
                         chunk = {
@@ -398,16 +495,38 @@ class MockBackendServer:
                         "created": created,
                         "model": model_name,
                         "choices": [
-                            {"text": "", "index": 0, "finish_reason": "stop"}
+                            {"text": "", "index": 0, "finish_reason": finish}
                         ],
                     }
                     yield f"data: {json.dumps(stop_chunk)}\n\n"
+                    if (body.get("stream_options") or {}).get("include_usage"):
+                        tokens_in = max(1, len(str(prompt)) // 4)
+                        usage_chunk = {
+                            "id": cid,
+                            "object": "text_completion",
+                            "created": created,
+                            "model": model_name,
+                            "choices": [],
+                            "usage": {
+                                "prompt_tokens": tokens_in,
+                                "completion_tokens": len(words),
+                                "total_tokens": tokens_in + len(words),
+                            },
+                        }
+                        yield f"data: {json.dumps(usage_chunk)}\n\n"
                     yield "data: [DONE]\n\n"
 
                 return StreamingResponse(comp_stream(), media_type="text/event-stream")
 
-            sleep_ms = (80 + self.decode_ms * max_tokens) * self.latency_mult
+            sleep_ms = (80 + self.decode_ms * min(max_tokens, 4096)) * self.latency_mult
             await asyncio.sleep(sleep_ms / 1000.0)
+            tokens_in = max(1, len(str(prompt)) // 4)
+            text = f"[{self.name}] {str(prompt)[:40]}"
+            words = text.split(" ")
+            truncated = len(words) > max_tokens
+            if truncated:
+                text = " ".join(words[:max_tokens])
+            generated = min(max_tokens, len(words))
             return JSONResponse(
                 {
                     "id": f"cmpl-mock-{int(time.time()*1000)}",
@@ -416,15 +535,15 @@ class MockBackendServer:
                     "model": model_name,
                     "choices": [
                         {
-                            "text": f"[{self.name}] {str(prompt)[:40]}",
+                            "text": text,
                             "index": 0,
-                            "finish_reason": "stop",
+                            "finish_reason": "length" if truncated else "stop",
                         }
                     ],
                     "usage": {
-                        "prompt_tokens": max(1, len(str(prompt)) // 4),
-                        "completion_tokens": max_tokens,
-                        "total_tokens": max(1, len(str(prompt)) // 4) + max_tokens,
+                        "prompt_tokens": tokens_in,
+                        "completion_tokens": generated,
+                        "total_tokens": tokens_in + generated,
                     },
                 }
             )

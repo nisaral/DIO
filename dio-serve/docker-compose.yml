@@ -1,0 +1,79 @@
+# DIO + Ollama - the zero-GPU quickstart stack.
+#
+# Requirements: Docker (Desktop or Engine) with the Compose v2 plugin:
+#     docker compose version        # must print v2.x
+#
+# No GPU is required for this Ollama path - it runs on CPU (Ollama will use a
+# GPU automatically when one is available). For GPU-class throughput, keep the
+# same DIO container and point its config at a vLLM/SGLang/TGI service instead.
+#
+# Start it:      docker compose up -d --build
+# First run pulls a small model (~1.3 GB) into the named volume, so give it a
+# few minutes before the gateway can serve requests.
+#
+# Try it:
+#   curl http://localhost:8085/health
+#   curl http://localhost:8085/v1/models
+#   curl http://localhost:8085/api/tags
+#   curl http://localhost:8085/v1/chat/completions \
+#     -H 'Content-Type: application/json' \
+#     -d '{"model":"llama3.2:1b","messages":[{"role":"user","content":"Say hi in five words."}]}'
+#
+# SECURITY: DIO ships no authentication and this file publishes 8085 on the
+# host. Keep it on a trusted network / behind an authenticating reverse proxy.
+
+services:
+  # Real engine to route to - the lightest option that needs no GPU.
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot helper: pre-pull the model DIO is configured to route to.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull"]
+    command: ["llama3.2:1b"]
+    restart: "no"
+
+  # The DIO predictive gateway in front of Ollama.
+  dio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dio-serve:0.4.0
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      DIO_HOST: 0.0.0.0
+      DIO_PORT: "8085"
+    ports:
+      - "8085:8085"
+    volumes:
+      # Repo-tracked config; the ollama backend points at http://ollama:11434.
+      - ./docker/dio.yaml:/app/dio.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8085/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  ollama-models:

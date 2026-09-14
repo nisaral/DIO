@@ -1,8 +1,10 @@
 """Tests for Ollama native adapter (/api/chat, /api/generate, /api/tags, /api/version)."""
 
 import json
-import pytest
+
 import httpx
+import pytest
+
 from dio.backends import Backend, MockBackendServer
 from dio.gateway import DIOGateway, _ollama_options_to_openai
 
@@ -86,9 +88,9 @@ async def test_ollama_chat_and_generate():
             assert chat_stream_resp.status_code == 200
             assert "application/x-ndjson" in chat_stream_resp.headers.get("content-type", "")
 
-            lines = [l.strip() for l in chat_stream_resp.text.splitlines() if l.strip()]
+            lines = [line.strip() for line in chat_stream_resp.text.splitlines() if line.strip()]
             assert len(lines) >= 2
-            parsed_lines = [json.loads(l) for l in lines]
+            parsed_lines = [json.loads(line) for line in lines]
             # Intermediate lines done=False
             assert any(p.get("done") is False for p in parsed_lines)
             # Final line done=True
@@ -120,9 +122,101 @@ async def test_ollama_chat_and_generate():
                 },
             )
             assert gen_stream_resp.status_code == 200
-            gen_lines = [l.strip() for l in gen_stream_resp.text.splitlines() if l.strip()]
+            gen_lines = [line.strip() for line in gen_stream_resp.text.splitlines() if line.strip()]
             assert len(gen_lines) >= 2
-            parsed_gen = [json.loads(l) for l in gen_lines]
+            parsed_gen = [json.loads(line) for line in gen_lines]
             assert parsed_gen[-1]["done"] is True
     finally:
         await server.stop()
+
+
+# --------------------------------------------------- request-level mapping
+def test_ollama_request_mapping_forwards_format_and_tools():
+    from dio.gateway import _ollama_request_to_openai
+
+    # Ollama's "give me JSON" used to be dropped silently.
+    assert _ollama_request_to_openai({"format": "json"}) == {
+        "response_format": {"type": "json_object"}
+    }
+
+    schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+    mapped = _ollama_request_to_openai({"format": schema})
+    assert mapped["response_format"]["type"] == "json_schema"
+    assert mapped["response_format"]["json_schema"]["schema"] == schema
+
+    tools = [{"type": "function", "function": {"name": "f", "parameters": {}}}]
+    mapped = _ollama_request_to_openai({"tools": tools, "tool_choice": "auto"})
+    assert mapped["tools"] == tools
+    assert mapped["tool_choice"] == "auto"
+
+    # keep_alive is engine-local: it must not leak upstream as an Ollama-ism.
+    assert _ollama_request_to_openai({"keep_alive": "5m"}) == {}
+    assert _ollama_request_to_openai({}) == {}
+
+
+def test_ollama_done_reason_maps_finish_reason():
+    from dio.gateway import _ollama_done_reason
+
+    assert _ollama_done_reason([{"finish_reason": "length"}]) == "length"
+    assert _ollama_done_reason([{"finish_reason": "stop"}]) == "stop"
+    assert _ollama_done_reason([{"finish_reason": "tool_calls"}]) == "tool_calls"
+    assert _ollama_done_reason([]) == "stop"
+
+
+@pytest.mark.asyncio
+async def test_ollama_nonstream_reports_done_reason():
+    srv = MockBackendServer(port=19912, latency_mult=1.0, decode_ms_per_token=1.0, name="gpu-y")
+    await srv.start()
+    try:
+        gw = DIOGateway(backends=[Backend(id="gpu-y", base_url=srv.base_url)], admission_off=True)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=gw.app), base_url="http://test"
+        ) as client:
+            chat = await client.post(
+                "/api/chat",
+                json={"model": "m", "messages": [{"role": "user", "content": "hi"}], "stream": False},
+            )
+            assert chat.status_code == 200
+            body = chat.json()
+            # Real Ollama always tells the client why generation stopped.
+            assert body["done_reason"] in ("stop", "length")
+            assert body["done"] is True
+
+            gen = await client.post(
+                "/api/generate", json={"model": "m", "prompt": "hi", "stream": False}
+            )
+            assert gen.status_code == 200
+            assert gen.json()["done_reason"] in ("stop", "length")
+    finally:
+        await srv.stop()
+
+
+@pytest.mark.asyncio
+async def test_ollama_stream_final_chunk_has_completion_metadata():
+    srv = MockBackendServer(port=19913, latency_mult=1.0, decode_ms_per_token=1.0, name="gpu-z")
+    await srv.start()
+    try:
+        gw = DIOGateway(backends=[Backend(id="gpu-z", base_url=srv.base_url)], admission_off=True)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=gw.app), base_url="http://test"
+        ) as client:
+            async with client.stream(
+                "POST",
+                "/api/chat",
+                json={"model": "m", "messages": [{"role": "user", "content": "hi"}], "stream": True},
+            ) as r:
+                assert r.status_code == 200
+                lines = [
+                    json.loads(line)
+                    async for line in r.aiter_lines()
+                    if line.strip()
+                ]
+        assert lines, "expected ndjson frames"
+        assert not any(isinstance(ln, str) for ln in lines)
+        final = lines[-1]
+        assert final["done"] is True
+        assert final["done_reason"] == "stop"
+        assert final["load_duration"] >= 0
+        assert "total_duration" in final and "eval_count" in final
+    finally:
+        await srv.stop()

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions, ideas, and design discussions
+    url: https://github.com/nisaral/DIO/discussions
+    about: Ask "how do I" questions, share a deployment, or discuss a design before opening an issue.
+  - name: Report a security vulnerability
+    url: https://github.com/nisaral/DIO/security/advisories/new
+    about: Report privately via GitHub Security Advisories. Do not open a public issue. See SECURITY.md.
+  - name: Contributing guide
+    url: https://github.com/nisaral/DIO/blob/main/CONTRIBUTING.md
+    about: Dev setup, test commands, code style, and the good first issue list.

@@ -7,10 +7,11 @@ is self-contained — no Go binary required for research or production wrap mode
 
 from __future__ import annotations
 
+import hashlib
 import math
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
@@ -40,6 +41,9 @@ class RoutingDecision:
     engine_kv_cost_ms: float = 0.0
     engine_queue_cost_ms: float = 0.0
     engine_prefix_bonus_ms: float = 0.0
+    # Bonus that was requested by the affinity/prefix terms but could not be
+    # applied because it exceeded the predicted service time (see _score).
+    bonus_clamped_ms: float = 0.0
     affinity_hit: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
@@ -56,6 +60,7 @@ class RoutingDecision:
             "engine_kv_cost_ms": self.engine_kv_cost_ms,
             "engine_queue_cost_ms": self.engine_queue_cost_ms,
             "engine_prefix_bonus_ms": self.engine_prefix_bonus_ms,
+            "bonus_clamped_ms": self.bonus_clamped_ms,
             "affinity_hit": self.affinity_hit,
         }
 
@@ -69,15 +74,22 @@ class AdmissionStats:
     completed_under_slo: int = 0
     completed_over_slo: int = 0
     completed_total: int = 0
+    # Engine-side failures (5xx / aborted streams). Kept out of the learner and
+    # out of goodput's numerator so a broken run cannot report a perfect score.
+    failed_total: int = 0
     sum_e2e_ms: float = 0.0
     # Diagnostics: how often absolute-ŷ admission would disagree with active mode
     would_reject_absolute: int = 0
+    # The empirical tail can exceed the SLO while a clearly-better backend is still
+    # available; that case is deliberately admitted, and used to be invisible.
+    rejected_slo_suppressed: int = 0
     would_admit_absolute: int = 0
     absolute_vs_active_disagree: int = 0
 
     def snapshot(self, slo_ms: float, admission_enabled: bool, **extra: Any) -> Dict[str, Any]:
         total = self.completed_total
-        goodput_frac = (self.completed_under_slo / total) if total else 0.0
+        attempts = total + self.failed_total
+        goodput_frac = (self.completed_under_slo / attempts) if attempts else 0.0
         avg = (self.sum_e2e_ms / total) if total else 0.0
         cmp_n = self.would_reject_absolute + self.would_admit_absolute
         return {
@@ -85,9 +97,13 @@ class AdmissionStats:
             "rejected_slo": self.rejected_slo,
             "rejected_vram": self.rejected_vram,
             "rejected_no_worker": self.rejected_no_worker,
+            "rejected_slo_suppressed": self.rejected_slo_suppressed,
             "completed_under_slo": self.completed_under_slo,
             "completed_over_slo": self.completed_over_slo,
             "completed_total": total,
+            "failed_total": self.failed_total,
+            "attempts": attempts,
+            "failure_rate": (self.failed_total / attempts) if attempts else 0.0,
             "goodput_fraction": goodput_frac,
             "avg_e2e_ms": avg,
             "slo_ms": slo_ms,
@@ -270,7 +286,11 @@ class Scheduler:
     Joint cost router.
 
     score = wait + predicted_exec + tier + vram + engine_kv + engine_queue
-            - cache_affinity - engine_prefix_bonus
+            - cache_affinity - engine_prefix_bonus      (bonuses clamped, see _score)
+
+    The bonuses are savings, so they can at most cancel the predicted service
+    time: the clamped part is reported as ``bonus_clamped_ms`` and ``score`` is
+    never negative.
 
     Hybrid mode (optional): scrapes vLLM /metrics for KV usage, waiting queue,
     prefix hit rate — still non-invasive (HTTP only).
@@ -311,6 +331,8 @@ class Scheduler:
         static_intercept: float = 50.0,
         decision_log_size: int = 200,
         pred_history_size: int = 5000,
+        affinity_cache_size: int = 2048,
+        health_interval_s: float = 5.0,
     ) -> None:
         self.strategy = strategy.lower().replace("-", "_")
         self.dual = dual
@@ -321,7 +343,9 @@ class Scheduler:
         self.admission_off = admission_off
         self.admission_mode = (admission_mode or "empirical").lower().replace("-", "_")
         self.admission_percentile = float(admission_percentile)
-        self.batch_size = batch_size
+        # A queue term divides by this, so a zero (e.g. DIO_BATCH_SIZE=0, which is
+        # env-overridable) would turn every NLMS pick into a ZeroDivisionError.
+        self.batch_size = float(batch_size) if batch_size and float(batch_size) > 0 else 8.0
         self.tier_mismatch_ms = tier_mismatch_ms
         self.cache_bonus_ms = cache_bonus_ms
         self.vram_soft_mb = vram_soft_mb
@@ -344,12 +368,21 @@ class Scheduler:
         self.ewma_samples: Dict[str, int] = {}
         self.ewma_alpha: float = 0.2
         self.ewma_prior_ms: float = 5000.0
-        self.prefix_cache: Dict[int, str] = {}
+        # Bounded LRU: prompts are arbitrary, so an unbounded dict here is an OOM
+        # path on a long-lived gateway with many distinct prefixes.
+        self.prefix_cache: "OrderedDict[int, str]" = OrderedDict()
+        self.affinity_cache_size = max(16, int(affinity_cache_size))
+        # A pool that is empty *because of a health eviction* only refills on the
+        # next probe, so a Retry-After of 1 s tells the client to come back too
+        # early and it just gets a second 503. Advertise the real horizon.
+        self.recovery_hint_s = max(1, round(float(health_interval_s or 5.0)))
         self.engine_snap: Dict[str, Any] = {}  # worker_id -> EngineSnapshot-like dict
         self.rr_index = 0
         # affinity stats (for paper B)
         self.affinity_decisions = 0
         self.affinity_hits = 0
+        # worker_id -> consecutive engine failures (see note_failure)
+        self._fail_streak: Dict[str, int] = {}
         # deques: O(1) append + auto-drop for tight control-plane loops
         self.decision_log: Deque[Dict[str, Any]] = deque(maxlen=decision_log_size)
         self.decision_log_size = decision_log_size
@@ -366,8 +399,8 @@ class Scheduler:
         if len(ys) == 1:
             return ys[0]
         k = (max(0.0, min(100.0, p)) / 100.0) * (len(ys) - 1)
-        lo = int(math.floor(k))
-        hi = int(math.ceil(k))
+        lo = math.floor(k)
+        hi = math.ceil(k)
         if lo == hi:
             return ys[lo]
         t = k - lo
@@ -376,6 +409,15 @@ class Scheduler:
     def _should_reject_slo(self, best_score: float, scores: List[float]) -> Tuple[bool, str]:
         """
         Return (reject, reason). Decouples ranking (always min score) from absolute ŷ.
+
+        Empirical policy, stated exactly because the counters depend on it: the
+        observed tail must exceed the SLO *and* the best candidate must not be
+        meaningfully better than the alternatives (``best_score >= p75(scores)``,
+        which in practice only holds when the field is uniformly saturated, or
+        when a single backend is feasible). Otherwise a degraded tail is admitted
+        as long as some backend is still the clear best option -- that is why
+        ``rejected_slo`` can stay at 0 while ``empirical_p_ms > slo_ms``.
+        ``rejected_slo_suppressed`` counts exactly those admissions.
         """
         if self.admission_off or self.admission_mode in ("rank_only", "ranking", "none"):
             return False, "rank_only"
@@ -394,6 +436,12 @@ class Scheduler:
                 worst_quartile = True
             if p > self.slo_ms and worst_quartile:
                 return True, f"empirical_p{self.admission_percentile:.0f}={p:.0f}>SLO"
+            if p > self.slo_ms:
+                # Tail is over budget but a clearly-better backend exists: admitting
+                # is the intended behaviour, and this counter is what makes that
+                # visible instead of looking like an inert SLO gate.
+                self.admission.rejected_slo_suppressed += 1
+                return False, "empirical_ok_better_backend_available"
             return False, "empirical_ok"
 
         # absolute (legacy): min ŷ-cost vs SLO
@@ -466,10 +514,44 @@ class Scheduler:
         with self._lock:
             if worker_id in self.predictors:
                 self.predictors[worker_id].healthy = healthy
+                if healthy:
+                    self._fail_streak[worker_id] = 0
+
+    def workers_health(self) -> Dict[str, bool]:
+        """worker_id -> healthy, so /health can report real backend state."""
+        with self._lock:
+            return {wid: p.healthy for wid, p in self.predictors.items()}
+
+    def note_failure(self, worker_id: str, threshold: int = 3) -> bool:
+        """Record an engine-side failure; trip unhealthy only after N in a row.
+
+        A single 5xx (context-length overflow, transient overload) must not evict an
+        otherwise healthy engine: ``pick`` would then raise "no healthy backends"
+        for every request until the next health probe (5 s by default), which takes
+        the whole pool offline when the evicted engine is the only one.
+        """
+        with self._lock:
+            streak = self._fail_streak.get(worker_id, 0) + 1
+            self._fail_streak[worker_id] = streak
+            tripped = streak >= threshold
+            if tripped and worker_id in self.predictors:
+                self.predictors[worker_id].healthy = False
+            return tripped
+
+    def note_success(self, worker_id: str) -> None:
+        with self._lock:
+            self._fail_streak[worker_id] = 0
 
     def _prefix_hash(self, text: str) -> int:
-        # Longer prefix for multi-turn session affinity (session-ish)
-        return hash(text[:256]) & 0xFFFFFFFF
+        # Longer prefix for multi-turn session affinity (session-ish).
+        # blake2b rather than the builtin hash(): str hashing is salted per
+        # process (PYTHONHASHSEED), so affinity keys -- and therefore the whole
+        # routing trace -- would not be reproducible across restarts or across
+        # two gateways replaying the same request log.
+        return int.from_bytes(
+            hashlib.blake2b(text[:256].encode("utf-8", "replace"), digest_size=8).digest(),
+            "big",
+        )
 
     def _score(
         self,
@@ -536,6 +618,22 @@ class Scheduler:
                 cache_bonus = self.cache_bonus_ms
                 affinity_hit = True
 
+        # Affinity/prefix bonuses are savings, not free time: a cached prefix
+        # can erase at most the predicted service time of this request. Without
+        # the clamp a bonus larger than the prediction (the 200 ms default vs a
+        # fast backend's ~50 ms estimate) drives the score negative, and a
+        # negative score then wins every comparison by an unbounded margin --
+        # the workload pins itself to one worker for a reason that is not real.
+        # Both terms are scaled by the same factor so the reported breakdown
+        # still adds up to the bonus actually applied.
+        bonus_raw = cache_bonus + eng_pref
+        bonus_allowed = max(0.0, wait + exec_ms)
+        if bonus_raw <= 0.0 or bonus_raw <= bonus_allowed:
+            bonus_scale = 1.0
+        else:
+            bonus_scale = bonus_allowed / bonus_raw
+        cache_bonus_applied = cache_bonus * bonus_scale
+        eng_pref_applied = eng_pref * bonus_scale
         total = (
             wait
             + exec_ms
@@ -543,22 +641,26 @@ class Scheduler:
             + vram_cost
             + eng_kv
             + eng_q
-            - cache_bonus
-            - eng_pref
+            - cache_bonus_applied
+            - eng_pref_applied
         )
+        # Every term above is individually non-negative now; the floor keeps a
+        # float artefact from ever presenting a negative score to admission.
+        total = max(0.0, total)
         dec = RoutingDecision(
             worker_id=worker_id,
             exec_ms=exec_ms,
             wait_ms=wait,
             tier_cost_ms=tier_cost,
             vram_cost_ms=vram_cost,
-            cache_bonus_ms=cache_bonus + eng_pref,
+            cache_bonus_ms=cache_bonus_applied + eng_pref_applied,
             total_ms=total,
             tokens=tokens,
             strategy=self.strategy,
             engine_kv_cost_ms=eng_kv,
             engine_queue_cost_ms=eng_q,
-            engine_prefix_bonus_ms=eng_pref,
+            engine_prefix_bonus_ms=eng_pref_applied,
+            bonus_clamped_ms=bonus_raw - (cache_bonus_applied + eng_pref_applied),
             affinity_hit=affinity_hit,
         )
         return total, dec, False
@@ -586,7 +688,10 @@ class Scheduler:
                 ids = [wid for wid in ids if wid in allowed_backends]
             if not ids:
                 self.admission.rejected_no_worker += 1
-                raise AdmissionError("no healthy backends registered")
+                raise AdmissionError(
+                    "no healthy backends registered",
+                    retry_after_sec=self.recovery_hint_s,
+                )
 
             if self.strategy in ("round_robin", "roundrobin"):
                 self.rr_index = (self.rr_index + 1) % len(ids)
@@ -644,7 +749,9 @@ class Scheduler:
                         )
                 if best_id is None or best_dec is None:
                     self.admission.rejected_no_worker += 1
-                    raise AdmissionError("no feasible backend")
+                    raise AdmissionError(
+                        "no feasible backend", retry_after_sec=self.recovery_hint_s
+                    )
                 self.predictors[best_id].pending += 1
                 self.admission.admitted += 1
                 self._log_decision(best_dec)
@@ -677,7 +784,9 @@ class Scheduler:
                         retry_after_sec=2,
                     )
                 self.admission.rejected_no_worker += 1
-                raise AdmissionError("no feasible backend")
+                raise AdmissionError(
+                    "no feasible backend", retry_after_sec=self.recovery_hint_s
+                )
 
             # Collect all non-blocked scores for relative admission checks
             all_scores: List[float] = []
@@ -708,7 +817,11 @@ class Scheduler:
                 )
 
             self.predictors[best_id].pending += 1
-            self.prefix_cache[self._prefix_hash(prompt)] = best_id
+            pkey = self._prefix_hash(prompt)
+            self.prefix_cache[pkey] = best_id
+            self.prefix_cache.move_to_end(pkey)
+            while len(self.prefix_cache) > self.affinity_cache_size:
+                self.prefix_cache.popitem(last=False)
             self.admission.admitted += 1
             # Affinity stats (session/prefix stickiness)
             self.affinity_decisions += 1
@@ -733,37 +846,49 @@ class Scheduler:
         tokens: int,
         *,
         predicted_ms: Optional[float] = None,
+        success: bool = True,
     ) -> None:
+        """Record the outcome of one request.
+
+        ``success=False`` marks an engine-side failure: the latency is NOT fed to
+        the learner (an error path is not a latency sample) and it is counted in
+        ``failed_total`` so ``goodput_fraction`` cannot report a perfect score for
+        a run where requests failed.
+        """
         with self._lock:
-            if worker_id in self.predictors:
-                info = self.predictors[worker_id].update(e2e_ms, tokens)
-                if worker_id in self.rls:
-                    self.rls[worker_id].update(e2e_ms, tokens)
-                if worker_id in self.ewma_e2e:
-                    n = int(self.ewma_samples.get(worker_id, 0))
-                    if n <= 0:
-                        # first sample: set level, do not blend with prior
-                        self.ewma_e2e[worker_id] = float(e2e_ms)
-                    else:
-                        prev = self.ewma_e2e[worker_id]
-                        a = self.ewma_alpha
-                        self.ewma_e2e[worker_id] = a * float(e2e_ms) + (1.0 - a) * prev
-                    self.ewma_samples[worker_id] = n + 1
-                sample = {
-                    "unix_ms": int(time.time() * 1000),
-                    "worker_id": worker_id,
-                    "tokens": tokens,
-                    **info,
-                    "mode": self.predictors[worker_id].mode(),
-                }
-                self.pred_history.append(sample)
-            self.admission.completed_total += 1
-            self.admission.sum_e2e_ms += e2e_ms
-            self.recent_e2e.append(float(e2e_ms))
-            if e2e_ms <= self.slo_ms:
-                self.admission.completed_under_slo += 1
+            if success:
+                if worker_id in self.predictors:
+                    info = self.predictors[worker_id].update(e2e_ms, tokens)
+                    if worker_id in self.rls:
+                        self.rls[worker_id].update(e2e_ms, tokens)
+                    if worker_id in self.ewma_e2e:
+                        n = int(self.ewma_samples.get(worker_id, 0))
+                        if n <= 0:
+                            # first sample: set level, do not blend with prior
+                            self.ewma_e2e[worker_id] = float(e2e_ms)
+                        else:
+                            prev = self.ewma_e2e[worker_id]
+                            a = self.ewma_alpha
+                            self.ewma_e2e[worker_id] = a * float(e2e_ms) + (1.0 - a) * prev
+                        self.ewma_samples[worker_id] = n + 1
+                    sample = {
+                        "unix_ms": int(time.time() * 1000),
+                        "worker_id": worker_id,
+                        "tokens": tokens,
+                        **info,
+                        "mode": self.predictors[worker_id].mode(),
+                    }
+                    self.pred_history.append(sample)
+                self.admission.completed_total += 1
+                self.admission.sum_e2e_ms += e2e_ms
+                self.recent_e2e.append(float(e2e_ms))
+                if e2e_ms <= self.slo_ms:
+                    self.admission.completed_under_slo += 1
+                else:
+                    self.admission.completed_over_slo += 1
+                self._fail_streak[worker_id] = 0
             else:
-                self.admission.completed_over_slo += 1
+                self.admission.failed_total += 1
             if worker_id in self.predictors and self.predictors[worker_id].pending > 0:
                 self.predictors[worker_id].pending -= 1
 
@@ -816,3 +941,5 @@ class Scheduler:
             self.decision_log.clear()
             self.affinity_decisions = 0
             self.affinity_hits = 0
+            self.prefix_cache.clear()
+            self._fail_streak.clear()

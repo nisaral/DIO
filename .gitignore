@@ -55,3 +55,36 @@ release/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ---------------------------------------------------------------------------
+# OSS hygiene (added 2026-09): untracked scratch artifacts from the paper /
+# smoke-test runs that were cluttering `git status`. Purely additive - no
+# previously tracked file is affected (gitignore never untracks anything).
+# ---------------------------------------------------------------------------
+
+# Local Python environments inside the package
+dio-serve/.venv/
+dio-serve/.venv_mock/
+
+# Vendored smoke-test checkout + its venv
+dio-serve/scripts/cloud/prodstack_smoke/
+
+# Local swarm/demo run logs (evidence for a dogfooding session, not artifacts)
+dio-serve/.swarm_logs/
+
+# Transient benchmark / experiment output
+dio-serve/results_g1_factorial_mock*
+dio-serve/results_regime_d/
+dio-serve/results_regime_d_cloud/
+.tmp-production-stack/
+
+# Local paper drafts, submission bundles, vendored templates
+# NOTE: paper_drafts_latex/ already has tracked sources; this only stops NEW
+# untracked scratch files (submission zips, generated PDFs, template dumps).
+paper_drafts_latex/
+
+# Downloaded archives / generated PDFs (tracked files above remain tracked;
+# note we deliberately do NOT ignore *.png - figs/ and results_paper/figures/
+# are tracked deliverables).
+*.zip
+*.pdf

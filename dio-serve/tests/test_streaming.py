@@ -1,8 +1,10 @@
 """Tests for SSE streaming passthrough and mock streaming."""
 
 import json
-import pytest
+
 import httpx
+import pytest
+
 from dio.backends import Backend, MockBackendServer
 from dio.gateway import DIOGateway
 

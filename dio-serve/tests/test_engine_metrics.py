@@ -7,7 +7,6 @@ from dio.engine_metrics import (
 )
 from dio.scheduler import AdmissionError, Scheduler
 
-
 SAMPLE_METRICS = """
 # HELP vllm:gpu_cache_usage_perc GPU KV cache usage
 # TYPE vllm:gpu_cache_usage_perc gauge

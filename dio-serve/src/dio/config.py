@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from dio.scheduler import AblationFlags
 
 
 class DIOConfig(BaseSettings):
@@ -33,6 +35,10 @@ class DIOConfig(BaseSettings):
     # Cost coefficients (paper defaults)
     tier_mismatch_ms: float = 500.0
     cache_bonus_ms: float = 200.0  # session/prefix affinity bonus (headline for multi-turn)
+    # Bound on the prefix->worker LRU that implements session affinity. Too small
+    # and a busy gateway evicts prefixes before their next turn arrives (affinity
+    # hit rate collapses); the default holds ~2048 concurrent sessions.
+    affinity_cache_size: int = 2048
     vram_soft_limit_mb: float = 4096.0
     vram_hard_limit_mb: float = 2400.0
     batch_size: float = 8.0
@@ -66,6 +72,24 @@ class DIOConfig(BaseSettings):
     port: int = 8085
     request_timeout_s: float = 300.0
     health_interval_s: float = 5.0
+    # Reject ``max_tokens`` above this instead of forwarding it: an unbounded
+    # value pins an engine for as long as the engine will generate. 0 disables
+    # the check (default), because the engine's own max_model_len is authoritative.
+    max_tokens_cap: int = 0
+    # Ceiling for the *routing feature* (prompt tokens + completion budget), not
+    # for what is forwarded to the engine. A client may still ask an engine for
+    # 10**9 tokens (the engine's max_model_len is authoritative), but one such
+    # sample used to make the NLMS prediction ~10**9 ms and leave a permanent
+    # crater in the mae/mape observability aggregates. 0 disables the clamp.
+    token_feature_cap: int = 32768
+
+    # Security
+    # When set, the admin surface (/debug/*) requires this key. DIO is a control
+    # plane, not an auth layer: keep it behind an authenticating proxy and never
+    # expose /debug/* on a public interface. Leaving this None keeps the historic
+    # open-debug behavior (a loud warning is logged when binding non-loopback).
+    api_key: Optional[str] = None
+    protect_debug: bool = True
 
     # Observability
     log_decisions: bool = True

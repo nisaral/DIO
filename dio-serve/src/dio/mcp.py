@@ -15,13 +15,37 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
-# Logging must go strictly to stderr so stdout remains pure JSON-RPC
+from dio._version import __version__
+
+# Logging must go strictly to stderr so stdout remains pure JSON-RPC.
+#
+# NOTE: never call logging.basicConfig() at import time. Importing ``dio.mcp``
+# (which ``dio/__init__.py`` does unconditionally) would otherwise reconfigure the
+# ROOT logger of whatever application embedded DIO, relabel every module's records
+# with this module's name, and switch on httpx's per-request INFO logging.
 log = logging.getLogger("dio.mcp")
-logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s [dio.mcp] %(message)s")
+
+
+def configure_stdio_logging(level: int = logging.INFO) -> None:
+    """Send DIO logs to stderr only, leaving stdout for JSON-RPC frames.
+
+    Importing this module must not have side effects, so this is called from the
+    CLI entry points rather than at module scope.
+    """
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(message)s"))
+    root = logging.getLogger()
+    if not root.handlers:
+        root.addHandler(handler)
+    if root.level == logging.NOTSET:
+        root.setLevel(logging.WARNING)
+    logging.getLogger("dio").setLevel(level)
+    for noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 class DIOMCPServer:
@@ -213,21 +237,69 @@ class DIOMCPServer:
 
     # --- JSON-RPC 2.0 Handler ---
 
-    async def handle_request(self, req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    #: Protocol revisions this server speaks, newest first.
+    SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2024-11-05")
+    DEFAULT_PROTOCOL_VERSION = "2024-11-05"
+
+    async def handle_message(self, msg: Any) -> Optional[Any]:
+        """Dispatch one JSON-RPC message, which may be a batch (array).
+
+        Returns ``None`` when there is nothing to send back (a notification), in
+        which case the caller must stay silent on the wire.
+        """
+        if isinstance(msg, list):
+            if not msg:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32600, "message": "Invalid Request"},
+                }
+            replies = []
+            for item in msg:
+                reply = await self.handle_request(item)
+                if reply is not None:
+                    replies.append(reply)
+            # An all-notification batch produces no response at all.
+            return replies or None
+        return await self.handle_request(msg)
+
+    async def handle_request(self, req: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(req, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32600, "message": "Invalid Request"},
+            }
+
         method = req.get("method")
         msg_id = req.get("id")
-        params = req.get("params") or {}
+        params = req.get("params")
+        if not isinstance(params, dict):
+            params = {}
+
+        # JSON-RPC 2.0: a request without an "id" is a notification and MUST NOT be
+        # answered. Replying to one desynchronises strict clients (and it used to
+        # emit a bogus {"id": null, ...} frame).
+        if "id" not in req:
+            log.debug("notification (no reply): %s", method)
+            return None
 
         if method == "initialize":
+            requested = str(params.get("protocolVersion") or "").strip()
+            negotiated = (
+                requested
+                if requested in self.SUPPORTED_PROTOCOL_VERSIONS
+                else self.DEFAULT_PROTOCOL_VERSION
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "result": {
-                    "protocolVersion": "2024-11-05",
+                    "protocolVersion": negotiated,
                     "capabilities": {"tools": {}},
                     "serverInfo": {
                         "name": "dio-mcp",
-                        "version": "0.4.0",
+                        "version": __version__,
                     },
                 },
             }
@@ -370,6 +442,7 @@ class DIOMCPServer:
 
     async def run_stdio(self) -> None:
         """Main stdio loop reading JSON-RPC from stdin and writing to stdout."""
+        configure_stdio_logging()
         log.info("DIO MCP server started (gateway: %s)", self.gateway_url)
 
         while True:
@@ -382,7 +455,7 @@ class DIOMCPServer:
                     continue
 
                 req = json.loads(line)
-                resp = await self.handle_request(req)
+                resp = await self.handle_message(req)
                 if resp is not None:
                     out = json.dumps(resp) + "\n"
                     sys.stdout.write(out)

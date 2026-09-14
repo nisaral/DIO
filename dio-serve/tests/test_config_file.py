@@ -2,15 +2,13 @@
 
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
+
 from dio.config_file import (
-    _load_yaml,
     _minimal_yaml_parse,
     _parse_backend,
     detect_local_backends,
-    discover_config,
     generate_detected_config,
     generate_example_config,
     load_config_file,

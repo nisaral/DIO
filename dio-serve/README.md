@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0" />
   <img src="https://img.shields.io/badge/python-3.9+-brightgreen.svg" alt="Python 3.9+" />
-  <img src="https://img.shields.io/badge/tests-35%20passing-success.svg" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-101%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
 </p>
 
@@ -113,6 +113,35 @@ Test DIO instantly on any laptop without GPU or external servers:
 
 ```bash
 dio demo --duration 15
+```
+
+### 5. Docker (engine + gateway in one command)
+
+```bash
+docker compose up          # Ollama engine, a pulled model, and DIO on :8085
+```
+
+`docker/dio.yaml` wires DIO to the Ollama service; swap in a vLLM backend by
+editing that file. The container runs as a non-root user and healthchecks
+`/health`.
+
+### 6. Watch it route a swarm of agents
+
+`examples/agent_swarm_demo.py` runs the same multi-turn agent workload three
+times -- plain round-robin, `ip_hash`-style sticky round-robin, and DIO -- while
+the fastest engine is throttled part-way through:
+
+```bash
+python examples/agent_swarm_demo.py --agents 8
+```
+
+For a *live* gateway that external clients can drive (this is how the swarm was
+dogfooded: several agents hitting one gateway over HTTP, on OpenAI JSON, OpenAI
+SSE and Ollama ndjson):
+
+```bash
+python examples/swarm_live_stack.py --port 18077 --duration 600   # terminal 1
+python examples/swarm_client.py --url http://127.0.0.1:18077 --persona coding  # terminal 2
 ```
 
 ---
@@ -275,7 +304,7 @@ DIO provides rich observability without requiring external agents:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | `GET` | Service liveness, active backend count, and strategy |
+| `/health` | `GET` | Liveness (`ok`/`degraded`), backend counts, plus an `slo` block (goodput, avg latency, rejections) |
 | `/v1/models` | `GET` | Aggregated OpenAI-compatible model list |
 | `/api/tags` | `GET` | Aggregated Ollama-compatible model list |
 | `/debug/metrics` | `GET` | Live NLMS learned slopes, intercepts, MAPE, and decision counters |
@@ -287,6 +316,27 @@ Inspect metrics in real time:
 ```bash
 curl -s http://localhost:8085/debug/metrics | jq '.prediction.mape_pct, .admission'
 ```
+
+**Admin authentication.** Every `/debug/*` route (including the state-mutating
+`POST /debug/backends`, `POST /debug/reset_stats` and `POST /debug/chaos/vram`) is
+open by default, exactly like the rest of the gateway. Set `DIO_API_KEY` to require
+`Authorization: Bearer <key>` (or `X-DIO-API-Key`) on those routes; DIO logs a
+startup warning when it is bound to a non-loopback address with no key set.
+
+**Reading the counters.** `goodput_fraction` is `completed_under_slo / attempts`,
+where `attempts` includes failed requests — a run with half the requests failing
+cannot report `1.00`. `rejected_slo_suppressed` counts requests that were admitted
+although the observed tail exceeded the SLO, because a clearly-better backend was
+still available (this is the default `empirical` policy; see `admission_mode`).
+
+Two further differences worth knowing if you are coming from OpenAI:
+
+- `X-DIO-Backend` / `X-DIO-E2E-Ms` are set on non-streaming responses. On a stream
+  only `X-DIO-Backend` can be set: the headers are flushed before generation
+  finishes, and no HTTP trailer is sent.
+- The `dio` block on a response reports `reported_tokens` (what the engine said)
+  separately from the token count DIO used for prediction, which is what the
+  learner is trained on.
 
 ---
 
@@ -320,7 +370,9 @@ DIO is thoroughly tested with comprehensive unit and integration suites:
 ```bash
 pytest tests/ -v
 ```
-*All 35 tests passing across config parsing, multi-model routing, SSE streaming, Ollama adapter, and MCP server.*
+*101 tests passing across config parsing and validation, multi-model routing, SSE
+streaming (including mid-stream failure and admission-rejection regressions), the
+Ollama adapter, admin auth, and the MCP server. `ruff check src tests` is clean.*
 
 ---
 

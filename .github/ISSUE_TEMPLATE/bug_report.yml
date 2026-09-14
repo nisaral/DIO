@@ -1,0 +1,153 @@
+name: Bug report
+description: Report a reproducible problem with DIO
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. DIO is an LLM gateway, so please
+        redact host names, API keys, and any prompt content before pasting configs or logs.
+
+        Before filing, please try to reproduce on the latest 0.4.x release, and confirm
+        whether the problem still occurs with `dio demo` (which needs no GPU).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight checks
+      options:
+        - label: I am running the latest 0.4.x release and the problem reproduces there.
+          required: true
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I have redacted API keys, host names, and prompt content from everything below.
+          required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and its impact.
+      placeholder: DIO routes every request to the slowest backend after a burst.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps, from a clean start. Include the request you sent.
+      placeholder: |
+        1. Create dio.yaml with two backends
+        2. Run `dio serve -c dio.yaml`
+        3. Send 20 concurrent requests to /v1/chat/completions
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include the exact error message or status code if there is one.
+    validations:
+      required: true
+
+  - type: input
+    id: dio_version
+    attributes:
+      label: DIO version
+      description: Output of `dio version`.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python_version
+    attributes:
+      label: Python version
+      description: Output of `python -V`.
+      placeholder: "3.11.9"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 22.04 / Windows 11 / macOS 14"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: How did you install DIO?
+      options:
+        - pip install -e ".[dev]" (editable, from source)
+        - pip install dio-serve (from a package index)
+        - From a release artifact / git clone without install
+        - Other (describe in Additional context)
+    validations:
+      required: true
+
+  - type: input
+    id: engine
+    attributes:
+      label: Backend engine and version
+      description: Which engine(s) DIO was routing to, and their versions.
+      placeholder: "vLLM 0.6.3, Ollama 0.3.14"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment_shape
+    attributes:
+      label: Deployment shape
+      description: This helps us understand whether a reverse proxy or auth layer is involved.
+      options:
+        - Local development, bound to 127.0.0.1
+        - Private network, bound to 0.0.0.0, no reverse proxy
+        - Behind an authenticating reverse proxy
+        - Containerised (Docker / Kubernetes)
+        - Other (describe in Additional context)
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Config excerpt
+      description: |
+        The relevant part of your dio.yaml, or the `dio serve` flags you used.
+        Redact host names, API keys, and model paths you do not want public.
+      render: yaml
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and debug output
+      description: |
+        Relevant gateway logs. If the problem is scheduling-related, `/debug/metrics`,
+        `/debug/predictions`, or `/debug/admission` output is very helpful.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else - workarounds you found, how often it happens, related issues.
+    validations:
+      required: false
