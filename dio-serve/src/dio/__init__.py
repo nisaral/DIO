@@ -35,6 +35,7 @@ Python API::
     gw.run(host="0.0.0.0", port=8085)
 """
 
+from dio._version import __version__
 from dio.backends import Backend, BackendPool
 from dio.config import DIOConfig
 from dio.config_file import (
@@ -56,7 +57,6 @@ from dio.scheduler import (
     Scheduler,
 )
 
-__version__ = "0.4.0"
 __all__ = [
     "AblationFlags",
     "AdmissionStats",

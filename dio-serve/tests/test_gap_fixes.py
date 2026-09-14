@@ -91,49 +91,65 @@ def test_affinity_evictions_are_visible():
 
 
 # ----------------------------------------------------------------------- learner
-def _learn(pairs, robust: bool, probe_tokens: int = 100):
-    """Feed (tokens, actual_ms) pairs and report the fit plus its estimate."""
+def _learn(pairs, robust: bool, concurrency: int = 1, probe_tokens: int = 100):
+    """Feed (tokens, actual_ms) pairs and report the fit plus its estimate.
+
+    ``concurrency`` > 1 admits several requests on the backend before any of them
+    reports back, which is what makes those samples queue-contended.
+    """
     s = Scheduler(strategy="nlms", admission_off=True, slo_ms=1e9, learner_robust=robust)
     s.register("w0")
+    batch = []
     for tokens, actual in pairs:
         s.pick("x", tokens=tokens)
-        s.feedback("w0", actual, tokens)
+        batch.append((tokens, actual))
+        if len(batch) >= concurrency:
+            for t, a in batch:
+                s.feedback("w0", a, t)
+            batch = []
+    for t, a in batch:
+        s.feedback("w0", a, t)
     snap = s.predictors["w0"].snapshot()
     pred, _avg = s.predictors["w0"].estimate(probe_tokens)
     return snap, pred
 
 
-@pytest.mark.parametrize(
-    "pattern",
-    [
-        [(100, HONEST_MS)] * 30 + [(100, BURST_MS)] * 30,
-        [(100, HONEST_MS), (100, BURST_MS)] * 15,
-    ],
-    ids=["sustained-burst", "interleaved"],
-)
-def test_a_burst_cannot_wreck_the_learner(pattern):
-    robust_snap, robust_pred = _learn(pattern, robust=True)
-    naive_snap, naive_pred = _learn(pattern, robust=False)
+def test_a_contended_burst_cannot_wreck_the_learner():
+    # 8 requests in flight, alternating a normal engine with a queue-inflated one:
+    # the shape the dogfooding swarm produced. The old update chased the queue into
+    # the service-time model -- the slope ran to its ceiling and a normal request
+    # was predicted orders of magnitude too slow -- so the router then avoided a
+    # healthy backend for a reason that was not real.
+    pattern = [(100, HONEST_MS), (100, BURST_MS)] * 15
+    robust_snap, robust_pred = _learn(pattern, robust=True, concurrency=8)
+    naive_snap, naive_pred = _learn(pattern, robust=False, concurrency=8)
 
-    # The old update chased queueing delay into the service-time model: the slope
-    # ran to its ceiling and a normal request was predicted orders of magnitude
-    # too slow. Routing then avoided a healthy backend for the wrong reason.
     assert naive_snap["fast_slope"] > 100.0
     assert robust_snap["fast_slope"] * 10 < naive_snap["fast_slope"]
-    assert robust_pred * 4 < naive_pred
+    assert robust_pred * 10 < naive_pred
+    assert robust_pred < 3 * HONEST_MS
 
     # Clipping is reported rather than hidden, and mae/mape still count the raw
-    # error, so the outlier remains visible in the aggregates.
+    # error, so the outlier stays visible in the aggregates.
     assert robust_snap["clipped_updates"] > 0
     assert naive_snap["clipped_updates"] == 0
     assert robust_snap["mae_ms"] > 1000.0
 
-    # And the fit still tracks the honest service time it was shown.
-    assert robust_pred < 10 * HONEST_MS
+
+def test_an_uncontended_slowdown_is_believed_at_full_speed():
+    # The guard must not make the router blind to a backend that really did get
+    # slower (a thermal throttle, a co-tenant). With nothing queued the sample is
+    # service time, so it gets the unguarded update -- this is the case the first
+    # version of the fix got wrong, and the offline demo caught it.
+    pairs = [(100, HONEST_MS)] * 30 + [(100, 8 * HONEST_MS)] * 20
+    robust_snap, robust_pred = _learn(pairs, robust=True)
+    _naive_snap, naive_pred = _learn(pairs, robust=False)
+    assert robust_snap["clipped_updates"] == 0
+    assert robust_pred == pytest.approx(naive_pred)
+    assert robust_pred > 2 * HONEST_MS
 
 
 def test_robust_updates_keep_the_documented_convergence():
-    # The guard must not stop the model from learning a real slope.
     # Same workload as test_scheduler.test_nlms_learns_slope, robust update on.
     snap, _ = _learn(
         [(40 + (i % 40), 4.0 * (40 + (i % 40)) + 120.0) for i in range(60)],
@@ -255,6 +271,20 @@ async def test_model_listings_agree_and_are_routable():
     # forwarded to whichever engine happens to be first.
     assert served.status_code == 200
     assert unknown.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_version_has_one_source_of_truth():
+    # dio/__init__.py used to hardcode its own copy of the version, so
+    # /api/version (which imports it from there) disagreed with the FastAPI app
+    # version and the package metadata, both of which read _version.py.
+    import dio
+    from dio._version import __version__
+
+    gw = DIOGateway(backends=[])
+    async with _client(gw) as client:
+        reported = (await client.get("/api/version")).json()["version"]
+    assert reported == dio.__version__ == gw.app.version == __version__
 
 
 def test_model_digest_is_stable_across_processes():

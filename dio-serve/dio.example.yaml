@@ -1,4 +1,4 @@
-# DIO Configuration — Distributed Inference Orchestrator (v0.4.0)
+# DIO Configuration — Distributed Inference Orchestrator (v0.4.1)
 # Docs: https://github.com/nisaral/DIO
 
 # Backends pool: configure your local and remote inference engines.
