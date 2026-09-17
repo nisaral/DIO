@@ -11,6 +11,7 @@
   <img src="https://img.shields.io/badge/tests-113%20passing-success.svg" alt="Tests" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License" />
   <a href="https://doi.org/10.5281/zenodo.22085398"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.22085398-blue.svg" alt="Artifact DOI" /></a>
+  <a href="https://glama.ai/mcp/servers/nisaral/DIO"><img src="https://glama.ai/mcp/servers/nisaral/DIO/badges/score.svg" alt="Glama Score" /></a>
 </p>
 
 <p align="center">
