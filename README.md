@@ -361,13 +361,14 @@ Cite the paper, not the software, once the preprint is announced:
 }
 ```
 
-## Get involved
+## Contributing / Help wanted
 
 - ⭐ **Star this repo** if a predictive, non-invasive gateway is useful to you — it is
   how the next person running a vLLM/Ollama fleet finds it.
 - 🐛 **Bug reports** with a reproduction go straight into the regression suite:
   [Issues](https://github.com/nisaral/DIO/issues).
 - 🔧 **Contributing:** start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- 🙋 **Help wanted:** scoped starter tasks with acceptance criteria are labelled [good first issue](https://github.com/nisaral/DIO/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) and [help wanted](https://github.com/nisaral/DIO/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22). Most run with `dio demo` and mock engines, no GPU needed.
 - 💬 **Design questions:** [Discussions](https://github.com/nisaral/DIO/discussions).
 
 ---
