@@ -139,6 +139,15 @@ Config-as-Code → **[dio.example.yaml](dio.example.yaml)** ·
 Architecture → **[docs/ARCHITECTURE.md](dio-serve/docs/ARCHITECTURE.md)** ·
 API → **[docs/API.md](dio-serve/docs/API.md)**
 
+### Packaging status
+
+- `dio-serve` is **not on PyPI yet** (tracked in issue #17). Install from source with `pip install -e dio-serve`, or `pip install "git+https://github.com/nisaral/DIO.git#subdirectory=dio-serve"`.
+- The package lives in `dio-serve/` (src layout, `src/dio`). The version comes from `dio-serve/src/dio/_version.py`.
+- Console scripts: `dio` and `dio-serve` (both run `dio.cli:app`).
+- Extras: `[dev]` (pytest, ruff), `[bench]` (matplotlib, numpy), `[nvml]` (pynvml for GPU VRAM readings).
+- Local build check: `cd dio-serve && python -m build && twine check dist/*`. The sdist contains only `src/`, `tests/`, the README and the LICENSE.
+- TODO(Keyush): to publish, set up PyPI trusted publishing for this repo and run a release workflow. Nothing has been uploaded.
+
 ---
 
 ## Architecture
