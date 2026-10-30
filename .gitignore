@@ -102,3 +102,6 @@ __pycache__/
 *.fdb_latexmk
 *.synctex.gz
 *.toc
+
+# Third-party papers: cite, do not redistribute
+paper_drafts_latex/2509.23384v3.pdf
