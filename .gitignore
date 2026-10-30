@@ -92,3 +92,13 @@ paper_drafts_latex/
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# LaTeX build outputs (keep .tex/.bib/.bbl sources)
+*.aux
+*.log
+*.out
+*.blg
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
