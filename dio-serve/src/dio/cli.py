@@ -1,4 +1,4 @@
-"""CLI: dio serve | dio demo | dio bench-smoke"""
+"""CLI: dio serve | dio demo | dio bench-smoke | dio check-config"""
 
 from __future__ import annotations
 
@@ -43,8 +43,24 @@ def _setup_logging(level: int = logging.INFO) -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from dio import __version__
+
+        console.print(f"dio-serve {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
-def _bootstrap() -> None:
+def _bootstrap(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the DIO version and exit.",
+    ),
+) -> None:
     """Set up CLI logging before any command body runs."""
     _setup_logging()
 
@@ -524,6 +540,44 @@ def version() -> None:
     from dio import __version__
 
     console.print(f"dio-serve {__version__}")
+
+
+@app.command("check-config")
+def check_config(
+    file: str = typer.Argument(
+        ...,
+        help="Path to the dio.yaml / dio.json config file to validate",
+    ),
+) -> None:
+    """
+    Validate a DIO config file without starting the gateway.
+
+    Exits 0 when the config loads cleanly, 1 when the file cannot be read,
+    and 2 when the file parses but is not a usable DIO configuration.
+    """
+    import yaml
+
+    from dio.config_file import ConfigError, load_config_file
+
+    try:
+        backends, cfg, _model_map = load_config_file(file)
+    except FileNotFoundError:
+        console.print(f"[red]Config file not found:[/red] {file}")
+        raise typer.Exit(1) from None
+    except OSError as e:
+        console.print(f"[red]Could not read config file:[/red] {file} ({e})")
+        raise typer.Exit(1) from None
+    except ConfigError as e:
+        console.print(f"[red]Invalid config:[/red] {e}")
+        raise typer.Exit(2) from None
+    except (yaml.YAMLError, json.JSONDecodeError) as e:
+        console.print(f"[red]Could not parse config:[/red] {e}")
+        raise typer.Exit(2) from None
+
+    console.print(
+        f"[green]Config OK:[/green] {file} "
+        f"({len(backends)} backend(s), strategy={cfg.strategy}, port={cfg.port})"
+    )
 
 
 def main() -> None:
