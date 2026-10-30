@@ -16,7 +16,7 @@ concurrency:
 jobs:
   test:
     name: test (python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Python 3.9 is not available on ubuntu-latest (26.04)
     strategy:
       fail-fast: false
       matrix:
@@ -50,7 +50,7 @@ jobs:
 
   smoke:
     name: CLI smoke (zero GPU)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Python 3.9 is not available on ubuntu-latest (26.04)
     defaults:
       run:
         working-directory: dio-serve
@@ -79,7 +79,7 @@ jobs:
 
   package:
     name: build sdist + wheel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Python 3.9 is not available on ubuntu-latest (26.04)
     defaults:
       run:
         working-directory: dio-serve
