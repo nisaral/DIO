@@ -105,3 +105,10 @@ __pycache__/
 
 # Third-party papers: cite, do not redistribute
 paper_drafts_latex/2509.23384v3.pdf
+
+# Word exports and stray local files
+*.docx
+.env
+.env.*
+!.env.example
+summary (*)*.json
