@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }
 authors = [
-  { name = "DIO Authors", email = "Nisarkeyush3@gmail.com" },
+  { name = "Keyush Nisar", email = "nisarkeyush3@gmail.com" },
 ]
 keywords = [
   "llm", "vllm", "ollama", "inference", "scheduling", "load-balancing",
@@ -46,6 +46,7 @@ Homepage = "https://github.com/nisaral/DIO"
 Documentation = "https://github.com/nisaral/DIO#readme"
 Repository = "https://github.com/nisaral/DIO"
 Issues = "https://github.com/nisaral/DIO/issues"
+Changelog = "https://github.com/nisaral/DIO/blob/main/CHANGELOG.md"
 
 [project.scripts]
 dio = "dio.cli:app"
