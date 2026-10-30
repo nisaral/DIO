@@ -88,3 +88,7 @@ paper_drafts_latex/
 # are tracked deliverables).
 *.zip
 *.pdf
+
+# Python bytecode
+__pycache__/
+*.py[cod]
