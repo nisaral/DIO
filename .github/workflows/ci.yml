@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   push:
@@ -25,9 +25,9 @@ jobs:
       run:
         working-directory: dio-serve
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -55,9 +55,9 @@ jobs:
       run:
         working-directory: dio-serve
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -84,9 +84,9 @@ jobs:
       run:
         working-directory: dio-serve
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -105,7 +105,7 @@ jobs:
         run: |
           python -c "import pathlib, tarfile; sdist = next(pathlib.Path('dist').glob('*.tar.gz')); names = tarfile.open(sdist).getnames(); assert any(n.endswith('LICENSE') for n in names), names[:10]"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dio-serve/dist/
