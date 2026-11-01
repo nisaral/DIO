@@ -14,6 +14,7 @@ import hmac
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
 import httpx
@@ -423,10 +424,53 @@ class DIOGateway:
         return out
 
     def _build_app(self) -> FastAPI:
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            import asyncio
+
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.config.request_timeout_s),
+                limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
+                follow_redirects=True,
+            )
+            if self.config.engine_metrics:
+                self._metrics_task = asyncio.create_task(self._metrics_loop())
+            self._health_task = asyncio.create_task(self._health_loop())
+            if not self.config.api_key and self.config.host not in (
+                "127.0.0.1",
+                "localhost",
+                "::1",
+            ):
+                log.warning(
+                    "Admin endpoints (/debug/*) are UNAUTHENTICATED and this process is "
+                    "bound to %s. Set DIO_API_KEY and/or keep DIO behind an "
+                    "authenticating reverse proxy.",
+                    self.config.host,
+                )
+            log.info(
+                "DIO gateway ready | strategy=%s mode=%s hybrid_metrics=%s backends=%s",
+                self.config.strategy,
+                self.config.nlms_mode,
+                self.config.engine_metrics,
+                [b.id for b in self.pool.list()],
+            )
+            yield
+            for task in (self._metrics_task, getattr(self, "_health_task", None)):
+                if task is not None:
+                    task.cancel()
+                    try:
+                        await task
+                    except (Exception, asyncio.CancelledError):
+                        pass
+            if self._client is not None:
+                await self._client.aclose()
+                self._client = None
+
         app = FastAPI(
             title="DIO — Distributed Inference Orchestrator",
             description="Predictive NLMS router wrapping OpenAI-compatible engines (vLLM, etc.)",
             version=__version__,
+            lifespan=lifespan,
         )
         app.add_middleware(
             CORSMiddleware,
@@ -493,50 +537,6 @@ class DIOGateway:
                     )
                 return JSONResponse(status_code=413, content={"error": message})
             return await call_next(request)
-
-        @app.on_event("startup")
-        async def _startup() -> None:
-            import asyncio
-
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.config.request_timeout_s),
-                limits=httpx.Limits(max_connections=200, max_keepalive_connections=50),
-                follow_redirects=True,
-            )
-            if self.config.engine_metrics:
-                self._metrics_task = asyncio.create_task(self._metrics_loop())
-            self._health_task = asyncio.create_task(self._health_loop())
-            if not self.config.api_key and self.config.host not in (
-                "127.0.0.1",
-                "localhost",
-                "::1",
-            ):
-                log.warning(
-                    "Admin endpoints (/debug/*) are UNAUTHENTICATED and this process is "
-                    "bound to %s. Set DIO_API_KEY and/or keep DIO behind an "
-                    "authenticating reverse proxy.",
-                    self.config.host,
-                )
-            log.info(
-                "DIO gateway ready | strategy=%s mode=%s hybrid_metrics=%s backends=%s",
-                self.config.strategy,
-                self.config.nlms_mode,
-                self.config.engine_metrics,
-                [b.id for b in self.pool.list()],
-            )
-
-        @app.on_event("shutdown")
-        async def _shutdown() -> None:
-            for task in (self._metrics_task, getattr(self, "_health_task", None)):
-                if task is not None:
-                    task.cancel()
-                    try:
-                        await task
-                    except (Exception, asyncio.CancelledError):
-                        pass
-            if self._client is not None:
-                await self._client.aclose()
-                self._client = None
 
         @app.get("/healthz")
         @app.get("/health")
