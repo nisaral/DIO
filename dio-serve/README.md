@@ -296,10 +296,11 @@ Package DIO as a **Model Context Protocol (MCP)** server so AI assistants (Curso
 | `dio serve` | `dio serve [-c dio.yaml] [-p 8085]` | Start DIO gateway using config file or CLI backend flags |
 | `dio init` | `dio init [-d / -n] [-o dio.yaml]` | Generate `dio.yaml` with auto-discovery of running engines |
 | `dio config` | `dio config [-c dio.yaml]` | Display parsed backends table and model-to-backend routing map |
+| `dio check-config` | `dio check-config <file>` | Validate a config file without starting the gateway (exit 0 = valid, 1 = unreadable, 2 = invalid) |
 | `dio mcp` | `dio mcp [-g http://127.0.0.1:8085]` | Run DIO as an MCP server over stdio for AI-IDE integration |
 | `dio demo` | `dio demo [-t 20] [-p 8085]` | Zero-GPU live demo with mock backends and traffic generation |
 | `dio bench-smoke` | `dio bench-smoke [-n 40] [-c 4]` | Compare NLMS vs Round-Robin on synthetic heterogeneous workers |
-| `dio version` | `dio version` | Show current package version (`0.4.2`) |
+| `dio version` | `dio version` / `dio --version` | Show current package version (`0.4.2`) |
 
 ---
 
